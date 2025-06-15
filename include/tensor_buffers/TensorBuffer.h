@@ -11,7 +11,7 @@
 #include "TensorBufferBase.h"
 
 /**
- * Tensor wrapper arbitrary tensor value dimensions
+ * Tensor wrapper for arbitrary tensor value dimensions
  */
 template <typename T>
 class TensorBuffer : public TensorBufferBase

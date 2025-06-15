@@ -35,7 +35,14 @@ protected:
 #ifdef NEML2_ENABLED
   std::shared_ptr<neml2::Model> _model;
 
-  std::vector<std::pair<const torch::Tensor *, neml2::LabeledAxisAccessor>> _input_mapping;
+  std::vector<std::tuple<const torch::Tensor *, neml2::TensorType, neml2::LabeledAxisAccessor>>
+      _input_mapping;
+  std::vector<std::tuple<const std::vector<torch::Tensor> *,
+                         const torch::Tensor *,
+                         neml2::TensorType,
+                         neml2::LabeledAxisAccessor>>
+      _old_input_mapping;
+
   std::vector<std::pair<neml2::LabeledAxisAccessor, torch::Tensor *>> _output_mapping;
 #endif
 };
