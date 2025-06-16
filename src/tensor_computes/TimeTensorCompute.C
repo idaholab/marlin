@@ -6,7 +6,7 @@
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
 
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include "TimeTensorCompute.h"
 
 registerMooseObject("SwiftApp", TimeTensorCompute);
@@ -27,5 +27,5 @@ TimeTensorCompute::TimeTensorCompute(const InputParameters & parameters)
 void
 TimeTensorCompute::computeBuffer()
 {
-  _u = torch::tensor({_time}, MooseTensor::floatTensorOptions());
+  _u = torch::tensor({_time}, MooseTensor::floatTensorOptions()).expand(_domain.getShape());
 }

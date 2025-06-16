@@ -8,6 +8,7 @@
 
 #pragma once
 
+#include "Conversion.h"
 #include "NEML2TensorCompute.h"
 #include "NEML2Utils.h"
 
@@ -69,6 +70,7 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
   const auto inputs = getParam<TensorInputBufferName, std::string>("marlin_inputs", "neml2_inputs");
   std::map<neml2::LabeledAxisAccessor, TensorInputBufferName> lookup_marlin_name;
   const auto model_inputs = _model.consumed_items();
+  mooseInfo("Inputs: ", Moose::stringify(model_inputs));
 
   // current inputs
   for (const auto & [marlin_input_name, neml2_input_name] : inputs)
@@ -97,7 +99,7 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
 
   // old state inputs
   for (const auto & neml2_input : model_inputs)
-    if (neml2_input.is_old_state())
+    if (neml2_input.is_old_state() || neml2_input.is_old_force())
     {
       // check if we couple the current state
       auto it = lookup_marlin_name.find(neml2_input.current());

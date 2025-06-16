@@ -18,18 +18,21 @@
       buffer = A
       real = 2
     []
+  []
+  [Solve]
+    [time]
+      type = TimeTensorCompute
+      buffer = time
+    []
     [dAdt]
       type = NEML2TensorCompute
       neml2_input_file = neml2_input.i
       neml2_model = rate
-      swift_inputs = 'A B'
-      neml2_inputs = 'forces/A forces/B'
+      swift_inputs = 'A time'
+      neml2_inputs = 'forces/A forces/t'
       neml2_outputs = 'state/dAdt'
       swift_outputs = 'dAdt'
     []
-  []
-  [Solve]
-
   []
 []
 
@@ -37,6 +40,7 @@
   [dAdt]
     type = TensorAveragePostprocessor
     buffer = dAdt
+    execute_on = 'TIMESTEP_END'
   []
 []
 
