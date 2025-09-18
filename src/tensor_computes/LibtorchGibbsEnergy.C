@@ -92,7 +92,7 @@ LibtorchGibbsEnergy::computeBuffer()
   std::vector<torch::Tensor> grads = torch::autograd::grad({G},
                                                            {X_flat},
                                                            /*grad_outputs=*/{grad_output},
-                                                           /*retain_graph=*/true,
+                                                           /*retain_graph=*/false,
                                                            /*create_graph=*/false,
                                                            /*allow_unused=*/false);
   auto jacobian_flat = grads[0];
