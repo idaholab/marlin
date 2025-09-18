@@ -88,10 +88,9 @@ LibtorchGibbsEnergy::computeBuffer()
 
   auto G = _surrogate->forward({X_flat}).toTensor().squeeze();
 
-  auto grad_output = torch::ones_like(G);
-  std::vector<torch::Tensor> grads = torch::autograd::grad({G},
+  std::vector<torch::Tensor> grads = torch::autograd::grad({G.sum()},
                                                            {X_flat},
-                                                           /*grad_outputs=*/{grad_output},
+                                                           /*grad_outputs=*/{},
                                                            /*retain_graph=*/false,
                                                            /*create_graph=*/false,
                                                            /*allow_unused=*/false);
