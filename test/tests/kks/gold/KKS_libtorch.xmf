@@ -1,0 +1,298 @@
+<?xml version="1.0"?>
+<Xdmf xmlns:xi="http://www.w3.org/2003/XInclude" Version="2.2">
+	<Domain>
+		<Topology TopologyType="2DCoRectMesh" Dimensions="51 51" />
+		<Geometry Type="ORIGIN_DXDY">
+			<DataItem Format="XML" Dimensions="2">-50 -50</DataItem>
+			<DataItem Format="XML" Dimensions="2">2 2</DataItem>
+		</Geometry>
+		<Grid Name="TimeSeries" GridType="Collection" CollectionType="Temporal">
+			<Grid Name="T0" GridType="Uniform">
+				<Time Value="0" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.0</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.0</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.0</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.0</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.0</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.0</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.0</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T1" GridType="Uniform">
+				<Time Value="0.10000000000000001" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.1</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.1</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.1</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.1</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.1</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.1</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.1</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T2" GridType="Uniform">
+				<Time Value="0.20000000000000001" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.2</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.2</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.2</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.2</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.2</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.2</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.2</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T3" GridType="Uniform">
+				<Time Value="0.30000000000000004" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.3</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.3</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.3</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.3</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.3</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.3</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.3</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T4" GridType="Uniform">
+				<Time Value="0.40000000000000002" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.4</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.4</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.4</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.4</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.4</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.4</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.4</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T5" GridType="Uniform">
+				<Time Value="0.5" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.5</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.5</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.5</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.5</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.5</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.5</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.5</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T6" GridType="Uniform">
+				<Time Value="0.59999999999999998" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.6</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.6</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.6</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.6</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.6</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.6</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.6</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T7" GridType="Uniform">
+				<Time Value="0.69999999999999996" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.7</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.7</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.7</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.7</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.7</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.7</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.7</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T8" GridType="Uniform">
+				<Time Value="0.79999999999999993" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.8</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.8</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.8</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.8</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.8</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.8</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.8</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T9" GridType="Uniform">
+				<Time Value="0.89999999999999991" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.9</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.9</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.9</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.9</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.9</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.9</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.9</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T10" GridType="Uniform">
+				<Time Value="0.99999999999999989" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="G" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/G.10</DataItem>
+				</Attribute>
+				<Attribute Name="c" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/c.10</DataItem>
+				</Attribute>
+				<Attribute Name="dG_deta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_deta.10</DataItem>
+				</Attribute>
+				<Attribute Name="dG_dh" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/dG_dh.10</DataItem>
+				</Attribute>
+				<Attribute Name="eta" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/eta.10</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/mu.10</DataItem>
+				</Attribute>
+				<Attribute Name="psi" Center="Cell">
+					<DataItem DataType="Float" Dimensions="50 50" Format="HDF">test/tests/kks/KKS_libtorch.h5:/psi.10</DataItem>
+				</Attribute>
+			</Grid>
+		</Grid>
+	</Domain>
+</Xdmf>

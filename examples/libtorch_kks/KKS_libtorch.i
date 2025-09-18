@@ -22,8 +22,8 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
 
 [Domain]
     dim = 2
-    nx = 50
-    ny = 50
+    nx = 100
+    ny = 100
 
     xmin = -50
     xmax = 50
@@ -42,7 +42,7 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
         [c_IC]
             type = ParsedCompute
             buffer = c
-            expression = '0.7 + (0.3-0.6)*${eta_IC}'
+            expression = '0.6 + (0.3-0.6)*${eta_IC}'
             extra_symbols = 'true'
             enable_jit = false
         []
@@ -87,7 +87,12 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
             concentrations = 'c'
             domega_detas = 'dG_dh'
             chem_pots = 'mu'
-            libtorch_model_file = 'swift:libtorch_gibbs_energy/torch_NN_gibbs_model.pt'
+            libtorch_model_file = 'torch_NN_gibbs_model.pt'
+        []
+        [smooth]
+            type = DeAliasingTensor
+            method = HOULI
+            buffer = smooth
         []
     []
     [Solve]
@@ -104,7 +109,7 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
             concentrations = 'c'
             domega_detas = 'dG_dh'
             chem_pots = 'mu'
-            libtorch_model_file = 'swift:libtorch_gibbs_energy/torch_NN_gibbs_model.pt'
+            libtorch_model_file = 'torch_NN_gibbs_model.pt'
         []
         [dG_deta]
             type = ParsedCompute
@@ -144,6 +149,12 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
             mobility = M
             psi = psi
         []
+        [NL_c]
+            type = ParsedCompute
+            buffer = 'NL_c'
+            inputs = 'div_J smooth'
+            expression = 'smooth * div_J'
+        []
     []
 []
 
@@ -152,9 +163,18 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
     buffer = 'c eta'
     reciprocal_buffer = 'cbar etabar'
     linear_reciprocal = '0 L_kappa'
-    nonlinear_reciprocal = 'div_J NL_eta'
+    nonlinear_reciprocal = 'NL_c NL_eta'
     substeps = 1e3
     predictor_order = 3
+    corrector_order = 1
+    corrector_steps = 1
+[]
+
+[Postprocessors]
+    [total_c]
+        type = TensorIntegralPostprocessor
+        buffer = c
+    []
 []
 
 [TensorOutputs]
@@ -168,8 +188,13 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
 
 [Executioner]
     type = Transient
+    num_steps = 100
+  [TimeStepper]
+    type = IterationAdaptiveDT
+    growth_factor = 1.25
     dt = 0.1
-    num_steps = 10
+  []
+  dtmax = 10
 []
 
 [Outputs]

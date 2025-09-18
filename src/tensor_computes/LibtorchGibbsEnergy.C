@@ -38,8 +38,7 @@ LibtorchGibbsEnergy::LibtorchGibbsEnergy(const InputParameters & parameters)
     _file_path(Moose::DataFileUtils::getPath(getParam<DataFileName>("libtorch_model_file"))),
     _surrogate(std::make_unique<torch::jit::script::Module>(torch::jit::load(_file_path.path)))
 {
-  const auto options = MooseTensor::floatTensorOptions();
-  _surrogate->to(options);
+  _surrogate->to(MooseTensor::floatTensorOptions().device());
   _surrogate->eval();
 
   auto phase_fractions = getParam<std::vector<TensorInputBufferName>>("phase_fractions");

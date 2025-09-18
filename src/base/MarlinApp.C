@@ -155,6 +155,9 @@ MarlinApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
   registerMooseObjectTask("add_tensor_predictor", TensorPredictor, false);
   addTaskDependency("add_tensor_predictor", "create_tensor_solver");
 
+  // Register data file path
+  registerAppDataFilePath("swift");
+
   // make sure all this gets run before `add_mortar_variable`
   addTaskDependency("add_mortar_variable", "add_tensor_predictor");
 }

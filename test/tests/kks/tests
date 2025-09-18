@@ -21,4 +21,20 @@
         csvdiff= KKS_no_flux_bc_out.csv
         requirement = 'The system shall be able to run a KKS simulation with no-flux BCs imposed using the Smooth Boundary Method (SBM), and output the total concentration and order parameter values over time using a CSV file'
     []
+
+    [xdmf_output_xml_libtorch]
+        type = XMLDiff
+        input = KKS_libtorch.i
+        xmldiff = KKS_libtorch.xmf
+        requirement = 'The system shall be able to run a KKS simulation with a Libtorch model Gibbs energy, and output the result tensors in XDMF format'
+        design = 'XDMFTensorOutput.md'
+    []
+    [xdmf_output_hdf5_libtorch]
+        type = HDF5Diff
+        input = KKS_no_flux_bc.i
+        hdf5diff = KKS_no_flux_bc.h5
+        requirement = 'The system shall be able to run a KKS simulation with a Libtorch model Gibbs energy, and output the result tensors in XDMF format using a HDF5 data file'
+        design = 'XDMFTensorOutput.md'
+        abs_tol = 1e-10
+    []
 []
