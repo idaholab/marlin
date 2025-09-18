@@ -32,7 +32,6 @@ protected:
   std::vector<const torch::Tensor *> _concentrations;
   std::vector<torch::Tensor *> _chemical_potentials;
 
-
   Moose::DataFileUtils::Path _file_path;
   // We need to use a pointer here because forward is not const qualified
   std::unique_ptr<torch::jit::script::Module> _surrogate;
