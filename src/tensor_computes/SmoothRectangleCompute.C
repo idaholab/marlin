@@ -58,7 +58,7 @@ void
 SmoothRectangleCompute::computeBuffer()
 {
   auto dim = _domain.getDim();
-  auto h_box = torch::zeros(_tensor_problem.getShape(), torch::kDouble);
+  auto h_box = torch::zeros(_tensor_problem.getShape(), MooseTensor::floatTensorOptions());
 
   // sharp interpolation
   if (_int_width <= 0.0)
