@@ -41,4 +41,6 @@ protected:
     RECIPROCAL,
     NONE
   } _expand;
+
+  const bool _is_integer;
 };

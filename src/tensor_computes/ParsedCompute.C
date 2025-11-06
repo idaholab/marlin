@@ -43,13 +43,15 @@ ParsedCompute::validParams()
       "Vector of values for the constants in constant_names (can be an FParser expression)");
   MooseEnum expandEnum("REAL RECIPROCAL NONE", "NONE");
   params.addParam<MooseEnum>("expand", expandEnum, "Expand the tensor to full size.");
+  params.addParam<bool>("is_integer", false, "Turn the function result into an integer tensor");
   return params;
 }
 
 ParsedCompute::ParsedCompute(const InputParameters & parameters)
   : TensorOperator<>(parameters),
     _extra_symbols(getParam<bool>("extra_symbols")),
-    _expand(getParam<MooseEnum>("expand").getEnum<ExpandEnum>())
+    _expand(getParam<MooseEnum>("expand").getEnum<ExpandEnum>()),
+    _is_integer(getParam<bool>("is_integer"))
 {
   const auto & expression = getParam<std::string>("expression");
   const auto & names = getParam<std::vector<TensorInputBufferName>>("inputs");
@@ -184,6 +186,9 @@ ParsedCompute::computeBuffer()
 
   // Evaluate using JIT-compiled graph
   _u = _parser.eval(_params);
+
+  if (_is_integer)
+    _u = _u.to(MooseTensor::intTensorOptions());
 
   // optionally expand the tensor
   switch (_expand)
