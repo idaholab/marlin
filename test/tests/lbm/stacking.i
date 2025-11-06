@@ -30,14 +30,12 @@
   [velocity_x]
     type = ParsedCompute
     buffer = ux
-    enable_jit = true
     expression = '0.1*sin(x/(2*pi*4))*cos(y/(2*pi*4))'
     extra_symbols=true
   []
   [velocity_y]
     type = ParsedCompute
     buffer = uy
-    enable_jit = true
     expression = '-0.1*cos(x/(2*pi*4))*sin(y/(2*pi*4))'
     extra_symbols=true
   []

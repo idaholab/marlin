@@ -43,11 +43,11 @@ struct TorchDeviceSingleton
                                                                        : torch::kComplexFloat),
       _int_dtype(isSupported(torch::kInt64, _device) ? torch::kInt64 : torch::kInt32)
   {
-    mooseInfo("Running on '", _device_string, "'.");
-    if (_float_dtype == torch::kFloat64)
-      mooseInfo("Device supports double precision floating point numbers.");
-    else
-      mooseWarning("Running with single precision floating point numbers");
+    mooseInfo("Running on '",
+              _device_string,
+              "' with ",
+              _float_dtype == torch::kFloat64 ? "double" : "single",
+              " precision floating point numbers");
   }
 
   const std::string _device_string;

@@ -1,0 +1,11 @@
+[Tests]
+  [local_vars_derivative]
+    type = CSVDiff
+    input = local_vars_derivative.i
+    csvdiff = local_vars_derivative_out.csv
+    requirement = 'The system shall correctly differentiate expressions containing local variable assignments using the := operator.'
+    issues = '#TBD'
+    design = 'ParsedCompute.md SwiftExpressionParser.md'
+    compute_devices = 'cpu cuda mps'
+  []
+[]

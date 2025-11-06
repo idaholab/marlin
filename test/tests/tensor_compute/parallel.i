@@ -67,7 +67,6 @@
     [psi3]
       type = ParsedCompute
       buffer = psi3
-      enable_jit = true
       expression = "0.20*psi^2-psi^3"
       inputs = psi
     []

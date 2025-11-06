@@ -70,7 +70,6 @@ crystal = '-(sin(sin(a)*y/2+cos(a)*x/2)^2 + sin(sin(a+1/3*pi)*y/2+cos(a+1/3*pi)*
     [psi3]
       type = ParsedCompute
       buffer = psi3
-      enable_jit = true
       expression = "0.20*psi^2-psi^3"
       inputs = psi
     []

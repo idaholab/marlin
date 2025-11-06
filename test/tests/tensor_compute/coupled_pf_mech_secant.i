@@ -101,7 +101,6 @@
       # chemical potential (real space)
       type = ParsedCompute
       buffer = mu
-      enable_jit = true
       expression = '0.1*c^2*(c-1)^2' # + c*sin(x/2)*0.005'
       extra_symbols = true
       derivatives = c
@@ -133,7 +132,6 @@
     [Mbarmubar]
       type = ParsedCompute
       buffer = Mbarmubar
-      enable_jit = true
       expression = 'Mbar*(mubar+mumechbar)'
       inputs = 'Mbar mubar mumechbar'
     []
