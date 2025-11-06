@@ -12,6 +12,7 @@
 #include "SwiftUtils.h"
 #include "MultiMooseEnum.h"
 #include "DomainAction.h"
+#include "libmesh/fparser_ad.hh"
 
 registerMooseObject("SwiftApp", ParsedCompute);
 
@@ -25,8 +26,6 @@ ParsedCompute::validParams()
       "inputs", {}, "Buffer names used in the expression");
   params.addParam<std::vector<TensorInputBufferName>>(
       "derivatives", {}, "List of inputs to take the derivative w.r.t. (or none)");
-  params.addParam<bool>(
-      "enable_jit", true, "Use operator fusion and just in time compilation (recommended on GPU)");
   params.addParam<bool>("enable_fpoptimizer", true, "Use algebraic optimizer");
   params.addParam<bool>("extra_symbols",
                         false,
@@ -44,14 +43,15 @@ ParsedCompute::validParams()
       "Vector of values for the constants in constant_names (can be an FParser expression)");
   MooseEnum expandEnum("REAL RECIPROCAL NONE", "NONE");
   params.addParam<MooseEnum>("expand", expandEnum, "Expand the tensor to full size.");
+  params.addParam<bool>("is_integer", false, "Turn the function result into an integer tensor");
   return params;
 }
 
 ParsedCompute::ParsedCompute(const InputParameters & parameters)
   : TensorOperator<>(parameters),
-    _use_jit(getParam<bool>("enable_jit")),
     _extra_symbols(getParam<bool>("extra_symbols")),
-    _expand(getParam<MooseEnum>("expand").getEnum<ExpandEnum>())
+    _expand(getParam<MooseEnum>("expand").getEnum<ExpandEnum>()),
+    _is_integer(getParam<bool>("is_integer"))
 {
   const auto & expression = getParam<std::string>("expression");
   const auto & names = getParam<std::vector<TensorInputBufferName>>("inputs");
@@ -71,7 +71,7 @@ ParsedCompute::ParsedCompute(const InputParameters & parameters)
     _params.push_back(&getInputBufferByName(name));
 
   static const std::vector<std::string> reserved_symbols = {
-      "i", "x", "kx", "y", "ky", "z", "kz", "k2", "t"};
+      "i", "x", "kx", "y", "ky", "z", "kz", "k2", "t", "pi", "e"};
 
   // helper function to check if the name given is one of the reserved_names
   auto isReservedName = [this](const auto & name)
@@ -100,88 +100,82 @@ ParsedCompute::ParsedCompute(const InputParameters & parameters)
                nconst,
                ") must have equal length.");
 
-  auto setup = [&](auto & fp)
+  // Evaluate user-provided constants
+  std::vector<Real> constant_values(nconst);
+  for (unsigned int i = 0; i < nconst; ++i)
   {
-    std::vector variables_vec = names;
+    // no need to use dual numbers for the constant expressions
+    auto expr = std::make_shared<FunctionParserADBase<Real>>();
 
-    // add extra symbols
-    if (_extra_symbols)
+    // add previously evaluated constants
+    for (unsigned int j = 0; j < i; ++j)
+      if (!expr->AddConstant(constant_names[j], constant_values[j]))
+        paramError("constant_names", "Invalid constant name '", constant_names[j], "'");
+
+    // build the temporary constant expression function
+    if (expr->Parse(constant_expressions[i], "") >= 0)
+      mooseError("Invalid constant expression\n",
+                 constant_expressions[i],
+                 "\n in parsed function object.\n",
+                 expr->ErrorMsg());
+
+    constant_values[i] = expr->Eval(nullptr);
+  }
+
+  // Build list of variables
+  std::vector<std::string> variables_vec = names;
+
+  // Build constants map for mathematical constants and user constants
+  std::unordered_map<std::string, torch::Tensor> constants_map;
+
+  // Add user-provided constants as scalar tensors
+  for (unsigned int i = 0; i < nconst; ++i)
+    constants_map[constant_names[i]] =
+        torch::tensor(constant_values[i], MooseTensor::floatTensorOptions());
+
+  // Add extra symbols if requested
+  if (_extra_symbols)
+  {
+    // Add mathematical constants (pi, e, i) to the constants map
+    constants_map["pi"] = torch::tensor(libMesh::pi, MooseTensor::floatTensorOptions());
+    constants_map["e"] = torch::tensor(std::exp(Real(1.0)), MooseTensor::floatTensorOptions());
+    constants_map["i"] =
+        torch::tensor(c10::complex<double>(0.0, 1.0), MooseTensor::complexFloatTensorOptions());
+
+    // Add tensor variables (x, kx, y, ky, z, kz, k2, t) to variables list
+    static const std::vector<std::string> tensor_symbols = {
+        "x", "kx", "y", "ky", "z", "kz", "k2", "t"};
+    variables_vec.insert(variables_vec.end(), tensor_symbols.begin(), tensor_symbols.end());
+
+    // Add tensor variable parameters
+    for (const auto dim : make_range(3u))
     {
-      // append extra symbols
-      variables_vec.insert(variables_vec.end(), reserved_symbols.begin(), reserved_symbols.end());
-
-      _constant_tensors.push_back(
-          torch::tensor(c10::complex<double>(0.0, 1.0), MooseTensor::complexFloatTensorOptions()));
-      _params.push_back(&_constant_tensors[0]);
-
-      for (const auto dim : make_range(3u))
-      {
-        _params.push_back(&_domain.getAxis(dim));
-        _params.push_back(&_domain.getReciprocalAxis(dim));
-      }
-
-      _params.push_back(&_domain.getKSquare());
-      _params.push_back(&_time_tensor);
-
-      fp.AddConstant("pi", libMesh::pi);
-      fp.AddConstant("e", std::exp(Real(1.0)));
+      _params.push_back(&_domain.getAxis(dim));
+      _params.push_back(&_domain.getReciprocalAxis(dim));
     }
+    _params.push_back(&_domain.getKSquare());
+    _params.push_back(&_time_tensor);
+  }
 
-    // previously evaluated constant_expressions may be used in following constant_expressions
-    std::vector<Real> constant_values(nconst);
-    for (unsigned int i = 0; i < nconst; ++i)
-    {
-      // no need to use dual numbers for the constant expressions
-      auto expression = std::make_shared<FunctionParserADBase<Real>>();
+  // Parse the expression with variables and constants
+  if (!_parser.parse(expression, variables_vec, constants_map))
+    paramError("expression", "Invalid function: ", _parser.errorMessage());
 
-      // add previously evaluated constants
-      for (unsigned int j = 0; j < i; ++j)
-        if (!expression->AddConstant(constant_names[j], constant_values[j]))
-          paramError("constant_names", "Invalid constant name '", constant_names[j], "'");
+  // Take derivatives
+  for (const auto & d : getParam<std::vector<TensorInputBufferName>>("derivatives"))
+  {
+    if (std::find(names.begin(), names.end(), d) != names.end())
+      _parser.differentiate(d);
+    else
+      paramError("derivatives",
+                 "Derivative w.r.t `",
+                 d,
+                 "` was requested, but it is not listed in `inputs`.");
+  }
 
-      // build the temporary constant expression function
-      if (expression->Parse(constant_expressions[i], "") >= 0)
-        mooseError("Invalid constant expression\n",
-                   constant_expressions[i],
-                   "\n in parsed function object.\n",
-                   expression->ErrorMsg());
-
-      constant_values[i] = expression->Eval(nullptr);
-
-      if (!fp.AddConstant(constant_names[i], constant_values[i]))
-        mooseError("Invalid constant name in parsed function object");
-    }
-
-    // build variables string
-    const auto variables = MooseUtils::join(variables_vec, ",");
-
-    // parse
-    if (fp.Parse(expression, variables) >= 0)
-      paramError("expression", "Invalid function: ", fp.ErrorMsg());
-
-    // take derivatives
-    for (const auto & d : getParam<std::vector<TensorInputBufferName>>("derivatives"))
-      if (std::find(names.begin(), names.end(), d) != names.end())
-      {
-        if (fp.AutoDiff(d) != -1)
-          paramError("expression", "Failed to take derivative w.r.t. `", d, "`.");
-      }
-      else
-        paramError("derivatives",
-                   "Derivative w.r.t `",
-                   d,
-                   "` was requested, but it is not listed in `inputs`.");
-
-    if (getParam<bool>("enable_fpoptimizer"))
-      fp.Optimize();
-
-    fp.setupTensors();
-  };
-
-  if (_use_jit)
-    setup(_jit);
-  else
-    setup(_no_jit);
+  // Compile (optimization is done during compilation if enable_fpoptimizer is true)
+  // The compile step performs AST simplification and JIT graph optimization
+  _parser.compile();
 }
 
 void
@@ -190,11 +184,11 @@ ParsedCompute::computeBuffer()
   if (_extra_symbols)
     _time_tensor = torch::tensor(_time, MooseTensor::floatTensorOptions());
 
-  // use local shape if we add parallel support, and add option for reciprocal shape
-  if (_use_jit)
-    _u = _jit.Eval(_params);
-  else
-    _u = _no_jit.Eval(_params);
+  // Evaluate using JIT-compiled graph
+  _u = _parser.eval(_params);
+
+  if (_is_integer)
+    _u = _u.to(MooseTensor::intTensorOptions());
 
   // optionally expand the tensor
   switch (_expand)

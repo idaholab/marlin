@@ -48,7 +48,6 @@
       [mu]
         type = ParsedCompute
         buffer = mu
-        enable_jit = true
         expression = '0.1*c^2*(c-1)^2'
         derivatives = c
         inputs = c
@@ -61,7 +60,6 @@
       [Mbarmubar]
         type = ParsedCompute
         buffer = Mbarmubar
-        enable_jit = true
         expression = 'Mbar*mubar'
         inputs = 'Mbar mubar'
       []

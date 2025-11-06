@@ -9,11 +9,15 @@
 #pragma once
 
 #include "TensorOperator.h"
-#include "ParsedTensor.h"
 #include "ParsedJITTensor.h"
 
 /**
- * ParsedCompute object
+ * ParsedCompute - JIT-compiled mathematical expression evaluator
+ *
+ * This tensor operator parses mathematical expressions and evaluates them
+ * using a JIT-compiled PyTorch compute graph for optimal performance.
+ * Supports symbolic differentiation, algebraic simplification, and
+ * all standard mathematical operations.
  */
 class ParsedCompute : public TensorOperator<>
 {
@@ -25,12 +29,9 @@ public:
   void computeBuffer() override;
 
 protected:
-  const bool _use_jit;
   const bool _extra_symbols;
-  std::vector<torch::Tensor> _constant_tensors;
 
-  ParsedJITTensor _jit;
-  ParsedTensor _no_jit;
+  ParsedJITTensor _parser;
 
   torch::Tensor _time_tensor;
   std::vector<const torch::Tensor *> _params;
@@ -40,4 +41,6 @@ protected:
     RECIPROCAL,
     NONE
   } _expand;
+
+  const bool _is_integer;
 };

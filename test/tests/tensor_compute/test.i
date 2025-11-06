@@ -40,7 +40,6 @@
     [f]
       type = ParsedCompute
       buffer = f
-      enable_jit = true
       expression = '0.1*(eta+2)^2*(eta-2)^2'
       derivatives = eta
       inputs = eta

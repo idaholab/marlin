@@ -12,7 +12,6 @@
 []
 
 [GlobalParams]
-  # enable_jit = true
   constant_names = 'A B'
   constant_expressions = '1 3.5'
 []

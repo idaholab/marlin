@@ -59,14 +59,12 @@ F = '${h_eta}*(${rho_sq}*((c - (1-${h_eta})*(${c0_b} - ${c0_a}))-${c0_a})^2) + (
             buffer = c
             expression = '0.6 + (${c0_a}-0.6)*${eta_IC}'
             extra_symbols = 'true'
-            enable_jit = false
         []
         [eta_IC]
             type = ParsedCompute
             buffer = eta
             expression = '${eta_IC}'
             extra_symbols = 'true'
-            enable_jit = false
         []
         [psi_init]
              type = MooseFunctionTensor

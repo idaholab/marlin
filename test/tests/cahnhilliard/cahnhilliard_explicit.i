@@ -71,7 +71,6 @@
       [mu]
         type = ParsedCompute
         buffer = mu
-        enable_jit = true
         expression = '0.1*c^2*(c-1)^2'
         derivatives = c
         inputs = c
@@ -84,7 +83,6 @@
       [dc_dt_bar]
         type = ParsedCompute
         buffer = dc_dt_bar
-        enable_jit = true
         expression = 'Mbar*mubar - Mkappabarbar*cbar'
         inputs = 'Mbar mubar Mkappabarbar cbar'
       []

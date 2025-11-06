@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "libmesh/fparser_ad.hh"
+#include "SwiftExpressionParser.h"
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/torch.h>
 
@@ -19,34 +19,51 @@ namespace jit
 struct Graph;
 struct GraphExecutor;
 struct Value;
-struct ExecutionPlan;
 }
 }
 
-class ParsedJITTensor : public FunctionParserAD
+/**
+ * ParsedJITTensor - JIT-optimized mathematical expression evaluator
+ *
+ * Parses mathematical expressions and compiles them to optimized PyTorch compute graphs
+ * for efficient repeated evaluations with automatic differentiation support.
+ */
+class ParsedJITTensor
 {
 public:
   ParsedJITTensor();
 
-  void setupTensors();
+  /// Parse an expression with given variable names and optional constants
+  bool parse(const std::string & expression,
+             const std::vector<std::string> & variables,
+             const std::unordered_map<std::string, torch::Tensor> & constants = {});
 
-  /// overload for torch tensors
-  torch::Tensor Eval(const std::vector<const torch::Tensor *> & params);
+  /// Take derivative with respect to a variable
+  void differentiate(const std::string & var);
 
-  /// print IR for debugging
-  void print() { _graph->dump(); }
+  /// Optimize and compile the expression
+  void compile();
+
+  /// Evaluate the expression with torch tensors
+  torch::Tensor eval(const std::vector<const torch::Tensor *> & params);
+
+  /// Get the error message from the last operation
+  const std::string & errorMessage() const { return _error; }
+
+  /// Print the IR graph for debugging
+  void print() const;
+
+  /// Get a string representation of the parsed expression
+  std::string toString() const;
 
 protected:
-  /// graph input nodes
-  std::vector<torch::jit::Value *> _input;
+  SwiftExpressionParser::Parser _parser;
+  SwiftExpressionParser::ExprPtr _ast;
+  std::vector<std::string> _variables;
+  std::unordered_map<std::string, torch::Tensor> _constants;
+  std::string _error;
 
-  /// immediate values converted to tensors
-  std::vector<torch::jit::Value *> _constant_immed;
-
-  /// compute graph
+  /// Compiled graph
   std::shared_ptr<torch::jit::Graph> _graph;
-  std::shared_ptr<torch::jit::GraphExecutor> _graph_executor;
-  std::shared_ptr<torch::jit::ExecutionPlan> _execution_plan;
-
-  const Data & _data;
+  std::shared_ptr<torch::jit::GraphExecutor> _executor;
 };
