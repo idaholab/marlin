@@ -23,8 +23,12 @@ InputParameters
 LatticeBoltzmannProblem::validParams()
 {
   InputParameters params = TensorProblem::validParams();
-  params.addParam<TensorInputBufferName>("binary_media",
-                                         "The tensor buffer object containing binary media/mesh");
+  params.addParam<TensorInputBufferName>(
+      "binary_media",
+      "Integer tensor buffer defining solid/fluid regions for complex geometries. "
+      "Values: 0 = solid (closed cell, no flow), 1 = fluid (open cell, flow allowed). "
+      "Internal solid boundaries must use 'boundary = wall' in boundary conditions. "
+      "Domain edge boundaries (top/bottom/left/right/front/back) are specified separately.");
   params.addParam<bool>("enable_slip", false, "Enable slip model");
   // params.addParam<Real>("mfp", 0.0, "Mean free path of the system, (meters)");
   // params.addParam<Real>("dx", 0.0, "Domain resolution, (meters)");
