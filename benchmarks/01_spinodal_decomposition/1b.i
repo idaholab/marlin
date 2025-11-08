@@ -74,7 +74,6 @@
     [mu]
       type = ParsedCompute
       buffer = mu
-      enable_jit = true
       expression = 'rho_s*(c-c_alpha)^2*(c_beta-c)^2'
       constant_names =       'rho_s c_alpha c_beta'
       constant_expressions = '5     0.3     0.7'
@@ -89,7 +88,6 @@
     [Mbarmubar]
       type = ParsedCompute
       buffer = Mbarmubar
-      enable_jit = true
       expression = 'Mbar*mubar'
       inputs = 'Mbar mubar'
     []
@@ -110,7 +108,6 @@
     [F]
       type = ParsedCompute
       buffer = F
-      enable_jit = true
       expression = 'rho_s * (c-c_alpha)^2 * (c_beta-c)^2 + Fgrad'
       constant_names =       'rho_s c_alpha c_beta'
       constant_expressions = '5     0.3     0.7'
