@@ -189,7 +189,6 @@
     evalerror_behavior = error
     output_properties = flow_stress
     outputs = exodus
-    enable_jit = false
   []
   [slug_stress]
     type = ComputeSimoHughesJ2PlasticityStress

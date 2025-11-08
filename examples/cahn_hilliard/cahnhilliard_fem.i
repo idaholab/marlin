@@ -50,7 +50,6 @@
     property_name = fbulk
     coupled_variables = c
     expression = 0.1*c^2*(c-1)^2
-    enable_jit = true
   [../]
 []
 
