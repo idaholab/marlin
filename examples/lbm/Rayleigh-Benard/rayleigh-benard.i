@@ -48,7 +48,6 @@ amplitude = '${Ny}/100.0'
                     b:= a / (a + 1.0e-14);
                     ${TC} * b - b *${TH} + ${TH}'
       extra_symbols = true
-      enable_jit = true
     []
 
     [equilibrium_fluid]

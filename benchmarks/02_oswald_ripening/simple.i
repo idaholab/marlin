@@ -80,14 +80,12 @@
     [mu_n2]
       type = ParsedCompute
       buffer = mu_n2
-      enable_jit = true
       expression = 'n3'
       inputs = n3
     []
     [mu_n3]
       type = ParsedCompute
       buffer = mu_n3
-      enable_jit = true
       expression = 'n3*n3'
       inputs = n3
     []

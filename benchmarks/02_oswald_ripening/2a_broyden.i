@@ -175,7 +175,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [mu_c]
       type = ParsedCompute
       buffer = mu_c
-      enable_jit = true
       expression = '${fchem}*M'
       constant_names = ${cnames}
       constant_expressions = ${cvalues}
@@ -186,7 +185,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [mu_n1]
       type = ParsedCompute
       buffer = mu_n1
-      enable_jit = true
       expression = '${fchem}*(-L)'
       constant_names = ${cnames}
       constant_expressions = ${cvalues}
@@ -196,7 +194,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [mu_n2]
       type = ParsedCompute
       buffer = mu_n2
-      enable_jit = true
       expression = '${fchem}*(-L)'
       constant_names = ${cnames}
       constant_expressions = ${cvalues}
@@ -206,7 +203,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [mu_n3]
       type = ParsedCompute
       buffer = mu_n3
-      enable_jit = true
       expression = '${fchem}*(-L)'
       constant_names = ${cnames}
       constant_expressions = ${cvalues}
@@ -216,7 +212,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [mu_n4]
       type = ParsedCompute
       buffer = mu_n4
-      enable_jit = true
       expression = '${fchem}*(-L)'
       constant_names = ${cnames}
       constant_expressions = ${cvalues}
@@ -253,7 +248,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [Mbar_mu_c_bar]
       type = ParsedCompute
       buffer = Mbar_mu_c_bar
-      enable_jit = true
       expression = 'Lbar*mu_c_bar'
       inputs = 'Lbar mu_c_bar'
     []
@@ -319,7 +313,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [F]
       type = ParsedCompute
       buffer = F
-      enable_jit = true
       expression = '${fchem} + Fgrad_c + Fgrad_n1 + Fgrad_n2 + Fgrad_n3 + Fgrad_n4'
       constant_names =  ${cnames}
       constant_expressions = ${cvalues}
@@ -328,7 +321,6 @@ cvalues= 'sqrt(2) 0.3 0.7 5     1 5 5'
     [bnds]
       type = ParsedCompute
       buffer = bnds
-      enable_jit = true
       expression = 'n1^2 + n2^2 + n3^2 + n4^2'
       inputs = 'n1 n2 n3 n4'
     []
