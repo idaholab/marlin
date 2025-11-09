@@ -40,5 +40,7 @@ protected:
   torch::Tensor _e_xyz;
 
   const torch::Tensor _velocity;
-  const Real & _value;
+  bool _is_value_tensor;
+  torch::Tensor _value_tensor;
+  Real _value;
 };

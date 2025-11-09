@@ -571,7 +571,7 @@ TensorProblem::addTensorOutput(const std::string & output_type,
 
   // Create the object
   auto output_object = _factory.create<TensorOutput>(output_type, output_name, parameters, 0);
-  logAdd("TensorInitialCondition", output_name, output_type, parameters);
+  logAdd("TensorOutput", output_name, output_type, parameters);
   _outputs.push_back(output_object);
 }
 
