@@ -98,6 +98,13 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
 
     executeTensorInitialConditions();
 
+    // if the binary mesh is updated at initial conditions
+    // in the future we need a better way to handle this
+    if (_is_binary_media)
+      _binary_media = getBuffer(getParam<TensorInputBufferName>("binary_media"));
+    else
+      _binary_media = torch::ones(_shape, MooseTensor::intTensorOptions());
+
     executeTensorOutputs(EXEC_INITIAL);
   }
 
@@ -158,7 +165,7 @@ void
 LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t, const Real & value)
 {
   const auto tensor_shape = t.sizes();
-  if (_is_binary_media)
+  if (_is_binary_media && _binary_media.sum().item<int64_t>() > 0)
   {
     if (t.dim() == _binary_media.dim())
     {
