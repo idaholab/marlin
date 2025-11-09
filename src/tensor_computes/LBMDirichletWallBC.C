@@ -20,9 +20,10 @@ LBMDirichletWallBC::validParams()
   params.addRequiredParam<TensorInputBufferName>("f_old", "Old state distribution function");
   params.addClassDescription("LBMDirichletWallBC object");
   params.addRequiredParam<TensorInputBufferName>("velocity", "Fluid velocity");
-  params.addParam<std::string>("value",
-                               "0.0"
-                               "Value at the boundary");
+  params.addParam<Real>("value",
+                        "0.0"
+                        "Value at the boundary");
+  params.addParam<TensorInputBufferName>("value_tensor", "Value at the boundary");
   return params;
 }
 
@@ -30,7 +31,7 @@ LBMDirichletWallBC::LBMDirichletWallBC(const InputParameters & parameters)
   : LBMBoundaryCondition(parameters),
     _f_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("f_old"), 1)),
     _velocity(getInputBuffer("velocity")),
-    _value(_lb_problem.getConstant<Real>(getParam<std::string>("value")))
+    _is_value_tensor(isParamValid("value_tensor"))
 {
   computeBoundaryNormals();
 }
@@ -103,6 +104,17 @@ LBMDirichletWallBC::wallBoundary()
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
 
-  torch::Tensor f_bounce_back = torch::ones_like(_u) * _w * _value;
+  torch::Tensor f_bounce_back;
+  if (_is_value_tensor)
+  {
+    _value_tensor = getInputBuffer("value_tensor");
+    f_bounce_back = torch::ones_like(_u) * _w * _value_tensor.unsqueeze(-1);
+  }
+  else
+  {
+    _value = getParam<Real>("value");
+    f_bounce_back = torch::ones_like(_u) * _w * _value;
+  }
+
   _u.index_put_({_boundary_mask}, f_bounce_back.index({_boundary_mask}));
 }

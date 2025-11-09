@@ -332,7 +332,7 @@
       type = LBMDirichletWallBC
       buffer = g
       f_old = gpc
-      value = T_H
+      value = 1.2
       velocity = velocity
       boundary = wall
     []
