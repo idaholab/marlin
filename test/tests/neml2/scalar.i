@@ -28,10 +28,10 @@
       type = NEML2TensorCompute
       neml2_input_file = neml2_input.i
       neml2_model = multiply
-      swift_inputs = 'A B'
+      marlin_inputs = 'A B'
       neml2_inputs = 'forces/A forces/B'
       neml2_outputs = 'state/C'
-      swift_outputs = 'C'
+      marlin_outputs = 'C'
     []
   []
 []

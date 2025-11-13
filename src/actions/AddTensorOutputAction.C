@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -9,7 +9,7 @@
 #include "AddTensorOutputAction.h"
 #include "TensorProblem.h"
 
-registerMooseAction("SwiftApp", AddTensorOutputAction, "add_tensor_output");
+registerMooseAction("MarlinApp", AddTensorOutputAction, "add_tensor_output");
 
 InputParameters
 AddTensorOutputAction::validParams()

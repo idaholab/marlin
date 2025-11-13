@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -8,8 +8,8 @@
 
 #include "NEML2TensorBuffer.h"
 
-registerMooseObject("SwiftApp", VectorTensor);
-registerMooseObject("SwiftApp", SR2Tensor);
+registerMooseObject("MarlinApp", VectorTensor);
+registerMooseObject("MarlinApp", SR2Tensor);
 
 template <typename T>
 InputParameters
@@ -17,7 +17,7 @@ NEML2TensorBuffer<T>::validParams()
 {
   InputParameters params = TensorBuffer<T>::validParams();
   if constexpr (std::is_same_v<T, torch::Tensor>)
-    params.addClassDescription("This tensor type requires Swift to be built woth NEML2.");
+    params.addClassDescription("This tensor type requires Marlin to be built woth NEML2.");
   return params;
 }
 
@@ -26,7 +26,7 @@ NEML2TensorBuffer<T>::NEML2TensorBuffer(const InputParameters & parameters)
   : TensorBuffer<T>(parameters)
 {
   if constexpr (std::is_same_v<T, torch::Tensor>)
-    mooseError("This tensor type requires Swift to be built woth NEML2.");
+    mooseError("This tensor type requires Marlin to be built woth NEML2.");
 
   mooseInfoRepeated("Instantiating NEML2 tensor class ", libMesh::demangle(typeid(T).name()));
 }
@@ -43,7 +43,7 @@ void
 NEML2TensorBuffer<T>::makeCPUCopy()
 {
   if constexpr (std::is_same_v<T, torch::Tensor>)
-    mooseError("This tensor type requires Swift to be built woth NEML2.");
+    mooseError("This tensor type requires Marlin to be built woth NEML2.");
   else
   {
     if (!_u.defined())

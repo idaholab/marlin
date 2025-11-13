@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -9,7 +9,7 @@
 #pragma once
 
 #include "MooseApp.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 
 namespace MooseTensor
 {
@@ -18,15 +18,15 @@ std::string precision();
 }
 
 class DomainAction;
-class SwiftInit;
+class MarlinInit;
 
-class SwiftApp : public MooseApp
+class MarlinApp : public MooseApp
 {
 public:
   static InputParameters validParams();
 
-  SwiftApp(const InputParameters & parameters);
-  virtual ~SwiftApp();
+  MarlinApp(const InputParameters & parameters);
+  virtual ~MarlinApp();
 
   static void registerApps();
   static void registerAll(Factory & f, ActionFactory & af, Syntax & s);
@@ -34,7 +34,7 @@ public:
   /// called from the ComputeDevice action
   void setTorchDevice(std::string device, const MooseTensor::Key<DomainAction> &);
   /// called from the unit test app
-  static void setTorchDeviceStatic(std::string device, const MooseTensor::Key<SwiftInit> &);
+  static void setTorchDeviceStatic(std::string device, const MooseTensor::Key<MarlinInit> &);
   /// called from the Domain action
   void setTorchPrecision(std::string precision, const MooseTensor::Key<DomainAction> &);
 };

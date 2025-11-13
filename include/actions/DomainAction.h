@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -145,7 +145,7 @@ protected:
   /// Volume of the simulation domain in real space
   Real _volume_global;
 
-  const enum class MeshMode { SWIFT_DUMMY, SWIFT_DOMAIN, SWIFT_MANUAL } _mesh_mode;
+  const enum class MeshMode { MARLIN_DUMMY, MARLIN_DOMAIN, MARLIN_MANUAL } _mesh_mode;
 
   /// grid spacing
   RealVectorValue _grid_spacing;

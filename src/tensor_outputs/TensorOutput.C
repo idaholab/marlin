@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -9,7 +9,7 @@
 #include "Moose.h"
 #include "TensorOutput.h"
 #include "MooseError.h"
-#include "SwiftTypes.h"
+#include "MarlinTypes.h"
 #include "TensorProblem.h"
 #include "DomainAction.h"
 

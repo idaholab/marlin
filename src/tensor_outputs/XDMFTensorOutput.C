@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -26,7 +26,7 @@ void addDataToHDF5(hid_t file_id,
 }
 #endif
 
-registerMooseObject("SwiftApp", XDMFTensorOutput);
+registerMooseObject("MarlinApp", XDMFTensorOutput);
 
 InputParameters
 XDMFTensorOutput::validParams()
@@ -92,7 +92,7 @@ XDMFTensorOutput::XDMFTensorOutput(const InputParameters & parameters)
       if (output.get() != this && dynamic_cast<XDMFTensorOutput *>(output.get()))
         mooseError(
             "Using an hdf5 library that is not threadsafe and multiple XDMF output objects. "
-            "Consolidate the XDMF outputs or build Swift with a thread safe build of libhdf5.");
+            "Consolidate the XDMF outputs or build Marlin with a thread safe build of libhdf5.");
     mooseWarning("Using an hdf5 library that is not threadsafe.");
   }
 #endif
