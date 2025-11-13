@@ -16,6 +16,8 @@
 
 #include <initializer_list>
 #include <util/Optional.h>
+#include <cmath>
+#include <limits>
 
 // run this early, before any objects are constructed
 registerMooseAction("MarlinApp", DomainAction, "meta_action");
@@ -99,6 +101,13 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _recv_tensor(_n_rank),
     _debug(getParam<bool>("debug"))
 {
+  for (const auto d : make_range(3u))
+  {
+    _local_begin[d].assign(_n_rank, 0);
+    _local_end[d].assign(_n_rank, 0);
+    _n_local_all[d].assign(_n_rank, 0);
+  }
+
   if (_parallel_mode == ParallelMode::NONE && comm().size() > 1)
     paramError("parallel_mode", "NONE requires the application to run in serial.");
 
@@ -115,7 +124,7 @@ DomainAction::DomainAction(const InputParameters & parameters)
   {
     // process weights
     if (_device_weights.empty())
-      _device_weights.assign(1, _device_names.size());
+      _device_weights.assign(_device_names.size(), 1);
 
     if (_device_weights.size() != _device_names.size())
       mooseError("Specify one weight per device or none at all");
@@ -135,7 +144,7 @@ DomainAction::DomainAction(const InputParameters & parameters)
 
     for (const auto & host_name : host_names)
     {
-      if (host_rank_count.find(name) == host_rank_count.end())
+      if (host_rank_count.find(host_name) == host_rank_count.end())
         host_rank_count[host_name] = 0;
 
       auto & local_rank = host_rank_count[host_name];
@@ -219,9 +228,21 @@ DomainAction::gridChanged()
   {
     if (dim < _dim)
     {
-      const auto freq = (dim == _dim - 1)
-                            ? torch::fft::rfftfreq(_n_global[dim], _grid_spacing(dim), options)
-                            : torch::fft::fftfreq(_n_global[dim], _grid_spacing(dim), options);
+      bool use_rfft = false;
+      switch (_parallel_mode)
+      {
+        case ParallelMode::NONE:
+          use_rfft = (dim == _dim - 1);
+          break;
+        case ParallelMode::FFT_SLAB:
+          use_rfft = false;
+          break;
+        case ParallelMode::FFT_PENCIL:
+          use_rfft = (dim == 0);
+          break;
+      }
+      const auto freq = use_rfft ? torch::fft::rfftfreq(_n_global[dim], _grid_spacing(dim), options)
+                                 : torch::fft::fftfreq(_n_global[dim], _grid_spacing(dim), options);
 
       // zero out nyquist frequency
       // if (_n_global[dim] % 2 == 0)
@@ -273,13 +294,9 @@ DomainAction::partitionSerial()
   // goes along the full dimension for each rank
   for (const auto d : make_range(3u))
   {
-    _local_begin[d].resize(_n_rank);
-    _local_end[d].resize(_n_rank);
-    for (const auto i : make_range(_communicator.size()))
-    {
-      _local_begin[d][i] = 0;
-      _local_end[d][i] = _n_global[d];
-    }
+    _local_begin[d].assign(_n_rank, 0);
+    _local_end[d].assign(_n_rank, _n_global[d]);
+    _n_local_all[d].assign(_n_rank, _n_global[d]);
   }
 
   // to do, make those slices dependent on local begin/end
@@ -294,17 +311,20 @@ DomainAction::partitionSlabs()
   if (_dim < 2)
     paramError("dim", "Dimension must be 2 or 3 for slab decomposition.");
 
-  // x is partitioned along a halved dimension due to the use of rfft
-  _n_local_all[0] = partitionHepler(_global_reciprocal_axis[0].sizes()[0], _device_weights);
+  if (_local_weights.size() != _n_rank)
+    mooseError("Internal error: local weight vector size does not match number of ranks.");
 
-  // y is partitioned along the y realspace axis
-  _n_local_all[1] = partitionHepler(_global_axis[1].sizes()[1], _device_weights);
+  // x is partitioned along the reciprocal axis (rfft halves the dimension)
+  _n_local_all[0] = partitionHepler(_global_reciprocal_axis[0].sizes()[0], _local_weights);
+
+  // y is partitioned along the real-space axis
+  _n_local_all[1] = partitionHepler(_global_axis[1].sizes()[1], _local_weights);
 
   // set begin/end for x and y
   for (const auto d : {0, 1})
   {
     int64_t b = 0;
-    for (const auto r : index_range(_n_local_all[d]))
+    for (const auto r : make_range(_n_rank))
     {
       _local_begin[d][r] = b;
       b += _n_local_all[d][r];
@@ -325,7 +345,7 @@ DomainAction::partitionSlabs()
 
   // slice the reciprocal space into y-z slices stacked in x direction
   _local_reciprocal_axis[0] =
-      _global_reciprocal_axis[0].slice(0, 0, _local_begin[0][_rank], _local_end[0][_rank]);
+      _global_reciprocal_axis[0].slice(0, _local_begin[0][_rank], _local_end[0][_rank]);
   _local_reciprocal_axis[1] = _global_reciprocal_axis[1].slice(1, 0, _n_reciprocal_global[1]);
 
   _n_local[2] = _n_global[2];
@@ -341,11 +361,6 @@ DomainAction::partitionSlabs()
     _local_axis[2] = _global_axis[2];
     _local_reciprocal_axis[2] = _global_reciprocal_axis[2];
   }
-
-  // allocate receive buffer
-  for (const auto i : make_range(_communicator.size()))
-    if (i != _rank)
-      _recv_data[i].resize(_n_local_all[0][_rank] * _n_local_all[1][i] * _n_local_all[2][i]);
 }
 
 void
@@ -353,7 +368,175 @@ DomainAction::partitionPencils()
 {
   if (_dim < 3)
     paramError("dim", "Dimension must be 3 for pencil decomposition.");
-  paramError("parallel_mode", "Not implemented yet!");
+
+  const auto canUseFactors = [&](unsigned int px, unsigned int pz)
+  {
+    if (px < 2 || pz < 2)
+      return false;
+    if (px > _n_global[1] || px > _n_reciprocal_global[0])
+      return false;
+    if (pz > _n_global[2] || pz > _n_global[1])
+      return false;
+    return true;
+  };
+
+  std::pair<unsigned int, unsigned int> best = {0, 0};
+  bool found = false;
+  unsigned int best_cost = std::numeric_limits<unsigned int>::max();
+
+  auto consider = [&](unsigned int px, unsigned int pz)
+  {
+    if (!canUseFactors(px, pz))
+      return;
+    const unsigned int cost = std::abs(static_cast<int>(px) - static_cast<int>(pz));
+    if (!found || cost < best_cost)
+    {
+      best = {px, pz};
+      best_cost = cost;
+      found = true;
+    }
+  };
+
+  const unsigned int max_divisor = std::max(2u, static_cast<unsigned int>(std::sqrt(_n_rank)));
+  for (unsigned int d = 2; d <= max_divisor; ++d)
+    if (_n_rank % d == 0)
+    {
+      const unsigned int other = _n_rank / d;
+      consider(d, other);
+      consider(other, d);
+    }
+
+  if (!found)
+    paramError("parallel_mode",
+               "FFT_PENCIL requires factoring the number of MPI ranks into two integers greater "
+               "than one that fit the domain (ranks = ",
+               _n_rank,
+               "). Use FFT_SLAB or adjust the rank count.");
+
+  _pencil_y_partitions = best.first;
+  _pencil_z_partitions = best.second;
+
+  auto buildOffsets = [](const std::vector<int64_t> & counts)
+  {
+    std::vector<int64_t> offsets(counts.size(), 0);
+    int64_t cursor = 0;
+    for (const auto i : index_range(counts))
+    {
+      offsets[i] = cursor;
+      cursor += counts[i];
+    }
+    return offsets;
+  };
+
+  std::vector<int64_t> unit_y_weights(_pencil_y_partitions, 1);
+  std::vector<int64_t> unit_z_weights(_pencil_z_partitions, 1);
+
+  auto y_counts = partitionHepler<int64_t>(_n_global[1], unit_y_weights);
+  auto z_counts = partitionHepler<int64_t>(_n_global[2], unit_z_weights);
+  auto y_offsets = buildOffsets(y_counts);
+  auto z_offsets = buildOffsets(z_counts);
+
+  _pencil_y_index.resize(_n_rank);
+  _pencil_z_index.resize(_n_rank);
+
+  for (unsigned int r = 0; r < _n_rank; ++r)
+  {
+    const unsigned int py = r % _pencil_y_partitions;
+    const unsigned int pz = r / _pencil_y_partitions;
+    _pencil_y_index[r] = py;
+    _pencil_z_index[r] = pz;
+
+    _local_begin[0][r] = 0;
+    _local_end[0][r] = _n_global[0];
+    _n_local_all[0][r] = _n_global[0];
+
+    _local_begin[1][r] = y_offsets[py];
+    _local_end[1][r] = y_offsets[py] + y_counts[py];
+    _n_local_all[1][r] = y_counts[py];
+
+    _local_begin[2][r] = z_offsets[pz];
+    _local_end[2][r] = z_offsets[pz] + z_counts[pz];
+    _n_local_all[2][r] = z_counts[pz];
+  }
+
+  _n_local[0] = _n_global[0];
+  _n_local[1] = _n_local_all[1][_rank];
+  _n_local[2] = _n_local_all[2][_rank];
+
+  _local_axis[0] = _global_axis[0];
+  _local_axis[1] = _global_axis[1].slice(1, _local_begin[1][_rank], _local_end[1][_rank]);
+  _local_axis[2] = _global_axis[2].slice(2, _local_begin[2][_rank], _local_end[2][_rank]);
+
+  // reciprocal partitions
+  _pencil_x_offsets.clear();
+  _pencil_x_sizes.clear();
+  _pencil_x_offsets.resize(_pencil_y_partitions, 0);
+  _pencil_x_sizes = partitionHepler<int64_t>(_n_reciprocal_global[0],
+                                             std::vector<int64_t>(_pencil_y_partitions, 1));
+  int64_t cursor = 0;
+  for (const auto i : index_range(_pencil_x_sizes))
+  {
+    _pencil_x_offsets[i] = cursor;
+    cursor += _pencil_x_sizes[i];
+  }
+
+  _pencil_stage2_y_sizes = partitionHepler<int64_t>(_n_reciprocal_global[1],
+                                                    std::vector<int64_t>(_pencil_z_partitions, 1));
+  _pencil_stage2_y_offsets = buildOffsets(_pencil_stage2_y_sizes);
+
+  const unsigned int px = _rank % _pencil_y_partitions;
+  const unsigned int py_final = _rank / _pencil_y_partitions;
+
+  _local_reciprocal_axis[0] = _global_reciprocal_axis[0].slice(
+      0, _pencil_x_offsets[px], _pencil_x_offsets[px] + _pencil_x_sizes[px]);
+  _local_reciprocal_axis[1] = _global_reciprocal_axis[1].slice(
+      1,
+      _pencil_stage2_y_offsets[py_final],
+      _pencil_stage2_y_offsets[py_final] + _pencil_stage2_y_sizes[py_final]);
+  _local_reciprocal_axis[2] = _global_reciprocal_axis[2];
+
+  const auto local_kx = _pencil_x_sizes[_pencil_y_index[_rank]];
+  const auto local_ky = _pencil_stage2_y_sizes[_pencil_z_index[_rank]];
+  const auto local_kz = _n_reciprocal_global[2];
+
+  if (_rank == 0)
+    mooseInfo("FFT_PENCIL decomposition: ",
+              _n_rank,
+              " ranks = ",
+              _pencil_y_partitions,
+              " x-pencils × ",
+              _pencil_z_partitions,
+              " z-slabs (real ",
+              "local=",
+              _n_local[0],
+              "×",
+              _n_local[1],
+              "×",
+              _n_local[2],
+              ", reciprocal local=",
+              local_kx,
+              "×",
+              local_ky,
+              "×",
+              local_kz,
+              ")");
+
+  if (_debug)
+    mooseInfo("Rank ",
+              _n_rank,
+              " pencil layout -> real [",
+              _n_local_all[0][_rank],
+              "×",
+              _n_local_all[1][_rank],
+              "×",
+              _n_local_all[2][_rank],
+              ", reciprocal [",
+              local_kx,
+              "×",
+              local_ky,
+              "×",
+              local_kz,
+              "]");
 }
 
 void
@@ -487,77 +670,467 @@ DomainAction::fftSlab(const torch::Tensor & t) const
 
   MooseTensor::printTensorInfo(t);
 
-  // 2D transform the local slab
   auto slab =
       _dim == 3 ? torch::fft::fft2(t, c10::nullopt, {0, 2}) : torch::fft::fft(t, c10::nullopt, 0);
   MooseTensor::printTensorInfo(slab);
 
-  // send
+  const auto mpi_type = mpiTypeFromScalar(slab.scalar_type());
+  const auto cpu_options = slab.options().device(torch::kCPU);
+  const auto device_options = slab.options();
+
   std::vector<MPI_Request> send_requests(_n_rank, MPI_REQUEST_NULL);
-  for (const auto & i : make_range(_n_rank))
-    if (i != _rank)
-    {
-      _send_tensor[i] = slab.slice(0, _local_begin[0][i], _local_end[0][i]).contiguous().cpu();
-      MooseTensor::printTensorInfo(_send_tensor[i]);
-
-      auto data_ptr = _send_tensor[i].data_ptr<double>();
-      MPI_Isend(
-          data_ptr, _send_tensor[i].numel(), MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &send_requests[i]);
-    }
+  for (const auto i : make_range(_n_rank))
+  {
+    auto slice = slab.slice(0, _local_begin[0][i], _local_end[0][i]).contiguous();
+    if (i == _rank)
+      _recv_tensor[i] = slice;
     else
-      // keep the local slice on device
-      _recv_tensor[i] = slab.slice(0, _local_begin[0][i], _local_end[0][i]);
+    {
+      _send_tensor[i] = slice.to(cpu_options);
+      MPI_Isend(_send_tensor[i].data_ptr(),
+                _send_tensor[i].numel(),
+                mpi_type,
+                i,
+                0,
+                mpiComm(),
+                &send_requests[i]);
+    }
+  }
 
-  // receive
-  MPI_Status recv_status;
-  for (const auto & i : make_range(_n_rank))
-    if (i != _rank)
-      MPI_Recv(_recv_data[i].data(), 1, MPI_DOUBLE, i, 0, MPI_COMM_WORLD, &recv_status);
-
-  // Wait for all non-blocking sends to complete
-  for (const auto & i : make_range(_n_rank))
+  for (const auto i : make_range(_n_rank))
     if (i != _rank)
     {
-      // 2d _n_local_all[0][_rank] * _n_local_all[1][i] * _n_local_all[2][i]
-      _recv_tensor[i] = torch::from_blob(_recv_data[i].data(),
-                                         {_n_local_all[0][_rank], _n_local_all[1][i]},
-                                         torch::kFloat64)
-                            .to(MooseTensor::floatTensorOptions()); // todo: take care of 32 but
-                                                                    // floats as well!
+      std::vector<int64_t> recv_shape;
+      if (_dim == 2)
+        recv_shape = {_n_local_all[0][_rank], _n_local_all[1][i]};
+      else
+        recv_shape = {_n_local_all[0][_rank], _n_local_all[1][i], _n_local_all[2][i]};
+
+      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      MPI_Status status;
+      MPI_Recv(recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, i, 0, mpiComm(), &status);
+      _recv_tensor[i] = recv_cpu.to(device_options);
     }
 
-  // stack
-  auto t2 = torch::vstack(_recv_tensor);
-
-  // Wait for all non-blocking sends to complete
   MPI_Waitall(_n_rank, send_requests.data(), MPI_STATUSES_IGNORE);
 
-  // transfor along y direction
-  return torch::fft::rfft(t2, c10::nullopt, 1);
+  std::vector<torch::Tensor> cat_inputs;
+  cat_inputs.reserve(_n_rank);
+  for (const auto & tensor : _recv_tensor)
+    if (tensor.defined())
+      cat_inputs.push_back(tensor);
+
+  auto t2 = torch::cat(cat_inputs, 1);
+
+  return torch::fft::fft(t2, c10::nullopt, 1);
 }
 
 torch::Tensor
-DomainAction::fftPencil(const torch::Tensor & /*t*/) const
+DomainAction::ifftSlab(const torch::Tensor & t) const
+{
+  mooseInfoRepeated("ifftSlab");
+  if (_dim == 1)
+    mooseError("Unsupported mesh dimension");
+
+  MooseTensor::printTensorInfo(t);
+
+  // Step 1: Inverse FFT along Y direction (reciprocal space)
+  // Input is in reciprocal space layout: Y-Z slabs stacked in X direction
+  auto t_ifft_y = torch::fft::ifft(t, c10::nullopt, 1);
+  MooseTensor::printTensorInfo(t_ifft_y);
+
+  // Step 2: All-to-all transpose from reciprocal to real space layout
+  // Need to redistribute from Y-Z slabs stacked in X to X-Z slabs stacked in Y
+
+  const auto mpi_type = mpiTypeFromScalar(t_ifft_y.scalar_type());
+  const auto cpu_options = t_ifft_y.options().device(torch::kCPU);
+  const auto device_options = t_ifft_y.options();
+
+  std::vector<MPI_Request> send_requests(_n_rank, MPI_REQUEST_NULL);
+  for (const auto i : make_range(_n_rank))
+  {
+    auto slice = t_ifft_y.slice(1, _local_begin[1][i], _local_end[1][i]).contiguous();
+    if (i == _rank)
+      _recv_tensor[i] = slice;
+    else
+    {
+      _send_tensor[i] = slice.to(cpu_options);
+      MPI_Isend(_send_tensor[i].data_ptr(),
+                _send_tensor[i].numel(),
+                mpi_type,
+                i,
+                0,
+                mpiComm(),
+                &send_requests[i]);
+    }
+  }
+
+  for (const auto i : make_range(_n_rank))
+    if (i != _rank)
+    {
+      std::vector<int64_t> recv_shape;
+      if (_dim == 2)
+        recv_shape = {_n_local_all[0][i], _n_local_all[1][_rank]};
+      else
+        recv_shape = {_n_local_all[0][i], _n_local_all[1][_rank], _n_local_all[2][i]};
+
+      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      MPI_Status status;
+      MPI_Recv(recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, i, 0, mpiComm(), &status);
+      _recv_tensor[i] = recv_cpu.to(device_options);
+    }
+
+  MPI_Waitall(_n_rank, send_requests.data(), MPI_STATUSES_IGNORE);
+
+  // Stack along X direction (axis 0) to get full X dimension
+  std::vector<torch::Tensor> gathered;
+  gathered.reserve(_n_rank);
+  for (const auto & tensor : _recv_tensor)
+    if (tensor.defined())
+      gathered.push_back(tensor);
+  auto t2 = torch::cat(gathered, 0);
+  MooseTensor::printTensorInfo(t2);
+
+  auto result = _dim == 3 ? torch::fft::ifft2(t2, c10::nullopt, {0, 2})
+                          : torch::fft::ifft(t2, c10::nullopt, 0);
+
+  auto real_result = torch::real(result);
+  MooseTensor::printTensorInfo(real_result);
+  return real_result;
+}
+
+torch::Tensor
+DomainAction::fftPencil(const torch::Tensor & t) const
 {
   if (_dim != 3)
     mooseError("Unsupported mesh dimension");
-  paramError("parallel_mode", "Not implemented yet!");
+  const auto real_scalar = t.scalar_type();
+  if (real_scalar != torch::kFloat32 && real_scalar != torch::kFloat64)
+    mooseError("Unsupported real tensor dtype for FFT_PENCIL mode.");
+
+  auto after_x = torch::fft::rfft(t, c10::nullopt, 0);
+  auto stage1 = pencilStage1Forward(after_x);
+  auto after_y = torch::fft::fft(stage1, c10::nullopt, 1);
+  auto stage2 = pencilStage2Forward(after_y);
+  return torch::fft::fft(stage2, c10::nullopt, 2);
+}
+
+torch::Tensor
+DomainAction::ifftPencil(const torch::Tensor & t) const
+{
+  if (_dim != 3)
+    mooseError("Unsupported mesh dimension");
+  auto after_z = torch::fft::ifft(t, c10::nullopt, 2);
+  auto stage2 = pencilStage2Inverse(after_z);
+  auto after_y = torch::fft::ifft(stage2, c10::nullopt, 1);
+  auto stage1 = pencilStage1Inverse(after_y);
+  return torch::fft::irfft(stage1, _n_global[0], 0);
 }
 
 torch::Tensor
 DomainAction::ifft(const torch::Tensor & t) const
 {
-  switch (_dim)
+  switch (_parallel_mode)
   {
-    case 1:
-      return torch::fft::irfft(t, getShape()[0], 0);
-    case 2:
-      return torch::fft::irfft2(t, getShape(), {0, 1});
-    case 3:
-      return torch::fft::irfftn(t, getShape(), {0, 1, 2});
-    default:
-      mooseError("Unsupported mesh dimension");
+    case ParallelMode::NONE:
+      // Serial mode: use standard torch FFT functions
+      switch (_dim)
+      {
+        case 1:
+          return torch::fft::irfft(t, getShape()[0], 0);
+        case 2:
+          return torch::fft::irfft2(t, getShape(), {0, 1});
+        case 3:
+          return torch::fft::irfftn(t, getShape(), {0, 1, 2});
+        default:
+          mooseError("Unsupported mesh dimension");
+      }
+
+    case ParallelMode::FFT_SLAB:
+      return ifftSlab(t);
+
+    case ParallelMode::FFT_PENCIL:
+      return ifftPencil(t);
   }
+  mooseError("Not implemented");
+}
+
+MPI_Comm
+DomainAction::mpiComm() const
+{
+  return _communicator.get();
+}
+
+MPI_Datatype
+DomainAction::mpiTypeFromScalar(torch::ScalarType scalar) const
+{
+  switch (scalar)
+  {
+    case torch::kFloat32:
+      return MPI_FLOAT;
+    case torch::kFloat64:
+      return MPI_DOUBLE;
+    case torch::kComplexFloat:
+      return MPI_CXX_FLOAT_COMPLEX;
+    case torch::kComplexDouble:
+      return MPI_CXX_DOUBLE_COMPLEX;
+    default:
+      mooseError("Unsupported tensor dtype for MPI communication: ", static_cast<int>(scalar));
+  }
+  return MPI_DATATYPE_NULL;
+}
+
+torch::Tensor
+DomainAction::pencilStage1Forward(const torch::Tensor & input) const
+{
+  const auto mpi_type = mpiTypeFromScalar(input.scalar_type());
+  const auto cpu_options = input.options().device(torch::kCPU);
+  const auto device_options = input.options();
+
+  const unsigned int px = _rank % _pencil_y_partitions;
+  const unsigned int group_base = _pencil_z_index[_rank] * _pencil_y_partitions;
+
+  std::vector<MPI_Request> send_requests(_pencil_y_partitions, MPI_REQUEST_NULL);
+  std::vector<torch::Tensor> send_buffers(_pencil_y_partitions);
+  torch::Tensor local_chunk;
+
+  for (unsigned int px_dest = 0; px_dest < _pencil_y_partitions; ++px_dest)
+  {
+    auto chunk = input
+                     .slice(0,
+                            _pencil_x_offsets[px_dest],
+                            _pencil_x_offsets[px_dest] + _pencil_x_sizes[px_dest])
+                     .contiguous();
+    if (px_dest == px)
+      local_chunk = chunk;
+    else
+    {
+      send_buffers[px_dest] = chunk.to(cpu_options);
+      const auto dest_rank = group_base + px_dest;
+      MPI_Isend(send_buffers[px_dest].data_ptr(),
+                send_buffers[px_dest].numel(),
+                mpi_type,
+                dest_rank,
+                10,
+                mpiComm(),
+                &send_requests[px_dest]);
+    }
+  }
+
+  torch::Tensor result = torch::empty(
+      {_pencil_x_sizes[px], static_cast<int64_t>(_n_global[1]), _n_local[2]}, device_options);
+
+  for (unsigned int py_src = 0; py_src < _pencil_y_partitions; ++py_src)
+  {
+    const auto source_rank = group_base + py_src;
+    torch::Tensor chunk_device;
+    if (source_rank == _rank)
+      chunk_device = local_chunk;
+    else
+    {
+      std::vector<int64_t> recv_shape = {
+          _pencil_x_sizes[px], _n_local_all[1][source_rank], _n_local_all[2][source_rank]};
+      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      MPI_Status status;
+      MPI_Recv(
+          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 10, mpiComm(), &status);
+      chunk_device = recv_cpu.to(device_options);
+    }
+    auto y_begin = _local_begin[1][source_rank];
+    auto y_end = _local_end[1][source_rank];
+    result.slice(1, y_begin, y_end).copy_(chunk_device);
+  }
+
+  MPI_Waitall(_pencil_y_partitions, send_requests.data(), MPI_STATUSES_IGNORE);
+  return result;
+}
+
+torch::Tensor
+DomainAction::pencilStage2Forward(const torch::Tensor & input) const
+{
+  const auto mpi_type = mpiTypeFromScalar(input.scalar_type());
+  const auto cpu_options = input.options().device(torch::kCPU);
+  const auto device_options = input.options();
+
+  const unsigned int px = _rank % _pencil_y_partitions;
+  const unsigned int y_final = _pencil_z_index[_rank];
+
+  std::vector<MPI_Request> send_requests(_pencil_z_partitions, MPI_REQUEST_NULL);
+  std::vector<torch::Tensor> send_buffers(_pencil_z_partitions);
+  torch::Tensor local_chunk;
+
+  for (unsigned int py_dest = 0; py_dest < _pencil_z_partitions; ++py_dest)
+  {
+    auto chunk = input
+                     .slice(1,
+                            _pencil_stage2_y_offsets[py_dest],
+                            _pencil_stage2_y_offsets[py_dest] + _pencil_stage2_y_sizes[py_dest])
+                     .contiguous();
+    if (py_dest == y_final)
+      local_chunk = chunk;
+    else
+    {
+      send_buffers[py_dest] = chunk.to(cpu_options);
+      const auto dest_rank = py_dest * _pencil_y_partitions + px;
+      MPI_Isend(send_buffers[py_dest].data_ptr(),
+                send_buffers[py_dest].numel(),
+                mpi_type,
+                dest_rank,
+                20,
+                mpiComm(),
+                &send_requests[py_dest]);
+    }
+  }
+
+  torch::Tensor result = torch::empty(
+      {_pencil_x_sizes[px], _pencil_stage2_y_sizes[y_final], static_cast<int64_t>(_n_global[2])},
+      device_options);
+
+  for (unsigned int z_src = 0; z_src < _pencil_z_partitions; ++z_src)
+  {
+    const auto source_rank = z_src * _pencil_y_partitions + px;
+    torch::Tensor chunk_device;
+    if (source_rank == _rank)
+      chunk_device = local_chunk;
+    else
+    {
+      std::vector<int64_t> recv_shape = {
+          _pencil_x_sizes[px], _pencil_stage2_y_sizes[y_final], _n_local_all[2][source_rank]};
+      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      MPI_Status status;
+      MPI_Recv(
+          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 20, mpiComm(), &status);
+      chunk_device = recv_cpu.to(device_options);
+    }
+    auto z_begin = _local_begin[2][source_rank];
+    auto z_end = _local_end[2][source_rank];
+    result.slice(2, z_begin, z_end).copy_(chunk_device);
+  }
+
+  MPI_Waitall(_pencil_z_partitions, send_requests.data(), MPI_STATUSES_IGNORE);
+  return result;
+}
+
+torch::Tensor
+DomainAction::pencilStage2Inverse(const torch::Tensor & input) const
+{
+  const auto mpi_type = mpiTypeFromScalar(input.scalar_type());
+  const auto cpu_options = input.options().device(torch::kCPU);
+  const auto device_options = input.options();
+
+  const unsigned int px = _rank % _pencil_y_partitions;
+  const unsigned int z_idx = _pencil_z_index[_rank];
+
+  std::vector<MPI_Request> send_requests(_pencil_z_partitions, MPI_REQUEST_NULL);
+  std::vector<torch::Tensor> send_buffers(_pencil_z_partitions);
+  torch::Tensor local_chunk;
+
+  for (unsigned int z_dest = 0; z_dest < _pencil_z_partitions; ++z_dest)
+  {
+    const auto dest_rank = z_dest * _pencil_y_partitions + px;
+    auto chunk = input.slice(2, _local_begin[2][dest_rank], _local_end[2][dest_rank]).contiguous();
+    if (z_dest == z_idx)
+      local_chunk = chunk;
+    else
+    {
+      send_buffers[z_dest] = chunk.to(cpu_options);
+      MPI_Isend(send_buffers[z_dest].data_ptr(),
+                send_buffers[z_dest].numel(),
+                mpi_type,
+                dest_rank,
+                21,
+                mpiComm(),
+                &send_requests[z_dest]);
+    }
+  }
+
+  torch::Tensor result = torch::empty(
+      {_pencil_x_sizes[px], static_cast<int64_t>(_n_global[1]), _n_local[2]}, device_options);
+
+  for (unsigned int py_src = 0; py_src < _pencil_z_partitions; ++py_src)
+  {
+    const auto source_rank = py_src * _pencil_y_partitions + px;
+    torch::Tensor chunk_device;
+    if (source_rank == _rank)
+      chunk_device = local_chunk;
+    else
+    {
+      std::vector<int64_t> recv_shape = {
+          _pencil_x_sizes[px], _pencil_stage2_y_sizes[py_src], _n_local[2]};
+      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      MPI_Status status;
+      MPI_Recv(
+          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 21, mpiComm(), &status);
+      chunk_device = recv_cpu.to(device_options);
+    }
+    auto y_begin = _pencil_stage2_y_offsets[py_src];
+    auto y_end = y_begin + _pencil_stage2_y_sizes[py_src];
+    result.slice(1, y_begin, y_end).copy_(chunk_device);
+  }
+
+  MPI_Waitall(_pencil_z_partitions, send_requests.data(), MPI_STATUSES_IGNORE);
+  return result;
+}
+
+torch::Tensor
+DomainAction::pencilStage1Inverse(const torch::Tensor & input) const
+{
+  const auto mpi_type = mpiTypeFromScalar(input.scalar_type());
+  const auto cpu_options = input.options().device(torch::kCPU);
+  const auto device_options = input.options();
+
+  const unsigned int px = _rank % _pencil_y_partitions;
+  const unsigned int z_idx = _pencil_z_index[_rank];
+  const unsigned int group_base = z_idx * _pencil_y_partitions;
+
+  std::vector<MPI_Request> send_requests(_pencil_y_partitions, MPI_REQUEST_NULL);
+  std::vector<torch::Tensor> send_buffers(_pencil_y_partitions);
+  torch::Tensor local_chunk;
+
+  for (unsigned int py_dest = 0; py_dest < _pencil_y_partitions; ++py_dest)
+  {
+    const auto dest_rank = group_base + py_dest;
+    auto chunk = input.slice(1, _local_begin[1][dest_rank], _local_end[1][dest_rank]).contiguous();
+    if (py_dest == px)
+      local_chunk = chunk;
+    else
+    {
+      send_buffers[py_dest] = chunk.to(cpu_options);
+      MPI_Isend(send_buffers[py_dest].data_ptr(),
+                send_buffers[py_dest].numel(),
+                mpi_type,
+                dest_rank,
+                11,
+                mpiComm(),
+                &send_requests[py_dest]);
+    }
+  }
+
+  torch::Tensor result =
+      torch::empty({static_cast<int64_t>(_n_global[0]), _n_local[1], _n_local[2]}, device_options);
+
+  for (unsigned int px_src = 0; px_src < _pencil_y_partitions; ++px_src)
+  {
+    const auto source_rank = group_base + px_src;
+    torch::Tensor chunk_device;
+    if (source_rank == _rank)
+      chunk_device = local_chunk;
+    else
+    {
+      std::vector<int64_t> recv_shape = {_pencil_x_sizes[px_src], _n_local[1], _n_local[2]};
+      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      MPI_Status status;
+      MPI_Recv(
+          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 11, mpiComm(), &status);
+      chunk_device = recv_cpu.to(device_options);
+    }
+    auto x_begin = _pencil_x_offsets[px_src];
+    auto x_end = x_begin + _pencil_x_sizes[px_src];
+    result.slice(0, x_begin, x_end).copy_(chunk_device);
+  }
+
+  MPI_Waitall(_pencil_y_partitions, send_requests.data(), MPI_STATUSES_IGNORE);
+  return result;
 }
 
 torch::Tensor
