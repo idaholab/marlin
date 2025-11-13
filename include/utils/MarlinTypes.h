@@ -26,8 +26,8 @@ typedef std::string TensorOutputBufferName;
 typedef std::string TensorOutputName;
 
 /// Name of an TensorOutput object
-// DerivativeStringClass(SwiftConstantName);
-typedef std::string SwiftConstantName;
+// DerivativeStringClass(MarlinConstantName);
+typedef std::string MarlinConstantName;
 
 /// Forward declarations
 class TensorBufferBase;

@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -19,7 +19,7 @@
 #include <torch/csrc/jit/ir/ir.h>
 
 /**
- * SwiftExpressionParser - A PEG-based mathematical expression parser for Swift
+ * MarlinExpressionParser - A PEG-based mathematical expression parser for Marlin
  *
  * This namespace contains a complete expression parser built on cpp-peglib that:
  * - Parses mathematical expressions into an Abstract Syntax Tree (AST)
@@ -41,7 +41,7 @@
  * 4. Differentiation computes symbolic derivatives
  * 5. Graph builder generates PyTorch JIT IR
  */
-namespace SwiftExpressionParser
+namespace MarlinExpressionParser
 {
 
 // Forward declarations
@@ -427,4 +427,4 @@ private:
   )";
 };
 
-} // namespace SwiftExpressionParser
+} // namespace MarlinExpressionParser

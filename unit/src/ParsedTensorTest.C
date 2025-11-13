@@ -1,14 +1,14 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
 
 #include "ParsedJITTensor.h"
-#include "SwiftExpressionParser.h"
-#include "SwiftUtils.h"
+#include "MarlinExpressionParser.h"
+#include "MarlinUtils.h"
 #include "MooseError.h"
 #include "gtest/gtest.h"
 
@@ -205,7 +205,7 @@ TEST(ParsedTensorTest, Parse)
 
 TEST(ParsedTensorTest, Substitute)
 {
-  SwiftExpressionParser::Parser parser;
+  MarlinExpressionParser::Parser parser;
 
   // Test basic variable substitution
   {
@@ -311,7 +311,7 @@ TEST(ParsedTensorTest, Substitute)
 
 TEST(ParsedTensorTest, ErrorHandling)
 {
-  SwiftExpressionParser::Parser parser;
+  MarlinExpressionParser::Parser parser;
 
   // Test invalid syntax - missing operand
   {
@@ -410,7 +410,7 @@ TEST(ParsedTensorTest, ErrorHandling)
 
 TEST(ParsedTensorTest, Simplify)
 {
-  SwiftExpressionParser::Parser parser;
+  MarlinExpressionParser::Parser parser;
 
   // Test constant folding - addition
   {
@@ -509,7 +509,7 @@ TEST(ParsedTensorTest, Simplify)
 
     auto simplified = expr->simplify();
     // sin(0) = 0
-    auto c = std::dynamic_pointer_cast<SwiftExpressionParser::Constant>(simplified);
+    auto c = std::dynamic_pointer_cast<MarlinExpressionParser::Constant>(simplified);
     ASSERT_TRUE(c != nullptr);
     EXPECT_NEAR(c->value(), 0.0, 1e-10);
   }
@@ -668,7 +668,7 @@ TEST(ParsedTensorTest, Constants)
 
   // Test that constants don't get confused with variables
   {
-    SwiftExpressionParser::Parser parser;
+    MarlinExpressionParser::Parser parser;
     std::unordered_set<std::string> constants{"pi"};
 
     auto expr = parser.parse("x + pi", constants);

@@ -3,7 +3,7 @@ Applications:
         exe_directory: ${ROOT_DIR}
         exe_name: marlin
         app_types:
-            - SwiftApp
+            - MarlinApp
         content_directory: doc/content
         show_warning: false
 

@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -11,10 +11,10 @@
 #include "hit/parse.h"
 #include "LatticeBoltzmannProblem.h"
 
-registerMooseAction("SwiftApp", AddTensorComputeAction, "add_tensor_ic");
-registerMooseAction("SwiftApp", AddTensorComputeAction, "add_tensor_bc");
-registerMooseAction("SwiftApp", AddTensorComputeAction, "add_tensor_compute");
-registerMooseAction("SwiftApp", AddTensorComputeAction, "add_tensor_postprocessor");
+registerMooseAction("MarlinApp", AddTensorComputeAction, "add_tensor_ic");
+registerMooseAction("MarlinApp", AddTensorComputeAction, "add_tensor_bc");
+registerMooseAction("MarlinApp", AddTensorComputeAction, "add_tensor_compute");
+registerMooseAction("MarlinApp", AddTensorComputeAction, "add_tensor_postprocessor");
 
 InputParameters
 AddTensorComputeAction::validParams()

@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -11,16 +11,16 @@
 #include "TensorProblem.h"
 #include "MooseEnum.h"
 #include "SetupMeshAction.h"
-#include "SwiftApp.h"
+#include "MarlinApp.h"
 #include "CreateProblemAction.h"
 
 #include <initializer_list>
 #include <util/Optional.h>
 
 // run this early, before any objects are constructed
-registerMooseAction("SwiftApp", DomainAction, "meta_action");
-registerMooseAction("SwiftApp", DomainAction, "add_mesh_generator");
-registerMooseAction("SwiftApp", DomainAction, "create_problem_custom");
+registerMooseAction("MarlinApp", DomainAction, "meta_action");
+registerMooseAction("MarlinApp", DomainAction, "add_mesh_generator");
+registerMooseAction("MarlinApp", DomainAction, "create_problem_custom");
 
 InputParameters
 DomainAction::validParams()
@@ -152,26 +152,26 @@ DomainAction::DomainAction(const InputParameters & parameters)
     //   std::cout << host_names[i] << '\t' << _local_ranks[i] << '\n';
 
     // pick a compute device for a list of available devices
-    auto swift_app = dynamic_cast<SwiftApp *>(&_app);
-    if (!swift_app)
+    auto marlin_app = dynamic_cast<MarlinApp *>(&_app);
+    if (!marlin_app)
       mooseError("This action requires a SwftApp object to be present.");
-    swift_app->setTorchDevice(_device_names[_local_ranks[_rank] % _device_names.size()], {});
+    marlin_app->setTorchDevice(_device_names[_local_ranks[_rank] % _device_names.size()], {});
 
     switch (_floating_precision)
     {
       case FloatingPrecision::DEVICE_DEFAULT:
       {
-        swift_app->setTorchPrecision("DEVICE_DEFAULT", {});
+        marlin_app->setTorchPrecision("DEVICE_DEFAULT", {});
         break;
       }
       case FloatingPrecision::DOUBLE:
       {
-        swift_app->setTorchPrecision("DOUBLE", {});
+        marlin_app->setTorchPrecision("DOUBLE", {});
         break;
       }
       case FloatingPrecision::SINGLE:
       {
-        swift_app->setTorchPrecision("SINGLE", {});
+        marlin_app->setTorchPrecision("SINGLE", {});
         break;
       }
       default:
@@ -359,7 +359,7 @@ DomainAction::partitionPencils()
 void
 DomainAction::act()
 {
-  if (_current_task == "meta_action" && _mesh_mode != MeshMode::SWIFT_MANUAL)
+  if (_current_task == "meta_action" && _mesh_mode != MeshMode::MARLIN_MANUAL)
   {
     // check if a SetupMesh action exists
     auto mesh_actions = _awh.getActions<SetupMeshAction>();
@@ -375,7 +375,7 @@ DomainAction::act()
   }
 
   // add a DomainMeshGenerator
-  if (_current_task == "add_mesh_generator" && _mesh_mode != MeshMode::SWIFT_MANUAL)
+  if (_current_task == "add_mesh_generator" && _mesh_mode != MeshMode::MARLIN_MANUAL)
   {
     // Don't do mesh generators when recovering or when the user has requested for us not to
     if ((_app.isRecovering() && _app.isUltimateMaster()) || _app.masterMesh())
@@ -392,13 +392,13 @@ DomainAction::act()
     params.set<Real>("ymin") = _min_global(1);
     params.set<Real>("zmin") = _min_global(2);
 
-    if (_mesh_mode == MeshMode::SWIFT_DOMAIN)
+    if (_mesh_mode == MeshMode::MARLIN_DOMAIN)
     {
       params.set<unsigned int>("nx") = _n_global[0];
       params.set<unsigned int>("ny") = _n_global[1];
       params.set<unsigned int>("nz") = _n_global[2];
     }
-    else if (_mesh_mode == MeshMode::SWIFT_DUMMY)
+    else if (_mesh_mode == MeshMode::MARLIN_DUMMY)
     {
       params.set<unsigned int>("nx") = 1;
       params.set<unsigned int>("ny") = 1;

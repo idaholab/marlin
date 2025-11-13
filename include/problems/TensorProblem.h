@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -11,8 +11,8 @@
 #include "FEProblem.h"
 #include "DomainInterface.h"
 #include "InputParameters.h"
-#include "SwiftTypes.h"
-#include "SwiftUtils.h"
+#include "MarlinTypes.h"
+#include "MarlinUtils.h"
 #include "TensorBuffer.h"
 
 // list tensor buffer includes here
@@ -37,7 +37,7 @@ class TensorOutput;
 class TensorSolver;
 class CreateTensorSolverAction;
 
-namespace Swift
+namespace Marlin
 {
 struct ConstantBase
 {
@@ -240,7 +240,7 @@ protected:
   std::shared_ptr<TensorSolver> _solver;
 
   /// parameters
-  std::map<std::string, std::unique_ptr<Swift::ConstantBase>> _constants;
+  std::map<std::string, std::unique_ptr<Marlin::ConstantBase>> _constants;
   std::set<std::string> _fetched_constants;
   std::list<Real> _literal_constants;
   bool _can_fetch_constants;
@@ -358,7 +358,7 @@ TensorProblem::getConstant(const std::string & name)
   const auto it = _constants.find(name);
   if (it != _constants.end())
   {
-    auto * t_param = dynamic_cast<Swift::Constant<T> *>(it->second.get());
+    auto * t_param = dynamic_cast<Marlin::Constant<T> *>(it->second.get());
     if (t_param == nullptr)
       mooseError("Fetching constant '",
                  name,
@@ -371,7 +371,7 @@ TensorProblem::getConstant(const std::string & name)
   }
   else
   {
-    auto param = std::make_unique<Swift::Constant<T>>();
+    auto param = std::make_unique<Marlin::Constant<T>>();
     const auto & ref = param->_value;
     _constants[name] = std::move(param);
     _fetched_constants.insert(name);
@@ -389,7 +389,7 @@ TensorProblem::declareConstant(const std::string & name, const T & value)
   const auto it = _constants.find(name);
   if (it != _constants.end())
   {
-    auto * t_param = dynamic_cast<Swift::Constant<T> *>(it->second.get());
+    auto * t_param = dynamic_cast<Marlin::Constant<T> *>(it->second.get());
     if (t_param == nullptr)
       mooseError("Declaring constant '",
                  name,
@@ -410,7 +410,7 @@ TensorProblem::declareConstant(const std::string & name, const T & value)
   }
   else
   {
-    auto param = std::make_unique<Swift::Constant<T>>();
+    auto param = std::make_unique<Marlin::Constant<T>>();
     param->_value = value;
     _constants[name] = std::move(param);
   }

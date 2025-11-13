@@ -1,4 +1,4 @@
-# Coverage requirement configuration for swift, enforced in CIVET testing
+# Coverage requirement configuration for Marlin, enforced in CIVET testing
 #
 # Valid configuration options:
 # - require_new: Requires this percentage of coverage for new lines added

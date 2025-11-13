@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -11,7 +11,7 @@
 
 using namespace torch::indexing;
 
-registerMooseObject("SwiftApp", LBMComputeForces);
+registerMooseObject("MarlinApp", LBMComputeForces);
 
 InputParameters
 LBMComputeForces::validParams()

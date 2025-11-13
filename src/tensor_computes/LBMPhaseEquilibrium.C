@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -8,7 +8,7 @@
 
 #include "LBMPhaseEquilibrium.h"
 
-registerMooseObject("SwiftApp", LBMPhaseEquilibrium);
+registerMooseObject("MarlinApp", LBMPhaseEquilibrium);
 
 InputParameters
 LBMPhaseEquilibrium::validParams()
