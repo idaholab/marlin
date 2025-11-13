@@ -1,5 +1,5 @@
 Content:
-    swift:
+    marlin:
         root_dir: ${ROOT_DIR}/doc/content
     moose:
         root_dir: ${MOOSE_DIR}/framework/doc/content
@@ -12,12 +12,12 @@ Renderer:
     type: MooseDocs.base.MaterializeRenderer
 Extensions:
     MooseDocs.extensions.navigation:
-        name: swift
-        repo: https://github.com/idaholab/swift
+        name: marlin
+        repo: https://github.com/idaholab/marlin
         menu:
             Getting Started:
-                Installing Swift: installation.md
-                Help Forum: https://github.com/idaholab/swift/discussions
+                Installing Marlin: installation.md
+                Help Forum: https://github.com/idaholab/marlin/discussions
             Documentation:
                 Syntax Index: syntax/index.md
                 Source Index: source/index.md
