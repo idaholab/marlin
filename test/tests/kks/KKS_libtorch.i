@@ -30,9 +30,6 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
     ymin = -50
     ymax = 50
 
-    # run on a CUDA device (adjust this to `cpu` if not available)
-    device_names = 'cuda'
-
     # automatically create a matching mesh
     mesh_mode = DUMMY
 []
