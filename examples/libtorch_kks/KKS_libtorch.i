@@ -41,14 +41,12 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
             buffer = c
             expression = '0.6 + (0.3-0.6)*${eta_IC}'
             extra_symbols = 'true'
-            enable_jit = false
         []
         [eta_IC]
             type = ParsedCompute
             buffer = eta
             expression = '${eta_IC}'
             extra_symbols = 'true'
-            enable_jit = false
         []
         [psi_init]
             type = ConstantTensor

@@ -11,7 +11,7 @@
 #include <valarray>
 #include <vector>
 
-registerMooseObject("SwiftApp", LibtorchGibbsEnergy);
+registerMooseObject("MarlinApp", LibtorchGibbsEnergy);
 
 InputParameters
 LibtorchGibbsEnergy::validParams()
