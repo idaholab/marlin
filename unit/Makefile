@@ -60,20 +60,20 @@ ADDITIONAL_LIBS     := $(FRAMEWORK_DIR)/contrib/gtest/libgtest.la
 # dep apps
 CURRENT_DIR        := $(shell pwd)
 APPLICATION_DIR    := $(CURRENT_DIR)/..
-APPLICATION_NAME   := swift
+APPLICATION_NAME   := marlin
 include            $(FRAMEWORK_DIR)/app.mk
 
 APPLICATION_DIR    := $(CURRENT_DIR)
-APPLICATION_NAME   := swift-unit
+APPLICATION_NAME   := marlin-unit
 BUILD_EXEC         := yes
 
 DEP_APPS    ?= $(shell $(FRAMEWORK_DIR)/scripts/find_dep_apps.py $(APPLICATION_NAME))
 include $(FRAMEWORK_DIR)/app.mk
 
-# Find all the swift unit test source files and include their dependencies.
-swift_unit_srcfiles := $(shell find $(CURRENT_DIR)/src -name "*.C")
-swift_unit_deps := $(patsubst %.C, %.$(obj-suffix).d, $(swift_unit_srcfiles))
--include $(swift_unit_deps)
+# Find all the marlin unit test source files and include their dependencies.
+marlin_unit_srcfiles := $(shell find $(CURRENT_DIR)/src -name "*.C")
+marlin_unit_deps := $(patsubst %.C, %.$(obj-suffix).d, $(marlin_unit_srcfiles))
+-include $(marlin_unit_deps)
 
 ###############################################################################
 # Additional special case targets should be added here

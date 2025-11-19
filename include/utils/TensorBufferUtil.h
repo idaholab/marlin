@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -9,7 +9,7 @@
 #pragma once
 
 #include "NEML2Utils.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 // #include "neml2/tensors/Scalar.h"
 
 #if 0

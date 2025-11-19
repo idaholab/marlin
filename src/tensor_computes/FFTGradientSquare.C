@@ -1,15 +1,15 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
 
 #include "FFTGradientSquare.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 
-registerMooseObject("SwiftApp", FFTGradientSquare);
+registerMooseObject("MarlinApp", FFTGradientSquare);
 
 InputParameters
 FFTGradientSquare::validParams()

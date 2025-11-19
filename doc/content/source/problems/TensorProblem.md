@@ -2,7 +2,7 @@
 
 !syntax description /Problem/TensorProblem
 
-`TensorProblem` is the main problem class in Swift. It adds the concepts of a [`Domain`](/DomainAction.md),
+`TensorProblem` is the main problem class in Marlin. It adds the concepts of a [`Domain`](/DomainAction.md),
  `TensorBuffers`, `TensorComputes`, and `TensorOutputs`.
 
 The TensorProblem object handles the execution of `TensorComputes`, schedules `TensorOutputs`, and supports
@@ -10,7 +10,7 @@ fast mapping for tensor buffers onto conforming meshes using the [!param](/Tenso
 
 ## Overview
 
-Coordinator for Swift tensor simulations: owns the Domain, schedules `TensorComputes`, and manages
+Coordinator for Marlin tensor simulations: owns the Domain, schedules `TensorComputes`, and manages
 `TensorOutputs`. Supports fast projection of buffers to mesh variables via
 [!param](/TensorBuffers/PlainTensorBuffer/map_to_aux_variable).
 

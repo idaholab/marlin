@@ -1,5 +1,5 @@
 #*                    DO NOT MODIFY THIS HEADER
-#*             Swift, a Fourier spectral solver for MOOSE
+#*            Marlin, a Fourier spectral solver for MOOSE
 #*
 #*            Copyright 2024 Battelle Energy Alliance, LLC
 #*                        ALL RIGHTS RESERVED
@@ -8,9 +8,9 @@
 #*             https://www.gnu.org/licenses/lgpl-2.1.html
 
 import subprocess
-from SwiftTestHarnessTestCase import SwiftTestHarnessTestCase
+from MarlinTestHarnessTestCase import MarlinTestHarnessTestCase
 
-class TestHarnessTester(SwiftTestHarnessTestCase):
+class TestHarnessTester(MarlinTestHarnessTestCase):
     def testShapeMismatch(self):
         """
         Test for error due to shape mismatch in HDF5Diff

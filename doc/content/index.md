@@ -1,10 +1,8 @@
 !config navigation breadcrumbs=False scrollspy=False
 
-!media swift.svg style=display:block;margin-left:auto;margin-right:auto;margin-top:1em;width:30%;
+!media marlin.svg style=display:block;margin-left:auto;margin-right:auto;margin-top:1em;width:30%;
 
-# Swift class=center style=font-weight:500;font-size:350%;margin-top:0
-
-# a Fourier spectral solver application based on the [MOOSE Finite Element Framework](http://mooseframework.org) class=center style=font-weight:300;font-size:150%
+# based on the [MOOSE Finite Element Framework](http://mooseframework.org) class=center style=font-weight:300;font-size:150%
 
 !row!
 !col! small=12 medium=4 large=4 icon=computer

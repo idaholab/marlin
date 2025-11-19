@@ -1,6 +1,6 @@
 /**********************************************************************/
 /*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*             Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -9,13 +9,13 @@
 #include "FFTMechanics.h"
 #include "DomainAction.h"
 #include "MooseError.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include <ATen/TensorIndexing.h>
 #include <ATen/core/TensorBody.h>
 #include <ATen/ops/unsqueeze_ops.h>
 #include <util/Optional.h>
 
-registerMooseObject("SwiftApp", FFTMechanics);
+registerMooseObject("MarlinApp", FFTMechanics);
 
 InputParameters
 FFTMechanics::validParams()
