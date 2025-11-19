@@ -84,7 +84,7 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
             concentrations = 'c'
             domega_detas = 'dG_dh'
             chem_pots = 'mu'
-            libtorch_model_file = 'swift:libtorch_gibbs_energy/torch_NN_gibbs_model.pt'
+            libtorch_model_file = 'marlin:libtorch_gibbs_energy/torch_NN_gibbs_model.pt'
         []
     []
     [Solve]
@@ -101,7 +101,7 @@ h_eta = 'eta^3*(6*eta^2-15*eta+10)'
             concentrations = 'c'
             domega_detas = 'dG_dh'
             chem_pots = 'mu'
-            libtorch_model_file = 'swift:libtorch_gibbs_energy/torch_NN_gibbs_model.pt'
+            libtorch_model_file = 'marlin:libtorch_gibbs_energy/torch_NN_gibbs_model.pt'
         []
         [dG_deta]
             type = ParsedCompute

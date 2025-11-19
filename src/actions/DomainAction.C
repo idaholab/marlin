@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Marlin, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -154,7 +154,7 @@ DomainAction::DomainAction(const InputParameters & parameters)
     // pick a compute device for a list of available devices
     auto marlin_app = dynamic_cast<MarlinApp *>(&_app);
     if (!marlin_app)
-      mooseError("This action requires a SwftApp object to be present.");
+      mooseError("This action requires a MarlinApp object to be present.");
     marlin_app->setTorchDevice(_device_names[_local_ranks[_rank] % _device_names.size()], {});
 
     switch (_floating_precision)

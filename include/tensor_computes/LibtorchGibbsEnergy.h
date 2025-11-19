@@ -1,5 +1,5 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
+/*                     DO NOT MODIFY THIS HEADER                      */
 /*             Swift, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
