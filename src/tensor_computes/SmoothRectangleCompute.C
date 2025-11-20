@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Marlin, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -58,7 +58,7 @@ void
 SmoothRectangleCompute::computeBuffer()
 {
   auto dim = _domain.getDim();
-  auto h_box = torch::zeros(_tensor_problem.getShape(), torch::kDouble);
+  auto h_box = torch::zeros(_tensor_problem.getShape(), MooseTensor::floatTensorOptions());
 
   // sharp interpolation
   if (_int_width <= 0.0)

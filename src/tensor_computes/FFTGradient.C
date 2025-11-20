@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Marlin, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -35,10 +35,6 @@ FFTGradient::FFTGradient(const InputParameters & parameters)
 void
 FFTGradient::computeBuffer()
 {
-  std::cout << "_x " << _direction << " = " << _x << std::endl;
-  std::cout << "_y " << _direction << " = " << _y << std::endl;
-  std::cout << "_z " << _direction << " = " << _z << std::endl;
-
   _u = _domain.ifft((_input_is_reciprocal ? _input : _domain.fft(_input)) *
                     _domain.getReciprocalAxis(_direction) * _i);
 }

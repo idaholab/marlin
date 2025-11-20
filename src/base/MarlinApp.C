@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Marlin, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -154,6 +154,9 @@ MarlinApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
   syntax.registerSyntaxType("TensorSolver/Predictors/*", "TensorPredictorName");
   registerMooseObjectTask("add_tensor_predictor", TensorPredictor, false);
   addTaskDependency("add_tensor_predictor", "create_tensor_solver");
+
+  // Register data file path
+  registerAppDataFilePath("marlin");
 
   // make sure all this gets run before `add_mortar_variable`
   addTaskDependency("add_mortar_variable", "add_tensor_predictor");
