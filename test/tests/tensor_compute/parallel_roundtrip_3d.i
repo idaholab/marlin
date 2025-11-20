@@ -96,6 +96,15 @@
   nonlinear_reciprocal = zero
 []
 
+[TensorOutputs]
+  [eta]
+    type = XDMFTensorOutput
+    buffer = 'eta'
+    output_mode = 'CELL'
+    enable_hdf5 = true
+  []
+[]
+
 [Problem]
   type = TensorProblem
 []

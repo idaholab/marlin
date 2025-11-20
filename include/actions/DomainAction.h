@@ -73,6 +73,11 @@ public:
   /// align a 1d tensor in a specific dimension
   torch::Tensor align(torch::Tensor t, unsigned int dim) const;
 
+  /// get local begin/end indices for a specific rank (real space)
+  void getLocalBounds(unsigned int rank,
+                      std::array<int64_t, 3> & begin,
+                      std::array<int64_t, 3> & end) const;
+
   /// check if debugging is enabled
   bool debug() const { return _debug; }
 

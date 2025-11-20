@@ -1270,6 +1270,21 @@ DomainAction::getKSquare() const
   return _k_square;
 }
 
+void
+DomainAction::getLocalBounds(unsigned int rank,
+                             std::array<int64_t, 3> & begin,
+                             std::array<int64_t, 3> & end) const
+{
+  if (rank >= _n_rank)
+    mooseError("Requested local bounds for invalid rank ", rank, " (n_rank=", _n_rank, ").");
+
+  for (const auto d : {0u, 1u, 2u})
+  {
+    begin[d] = _local_begin[d][rank];
+    end[d] = _local_end[d][rank];
+  }
+}
+
 torch::Tensor
 DomainAction::sum(const torch::Tensor & t) const
 {
