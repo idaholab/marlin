@@ -1,4 +1,4 @@
- <img src="https://github.com/idaholab/marlin/blob/main/doc/content/marlin.png?raw=true" width="80%" alt="Marlin Logo">
+ <img src="https://github.com/idaholab/marlin/blob/devel/doc/content/marlin.png?raw=true" width="80%" alt="Marlin Logo">
 
 **Marlin** is a device independent Fourier spectral solver application based on the [MOOSE Finite Element Framework](http://mooseframework.org). Marlin supports[^1] CPU, CUDA, and MPS[^2] with automatic detection of supported device precision.
 [<img align="right" src="https://civet.inl.gov/idaholab/marlin/main/branch_status.svg/">](https://civet.inl.gov/repo/idaholab/marlin/)
@@ -6,7 +6,7 @@
 [^1]: more compute device types might be supported, but have not been tested.
 [^2]: torch MPS supports only single precision calculations!
 
-> Note: Marlin was previously named Swift <img src="https://github.com/idaholab/marlin/blob/main/doc/content/swift.png?raw=true" height="20pt">
+> Note: Marlin was previously named Swift <img src="https://github.com/idaholab/marlin/blob/devel/doc/content/swift.png?raw=true" height="20pt">
 
 ## Contacts
 
