@@ -7,6 +7,28 @@
     compute_devices = 'cpu cuda mps'
     max_parallel = 1
   []
+
+  [gradient_cpu_slab]
+    type = CSVDiff
+    input = gradient.i
+    csvdiff = gradient_out.csv
+    cli_args = "Domain/device_names='cpu cpu cpu' Domain/device_weights='1 1 1' Domain/parallel_mode=FFT_SLAB"
+    requirement = 'The system shall be able to compute the gradient of a tensor field along a given axis'
+    compute_devices = 'cpu'
+    min_parallel = 3
+    max_parallel = 3
+  []
+  [gradient_cpu_pencil]
+    type = CSVDiff
+    input = gradient.i
+    csvdiff = gradient_out.csv
+    cli_args = "Domain/device_names='cpu cpu cpu cpu' Domain/device_weights='1 1 1 1' Domain/parallel_mode=FFT_PENCIL"
+    requirement = 'The system shall be able to compute the gradient of a tensor field along a given axis'
+    compute_devices = 'cpu'
+    min_parallel = 4
+    max_parallel = 4
+  []
+
   [gradient_square]
     type = CSVDiff
     input = gradient_square.i
