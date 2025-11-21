@@ -16,6 +16,10 @@
 
 #include <cstdlib>
 
+#ifdef LIBMESH_HAVE_HDF5
+#include "hdf5.h"
+#endif
+
 namespace MooseTensor
 {
 static struct MarlinGlobalSettings
@@ -165,6 +169,17 @@ MarlinApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
 void
 MarlinApp::registerApps()
 {
+  const std::string doc = "A threadsafe version of libhdf5 ";
+
+  #ifdef LIBMESH_HAVE_HDF5
+  // Check if the library is thread-safe
+  hbool_t is_threadsafe;
+  H5is_library_threadsafe(&is_threadsafe);
+  addCapability("hdf5_threadsafe", true, doc + "is available.");
+#else
+  addCapability("hdf5_threadsafe", false, doc + "is not available.");
+#endif
+
   registerApp(MarlinApp);
 }
 

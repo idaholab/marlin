@@ -9,5 +9,6 @@
     requirement = 'The system shall be able to output a vector valued tensor to XDMF'
     design = 'XDMFTensorOutput.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []

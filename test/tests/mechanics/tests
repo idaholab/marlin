@@ -6,6 +6,8 @@
     requirement = 'The system shall be able to solve a heterogeneous 2d mechanics problem with hyperelasticity.'
     design = 'FFTMechanics.md'
     abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [mechanics_3d]
     type = HDF5Diff
@@ -14,5 +16,7 @@
     requirement = 'The system shall be able to solve a heterogeneous 3d mechanics problem with hyperelasticity.'
     design = 'FFTMechanics.md'
     abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []

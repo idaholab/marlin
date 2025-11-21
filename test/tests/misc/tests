@@ -6,5 +6,7 @@
     requirement = 'The system shall be able to evaluate a function shifted in space and time'
     design = ShiftedFunction.md
     issues = '#6'
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []

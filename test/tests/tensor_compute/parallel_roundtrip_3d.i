@@ -3,8 +3,6 @@
   device_names = "cpu cpu cpu"
   device_weights = "1 1 1"
 
-  parallel_mode = FFT_SLAB
-
   dim = 3
   nx = 64
   ny = 64

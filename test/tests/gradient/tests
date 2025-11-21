@@ -5,6 +5,7 @@
     csvdiff = gradient_out.csv
     requirement = 'The system shall be able to compute the gradient of a tensor field along a given axis'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [gradient_square]
     type = CSVDiff
@@ -12,5 +13,6 @@
     csvdiff = gradient_square_out.csv
     requirement = 'The system shall be able to compute the square of the gradient of a tensor field'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []
