@@ -263,10 +263,9 @@ XDMFTensorOutput::writeLocalData()
       case OutputMode::NODE:
       {
         auto extended = extendTensor(*original_buffer);
-        buffer =
-            _transpose ? (_dim == 2 ? torch::transpose(extended, 0, 1).contiguous()
-                                    : torch::transpose(extended, 0, 2).contiguous())
-                       : extended;
+        buffer = _transpose ? (_dim == 2 ? torch::transpose(extended, 0, 1).contiguous()
+                                         : torch::transpose(extended, 0, 2).contiguous())
+                            : extended;
         break;
       }
 
@@ -374,14 +373,10 @@ XDMFTensorOutput::writeSerialXMF()
     const auto data_dims = _data_grid[is_cell ? 0 : 1];
     const auto dtype = original_buffer->dtype();
 
-    const char * dtype_str =
-        (dtype == torch::kInt32 || dtype == torch::kInt64) ? "Int" : "Float";
-    const std::string precision =
-        (dtype == torch::kFloat64 || dtype == torch::kInt64) ? "8"
-                                                             : (dtype == torch::kFloat32 ||
-                                                                dtype == torch::kInt32)
-                                                                   ? "4"
-                                                                   : "1";
+    const char * dtype_str = (dtype == torch::kInt32 || dtype == torch::kInt64) ? "Int" : "Float";
+    const std::string precision = (dtype == torch::kFloat64 || dtype == torch::kInt64)   ? "8"
+                                  : (dtype == torch::kFloat32 || dtype == torch::kInt32) ? "4"
+                                                                                         : "1";
 
     for (const auto & attr_name : component_names)
     {
@@ -476,13 +471,12 @@ XDMFTensorOutput::writeParallelXMF()
               ? "Int"
               : "Float";
       const std::string precision =
-          (original_buffer->dtype() == torch::kFloat64 ||
-           original_buffer->dtype() == torch::kInt64)
+          (original_buffer->dtype() == torch::kFloat64 || original_buffer->dtype() == torch::kInt64)
               ? "8"
-              : (original_buffer->dtype() == torch::kFloat32 ||
-                 original_buffer->dtype() == torch::kInt32)
-                    ? "4"
-                    : "1";
+          : (original_buffer->dtype() == torch::kFloat32 ||
+             original_buffer->dtype() == torch::kInt32)
+              ? "4"
+              : "1";
 
       for (const auto & attr_name : attr_names)
       {

@@ -46,8 +46,8 @@ private:
   void writeLocalData();
   void writeSerialXMF();
   void writeParallelXMF();
-  std::vector<std::string>
-  buildAttributeNames(const TensorInputBufferName & buffer_name, int64_t num_fields) const;
+  std::vector<std::string> buildAttributeNames(const TensorInputBufferName & buffer_name,
+                                               int64_t num_fields) const;
   unsigned int mappedAxis(unsigned int axis) const;
   std::vector<int64_t> localCellCounts(unsigned int rank) const;
   std::vector<int64_t> localNodeCounts(unsigned int rank) const;

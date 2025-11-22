@@ -20,6 +20,10 @@
 #include "hdf5.h"
 #endif
 
+#ifdef MPIX_CUDA_AWARE_SUPPORT
+#include <mpi-ext.h>
+#endif
+
 namespace MooseTensor
 {
 static struct MarlinGlobalSettings
@@ -169,16 +173,26 @@ MarlinApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
 void
 MarlinApp::registerApps()
 {
-  const std::string doc = "A threadsafe version of libhdf5 ";
-
-  #ifdef LIBMESH_HAVE_HDF5
-  // Check if the library is thread-safe
-  hbool_t is_threadsafe;
-  H5is_library_threadsafe(&is_threadsafe);
-  addCapability("hdf5_threadsafe", true, doc + "is available.");
+  {
+    const std::string doc = "A threadsafe version of libhdf5 ";
+#ifdef LIBMESH_HAVE_HDF5
+    // Check if the library is thread-safe
+    hbool_t is_threadsafe;
+    H5is_library_threadsafe(&is_threadsafe);
+    addCapability("hdf5_threadsafe", true, doc + "is available.");
 #else
-  addCapability("hdf5_threadsafe", false, doc + "is not available.");
+    addCapability("hdf5_threadsafe", false, doc + "is not available.");
 #endif
+  }
+
+  {
+    const std::string doc = "A CUDA enabled version of MPI ";
+    bool flag = false;
+#if defined(MPIX_CUDA_AWARE_SUPPORT)
+    flag = MPIX_Query_cuda_support();
+#endif
+    addCapability("mpi_cuda_aware", flag, doc + (flag ? "is available." : "is not available."));
+  }
 
   registerApp(MarlinApp);
 }
