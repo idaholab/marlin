@@ -76,6 +76,10 @@ DomainAction::validParams()
       "debug",
       false,
       "Enable additional debugging and diagnostics, such a checking for initialized tensors.");
+  params.addParam<bool>("gpu_aware_mpi",
+                        false,
+                        "Enable GPU-aware MPI. If true, tensors will not be copied to the CPU "
+                        "before MPI communication. Requires a CUDA-aware MPI implementation.");
   return params;
 }
 
@@ -99,7 +103,8 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _n_rank(_communicator.size()),
     _send_tensor(_n_rank),
     _recv_tensor(_n_rank),
-    _debug(getParam<bool>("debug"))
+    _debug(getParam<bool>("debug")),
+    _gpu_aware_mpi(getParam<bool>("gpu_aware_mpi"))
 {
   for (const auto d : make_range(3u))
   {
@@ -686,7 +691,11 @@ DomainAction::fftSlab(const torch::Tensor & t) const
       _recv_tensor[i] = slice;
     else
     {
-      _send_tensor[i] = slice.to(cpu_options);
+      if (_gpu_aware_mpi)
+        _send_tensor[i] = slice;
+      else
+        _send_tensor[i] = slice.to(cpu_options);
+
       MPI_Isend(_send_tensor[i].data_ptr(),
                 _send_tensor[i].numel(),
                 mpi_type,
@@ -706,10 +715,13 @@ DomainAction::fftSlab(const torch::Tensor & t) const
       else
         recv_shape = {_n_local_all[0][_rank], _n_local_all[1][i], _n_local_all[2][i]};
 
-      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
-      MPI_Recv(recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, i, 0, mpiComm(), &status);
-      _recv_tensor[i] = recv_cpu.to(device_options);
+      MPI_Recv(recv_tensor.data_ptr(), recv_tensor.numel(), mpi_type, i, 0, mpiComm(), &status);
+      if (_gpu_aware_mpi)
+        _recv_tensor[i] = recv_tensor;
+      else
+        _recv_tensor[i] = recv_tensor.to(device_options);
     }
 
   MPI_Waitall(_n_rank, send_requests.data(), MPI_STATUSES_IGNORE);
@@ -754,7 +766,11 @@ DomainAction::ifftSlab(const torch::Tensor & t) const
       _recv_tensor[i] = slice;
     else
     {
-      _send_tensor[i] = slice.to(cpu_options);
+      if (_gpu_aware_mpi)
+        _send_tensor[i] = slice;
+      else
+        _send_tensor[i] = slice.to(cpu_options);
+
       MPI_Isend(_send_tensor[i].data_ptr(),
                 _send_tensor[i].numel(),
                 mpi_type,
@@ -774,10 +790,13 @@ DomainAction::ifftSlab(const torch::Tensor & t) const
       else
         recv_shape = {_n_local_all[0][i], _n_local_all[1][_rank], _n_local_all[2][i]};
 
-      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
-      MPI_Recv(recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, i, 0, mpiComm(), &status);
-      _recv_tensor[i] = recv_cpu.to(device_options);
+      MPI_Recv(recv_tensor.data_ptr(), recv_tensor.numel(), mpi_type, i, 0, mpiComm(), &status);
+      if (_gpu_aware_mpi)
+        _recv_tensor[i] = recv_tensor;
+      else
+        _recv_tensor[i] = recv_tensor.to(device_options);
     }
 
   MPI_Waitall(_n_rank, send_requests.data(), MPI_STATUSES_IGNORE);
@@ -905,7 +924,11 @@ DomainAction::pencilStage1Forward(const torch::Tensor & input) const
       local_chunk = chunk;
     else
     {
-      send_buffers[px_dest] = chunk.to(cpu_options);
+      if (_gpu_aware_mpi)
+        send_buffers[px_dest] = chunk;
+      else
+        send_buffers[px_dest] = chunk.to(cpu_options);
+
       const auto dest_rank = group_base + px_dest;
       MPI_Isend(send_buffers[px_dest].data_ptr(),
                 send_buffers[px_dest].numel(),
@@ -930,11 +953,19 @@ DomainAction::pencilStage1Forward(const torch::Tensor & input) const
     {
       std::vector<int64_t> recv_shape = {
           _pencil_x_sizes[px], _n_local_all[1][source_rank], _n_local_all[2][source_rank]};
-      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
-      MPI_Recv(
-          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 10, mpiComm(), &status);
-      chunk_device = recv_cpu.to(device_options);
+      MPI_Recv(recv_tensor.data_ptr(),
+               recv_tensor.numel(),
+               mpi_type,
+               source_rank,
+               10,
+               mpiComm(),
+               &status);
+      if (_gpu_aware_mpi)
+        chunk_device = recv_tensor;
+      else
+        chunk_device = recv_tensor.to(device_options);
     }
     auto y_begin = _local_begin[1][source_rank];
     auto y_end = _local_end[1][source_rank];
@@ -970,7 +1001,11 @@ DomainAction::pencilStage2Forward(const torch::Tensor & input) const
       local_chunk = chunk;
     else
     {
-      send_buffers[py_dest] = chunk.to(cpu_options);
+      if (_gpu_aware_mpi)
+        send_buffers[py_dest] = chunk;
+      else
+        send_buffers[py_dest] = chunk.to(cpu_options);
+
       const auto dest_rank = py_dest * _pencil_y_partitions + px;
       MPI_Isend(send_buffers[py_dest].data_ptr(),
                 send_buffers[py_dest].numel(),
@@ -996,11 +1031,19 @@ DomainAction::pencilStage2Forward(const torch::Tensor & input) const
     {
       std::vector<int64_t> recv_shape = {
           _pencil_x_sizes[px], _pencil_stage2_y_sizes[y_final], _n_local_all[2][source_rank]};
-      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
-      MPI_Recv(
-          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 20, mpiComm(), &status);
-      chunk_device = recv_cpu.to(device_options);
+      MPI_Recv(recv_tensor.data_ptr(),
+               recv_tensor.numel(),
+               mpi_type,
+               source_rank,
+               20,
+               mpiComm(),
+               &status);
+      if (_gpu_aware_mpi)
+        chunk_device = recv_tensor;
+      else
+        chunk_device = recv_tensor.to(device_options);
     }
     auto z_begin = _local_begin[2][source_rank];
     auto z_end = _local_end[2][source_rank];
@@ -1033,7 +1076,11 @@ DomainAction::pencilStage2Inverse(const torch::Tensor & input) const
       local_chunk = chunk;
     else
     {
-      send_buffers[z_dest] = chunk.to(cpu_options);
+      if (_gpu_aware_mpi)
+        send_buffers[z_dest] = chunk;
+      else
+        send_buffers[z_dest] = chunk.to(cpu_options);
+
       MPI_Isend(send_buffers[z_dest].data_ptr(),
                 send_buffers[z_dest].numel(),
                 mpi_type,
@@ -1057,11 +1104,19 @@ DomainAction::pencilStage2Inverse(const torch::Tensor & input) const
     {
       std::vector<int64_t> recv_shape = {
           _pencil_x_sizes[px], _pencil_stage2_y_sizes[py_src], _n_local[2]};
-      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
-      MPI_Recv(
-          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 21, mpiComm(), &status);
-      chunk_device = recv_cpu.to(device_options);
+      MPI_Recv(recv_tensor.data_ptr(),
+               recv_tensor.numel(),
+               mpi_type,
+               source_rank,
+               21,
+               mpiComm(),
+               &status);
+      if (_gpu_aware_mpi)
+        chunk_device = recv_tensor;
+      else
+        chunk_device = recv_tensor.to(device_options);
     }
     auto y_begin = _pencil_stage2_y_offsets[py_src];
     auto y_end = y_begin + _pencil_stage2_y_sizes[py_src];
@@ -1095,7 +1150,11 @@ DomainAction::pencilStage1Inverse(const torch::Tensor & input) const
       local_chunk = chunk;
     else
     {
-      send_buffers[py_dest] = chunk.to(cpu_options);
+      if (_gpu_aware_mpi)
+        send_buffers[py_dest] = chunk;
+      else
+        send_buffers[py_dest] = chunk.to(cpu_options);
+
       MPI_Isend(send_buffers[py_dest].data_ptr(),
                 send_buffers[py_dest].numel(),
                 mpi_type,
@@ -1118,11 +1177,19 @@ DomainAction::pencilStage1Inverse(const torch::Tensor & input) const
     else
     {
       std::vector<int64_t> recv_shape = {_pencil_x_sizes[px_src], _n_local[1], _n_local[2]};
-      auto recv_cpu = torch::empty(recv_shape, cpu_options);
+      auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
-      MPI_Recv(
-          recv_cpu.data_ptr(), recv_cpu.numel(), mpi_type, source_rank, 11, mpiComm(), &status);
-      chunk_device = recv_cpu.to(device_options);
+      MPI_Recv(recv_tensor.data_ptr(),
+               recv_tensor.numel(),
+               mpi_type,
+               source_rank,
+               11,
+               mpiComm(),
+               &status);
+      if (_gpu_aware_mpi)
+        chunk_device = recv_tensor;
+      else
+        chunk_device = recv_tensor.to(device_options);
     }
     auto x_begin = _pencil_x_offsets[px_src];
     auto x_end = x_begin + _pencil_x_sizes[px_src];

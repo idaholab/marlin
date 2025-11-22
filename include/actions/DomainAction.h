@@ -210,6 +210,9 @@ protected:
   /// enable debugging
   const bool _debug;
 
+  /// enable GPU-aware MPI
+  const bool _gpu_aware_mpi;
+
   /// helper utilities
   MPI_Comm mpiComm() const;
   MPI_Datatype mpiTypeFromScalar(torch::ScalarType scalar) const;
