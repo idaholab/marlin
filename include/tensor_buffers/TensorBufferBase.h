@@ -44,6 +44,15 @@ public:
   /// get a raw torch tensor representation
   virtual const torch::Tensor & getRawCPUTensor() = 0;
 
+  /// get an unpadded view of the tensor
+  virtual torch::Tensor getUnpaddedTensor() = 0;
+
+  /// get an unpadded view of the CPU tensor
+  virtual torch::Tensor getUnpaddedCPUTensor() = 0;
+
+  /// request a CPU copy
+  virtual void requestCPUCopy() = 0;
+
   /// expand the tensor to full dimensions
   void expand();
 

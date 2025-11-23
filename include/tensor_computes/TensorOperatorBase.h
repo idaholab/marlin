@@ -99,7 +99,7 @@ TensorOperatorBase::getInputBufferByName(const TensorInputBufferName & buffer_na
                                          unsigned int ghost_layers)
 {
   _requested_buffers.insert(buffer_name);
-  auto & buffer = _tensor_problem.getBuffer<T>(buffer_name);
+  auto & buffer = _tensor_problem.getBufferHelper<T>(buffer_name);
   buffer.requestGhostLayers(ghost_layers);
   return buffer.getTensor(ghost_layers);
 }

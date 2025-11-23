@@ -24,7 +24,16 @@ public:
   virtual std::size_t advanceState() override;
   virtual void clearStates() override;
 
-  T & getTensor(unsigned int ghost_layers = 0);
+  T & getTensor(unsigned int ghost_layers = 0)
+  {
+    // We always return the full padded tensor.
+    // The user is responsible for handling the padding if they requested fewer layers.
+    // But typically they request max or 0, and if 0, they should use getUnpaddedTensor()
+    // if they want to be strict, or just operate on the padded one.
+    // Actually, ParsedCompute requests 0 but operates on whatever it gets.
+    // FiniteDifferenceLaplacian requests >0 and expects padding.
+    return _u;
+  }
   const std::vector<T> & getOldTensor(std::size_t states_requested);
 
   virtual const torch::Tensor & getRawTensor() const override;
@@ -36,25 +45,33 @@ public:
   }
   unsigned int getMaxGhostLayers() const { return _max_ghost_layers; }
 
-  T & getUnpaddedTensor() { return _unpadded_u; }
+  // Return by value (view)
+  virtual torch::Tensor getUnpaddedTensor() override
+  {
+    if (_unpadded_slice.empty())
+      return _u;
+    return _u.index(_unpadded_slice);
+  }
 
+  virtual torch::Tensor getUnpaddedCPUTensor() override
+  {
+    if (_unpadded_slice.empty())
+      return _u_cpu;
+    return _u_cpu.index(_unpadded_slice);
+  }
+
+  virtual void requestCPUCopy() override { _cpu_copy_requested = true; }
 
 protected:
-  /// current state of the tensor (interior)
+  /// current state of the tensor (interior + padding)
   T _u;
 
-  /// padded tensor storage (if ghost layers are used)
-  T _padded_u;
-
-  /// unpadded view of the tensor
-  T _unpadded_u;
-
-
-  /// views for different ghost layer requests
-  std::map<unsigned int, T> _views;
+  /// slice indices for the unpadded view
+  std::vector<torch::indexing::TensorIndex> _unpadded_slice;
 
   /// max ghost layers requested
   unsigned int _max_ghost_layers = 0;
+
 
   /// potential CPU copy of the tensor (if requested)
   T _u_cpu;
@@ -122,26 +139,7 @@ TensorBuffer<T>::getRawCPUTensor()
   return _u_cpu;
 }
 
-template <typename T>
-T &
-TensorBuffer<T>::getTensor(unsigned int ghost_layers)
-{
-  if (ghost_layers == 0)
-    return _u;
 
-  // If we haven't initialized yet, we might need to create a placeholder in the map
-  // to return a reference to.
-  if (_views.find(ghost_layers) == _views.end())
-  {
-    // Create an empty tensor in the map. It will be populated in init().
-    _views[ghost_layers] = T();
-  }
-
-  // Update max ghost layers required
-  setMaxGhostLayers(ghost_layers);
-
-  return _views[ghost_layers];
-}
 
 template <typename T>
 const std::vector<T> &

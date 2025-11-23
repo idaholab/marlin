@@ -55,7 +55,12 @@ TensorOutput::TensorOutput(const InputParameters & parameters)
   const TensorBufferBase & getBufferBase(const std::string & buffer_name);
 
   for (const auto & name : getParam<std::vector<TensorInputBufferName>>("buffer"))
-    _out_buffers[name] = &_tensor_problem.getBufferBase(name).getRawCPUTensor();
+  {
+    auto & buffer = _tensor_problem.getBufferBase(name);
+    buffer.requestCPUCopy();
+    _out_buffers[name] = &buffer;
+  }
+
 }
 
 bool

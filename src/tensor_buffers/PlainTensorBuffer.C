@@ -35,8 +35,7 @@ PlainTensorBuffer::init()
   if (_max_ghost_layers == 0)
   {
     _u = torch::zeros(shape, MooseTensor::floatTensorOptions());
-    _padded_u = _u;
-    _unpadded_u = _u;
+    _unpadded_slice.clear();
   }
   else
   {
@@ -45,52 +44,15 @@ PlainTensorBuffer::init()
     for (unsigned int i = 0; i < dim; ++i)
       padded_shape[padded_shape.size() - 1 - i] += 2 * _max_ghost_layers;
 
-    _padded_u = torch::zeros(padded_shape, MooseTensor::floatTensorOptions());
+    _u = torch::zeros(padded_shape, MooseTensor::floatTensorOptions());
 
-    // _u is now the full padded tensor (default for computes)
-    _u = _padded_u;
-
-    // Create unpadded view for output
-    std::vector<torch::indexing::TensorIndex> slice;
+    // Create slice for unpadded view
+    _unpadded_slice.clear();
     for (size_t i = 0; i < shape.size() - dim; ++i)
-      slice.push_back(torch::indexing::Slice()); // All extra dims
+      _unpadded_slice.push_back(torch::indexing::Slice()); // All extra dims
     for (unsigned int i = 0; i < dim; ++i)
-      slice.push_back(torch::indexing::Slice(
+      _unpadded_slice.push_back(torch::indexing::Slice(
           static_cast<int64_t>(_max_ghost_layers), -static_cast<int64_t>(_max_ghost_layers)));
-
-    _unpadded_u = _padded_u.index(slice);
-  }
-
-  // Initialize views map
-  // We need to update all views that have been requested
-  for (auto & pair : _views)
-  {
-    unsigned int ghosts = pair.first;
-    if (ghosts == _max_ghost_layers)
-    {
-      pair.second = _padded_u;
-    }
-    else if (ghosts == 0)
-    {
-      pair.second = _unpadded_u;
-    }
-    else
-    {
-      // Slice _padded_u to get 'ghosts' layers
-      // The padding is _max_ghost_layers.
-      // We want center + ghosts.
-      // Start index: _max_ghost_layers - ghosts
-      // End index: -(_max_ghost_layers - ghosts)
-
-      std::vector<torch::indexing::TensorIndex> view_slice;
-      unsigned int diff = _max_ghost_layers - ghosts;
-      for (size_t i = 0; i < shape.size() - dim; ++i)
-        view_slice.push_back(torch::indexing::Slice());
-      for (unsigned int i = 0; i < dim; ++i)
-        view_slice.push_back(torch::indexing::Slice(diff, -diff));
-
-      pair.second = _padded_u.index(view_slice);
-    }
   }
 }
 

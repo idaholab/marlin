@@ -185,23 +185,34 @@ ParsedCompute::computeBuffer()
     _time_tensor = torch::tensor(_time, MooseTensor::floatTensorOptions());
 
   // Evaluate using JIT-compiled graph
-  _u = _parser.eval(_params);
+  auto result = _parser.eval(_params);
 
   if (_is_integer)
-    _u = _u.to(MooseTensor::intTensorOptions());
+    result = result.to(MooseTensor::intTensorOptions());
 
   // optionally expand the tensor
   switch (_expand)
   {
     case ExpandEnum::REAL:
-      _u = _u.expand(_domain.getShape());
+      result = result.expand(_domain.getShape());
       break;
 
     case ExpandEnum::RECIPROCAL:
-      _u = _u.expand(_domain.getReciprocalShape());
+      result = result.expand(_domain.getReciprocalShape());
       break;
 
     case ExpandEnum::NONE:
       break;
   }
+
+  // Try to copy into unpadded view first to preserve ghost layers if they exist
+  const auto & buffer_name = getParam<TensorOutputBufferName>("buffer");
+  auto & buffer = _tensor_problem.getBufferHelper<torch::Tensor>(buffer_name);
+  auto unpadded = buffer.getUnpaddedTensor();
+  if (unpadded.sizes() == result.sizes())
+    unpadded.copy_(result);
+  else if (_u.sizes() == result.sizes())
+    _u.copy_(result);
+  else
+    _u = result;
 }

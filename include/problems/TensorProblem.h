@@ -118,6 +118,11 @@ public:
   /// returns a reference to a copy of buffer_name that is guaranteed to be contiguous and located on the CPU device
   const torch::Tensor & getRawCPUBuffer(const std::string & buffer_name);
 
+  /// helper to get the TensorBuffer wrapper object that holds the actual tensor data
+  template <typename T = torch::Tensor>
+  TensorBuffer<T> & getBufferHelper(const std::string & buffer_name);
+
+
   virtual Real & subDt() { return _sub_dt; }
   virtual Real & subTime() { return _sub_time; }
   virtual Real & outputTime() { return _output_time; }
@@ -173,9 +178,7 @@ protected:
   /// perform output tasks
   void executeTensorOutputs(const ExecFlagType & exec_type);
 
-  /// helper to get the TensorBuffer wrapper object that holds the actual tensor data
-  template <typename T = torch::Tensor>
-  TensorBuffer<T> & getBufferHelper(const std::string & buffer_name);
+
 
   /// tensor options
   const torch::TensorOptions _options;
