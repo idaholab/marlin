@@ -30,6 +30,7 @@ FiniteDifferenceLaplacian::computeBuffer()
 {
   const auto & grid_spacing = _domain.getGridSpacing();
 
+
   // Use convolution for efficient stencil application
   // Construct kernel
   torch::Tensor kernel;
@@ -44,7 +45,7 @@ FiniteDifferenceLaplacian::computeBuffer()
     auto input = _u_in.view({1, 1, _u_in.size(0)});
     auto result = torch::nn::functional::conv1d(
         input, kernel, torch::nn::functional::Conv1dFuncOptions().padding(0));
-    _u = result.view(_u.sizes());
+    _u.copy_(result.view(_u.sizes()));
   }
   else if (_dim == 2)
   {
@@ -66,7 +67,7 @@ FiniteDifferenceLaplacian::computeBuffer()
     auto input = _u_in.view({1, 1, _u_in.size(0), _u_in.size(1)});
     auto result = torch::nn::functional::conv2d(
         input, kernel, torch::nn::functional::Conv2dFuncOptions().padding(0));
-    _u = result.view(_u.sizes());
+    _u.copy_(result.view(_u.sizes()));
   }
   else if (_dim == 3)
   {
@@ -92,6 +93,6 @@ FiniteDifferenceLaplacian::computeBuffer()
     auto input = _u_in.view({1, 1, _u_in.size(0), _u_in.size(1), _u_in.size(2)});
     auto result = torch::nn::functional::conv3d(
         input, kernel, torch::nn::functional::Conv3dFuncOptions().padding(0));
-    _u = result.view(_u.sizes());
+    _u.copy_(result.view(_u.sizes()));
   }
 }

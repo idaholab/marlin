@@ -262,7 +262,7 @@ XDMFTensorOutput::writeLocalData()
     {
       case OutputMode::NODE:
       {
-        auto extended = extendTensor(*original_buffer);
+        auto extended = extendTensor(original_buffer->getUnpaddedTensor());
         buffer =
             _transpose ? (_dim == 2 ? torch::transpose(extended, 0, 1).contiguous()
                                     : torch::transpose(extended, 0, 2).contiguous())
@@ -273,9 +273,10 @@ XDMFTensorOutput::writeLocalData()
       case OutputMode::OVERSIZED_NODAL:
       case OutputMode::CELL:
       {
-        buffer = _transpose ? (_dim == 2 ? torch::transpose(*original_buffer, 0, 1).contiguous()
-                                         : torch::transpose(*original_buffer, 0, 2).contiguous())
-                            : *original_buffer;
+        auto & unpadded = original_buffer->getUnpaddedTensor();
+        buffer = _transpose ? (_dim == 2 ? torch::transpose(unpadded, 0, 1).contiguous()
+                                         : torch::transpose(unpadded, 0, 2).contiguous())
+                            : unpadded;
         break;
       }
     }
@@ -361,7 +362,7 @@ XDMFTensorOutput::writeSerialXMF()
     const auto output_mode = _output_mode[buffer_name];
     const bool is_cell = output_mode == OutputMode::CELL;
 
-    const auto sizes = original_buffer->sizes();
+    const auto sizes = original_buffer->getUnpaddedTensor().sizes();
     if (sizes.size() < _dim)
       mooseError("Tensor has fewer dimensions than specified spatial dimension.");
 
@@ -461,7 +462,7 @@ XDMFTensorOutput::writeParallelXMF()
       if (!original_buffer->defined())
         continue;
 
-      const auto sizes = original_buffer->sizes();
+      const auto sizes = original_buffer->getUnpaddedTensor().sizes();
       if (sizes.size() < _dim)
         mooseError("Tensor has fewer dimensions than specified spatial dimension.");
 

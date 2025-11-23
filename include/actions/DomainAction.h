@@ -84,6 +84,9 @@ public:
   /// get number of ghost layers
   unsigned int getGhostLayers() const { return _ghost_layers; }
 
+  /// update ghost layers
+  void updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) const;
+
 protected:
   void gridChanged();
 
@@ -233,7 +236,6 @@ protected:
   torch::Tensor pencilStage1Inverse(const torch::Tensor & input) const;
 
   /// update ghost layers
-  void updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) const;
 };
 
 template <typename T>

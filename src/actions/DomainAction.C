@@ -353,6 +353,7 @@ DomainAction::partitionSlabs()
   _local_end[2].assign(_n_rank, _n_global[2]);
 
   // slice the real space into x-z slabs stacked in y direction
+  // slice the real space into x-z slabs stacked in y direction
   _local_axis[0] = _global_axis[0].slice(0, 0, _n_global[0]);
   _local_axis[1] = _global_axis[1].slice(1, _local_begin[1][_rank], _local_end[1][_rank]);
   _n_local[0] = _n_global[0];
@@ -657,9 +658,14 @@ DomainAction::partitionRealSpace()
   _n_local[2] = _n_local_all[2][_rank];
 
   // Slice global axes
-  _local_axis[0] = _global_axis[0].slice(0, _local_begin[0][_rank], _local_end[0][_rank]);
-  _local_axis[1] = _global_axis[1].slice(1, _local_begin[1][_rank], _local_end[1][_rank]);
-  _local_axis[2] = _global_axis[2].slice(2, _local_begin[2][_rank], _local_end[2][_rank]);
+  // Slice global axes
+  for (unsigned int d = 0; d < 3; ++d)
+  {
+    if (d < _dim)
+      _local_axis[d] = _global_axis[d].slice(d, _local_begin[d][_rank], _local_end[d][_rank]);
+    else
+      _local_axis[d] = _global_axis[d];
+  }
 
   // Reciprocal axes are not really used in REAL_SPACE mode in the same way,
   // but we can just keep them global or slice them similarly if needed.
@@ -1360,6 +1366,8 @@ DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) co
   };
 
   // Dimension 0 (X) exchange
+  if (0 < _dim)
+  {
   if (_real_space_partitions[0] > 1)
   {
     const int left_rank =
@@ -1373,7 +1381,7 @@ DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) co
         torch::empty_like(send_left, _gpu_aware_mpi ? device_options : cpu_options);
 
     // Send to right, receive from left
-    auto send_right = t.slice(0, -2 * ghost_layers, -ghost_layers).contiguous();
+    auto send_right = t.slice(0, t.size(0) - 2 * ghost_layers, t.size(0) - ghost_layers).contiguous();
     auto recv_left_buf =
         torch::empty_like(send_right, _gpu_aware_mpi ? device_options : cpu_options);
 
@@ -1411,17 +1419,30 @@ DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) co
 
     if (!_gpu_aware_mpi)
     {
-      t.slice(0, -ghost_layers, t.size(0)).copy_(recv_right_buf.to(device_options));
+      t.slice(0, t.size(0) - ghost_layers, t.size(0)).copy_(recv_right_buf.to(device_options));
       t.slice(0, 0, ghost_layers).copy_(recv_left_buf.to(device_options));
     }
     else
     {
-      t.slice(0, -ghost_layers, t.size(0)).copy_(recv_right_buf);
+      t.slice(0, t.size(0) - ghost_layers, t.size(0)).copy_(recv_right_buf);
       t.slice(0, 0, ghost_layers).copy_(recv_left_buf);
     }
   }
+  else
+  {
+    // Single rank periodicity
+    // Left ghost <- Right inner
+    auto dest = t.slice(0, 0, ghost_layers);
+    auto src = t.slice(0, t.size(0) - 2 * ghost_layers, t.size(0) - ghost_layers);
+    dest.copy_(src);
+    // Right ghost <- Left inner
+    t.slice(0, t.size(0) - ghost_layers, t.size(0)).copy_(t.slice(0, ghost_layers, 2 * ghost_layers));
+  }
+  }
 
   // Dimension 1 (Y) exchange
+  if (1 < _dim)
+  {
   if (_real_space_partitions[1] > 1)
   {
     const int top_rank =
@@ -1433,7 +1454,7 @@ DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) co
     auto recv_bottom_buf =
         torch::empty_like(send_top, _gpu_aware_mpi ? device_options : cpu_options);
 
-    auto send_bottom = t.slice(1, -2 * ghost_layers, -ghost_layers).contiguous();
+    auto send_bottom = t.slice(1, t.size(1) - 2 * ghost_layers, t.size(1) - ghost_layers).contiguous();
     auto recv_top_buf =
         torch::empty_like(send_bottom, _gpu_aware_mpi ? device_options : cpu_options);
 
@@ -1471,17 +1492,28 @@ DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) co
 
     if (!_gpu_aware_mpi)
     {
-      t.slice(1, -ghost_layers, t.size(1)).copy_(recv_bottom_buf.to(device_options));
+      t.slice(1, t.size(1) - ghost_layers, t.size(1)).copy_(recv_bottom_buf.to(device_options));
       t.slice(1, 0, ghost_layers).copy_(recv_top_buf.to(device_options));
     }
     else
     {
-      t.slice(1, -ghost_layers, t.size(1)).copy_(recv_bottom_buf);
+      t.slice(1, t.size(1) - ghost_layers, t.size(1)).copy_(recv_bottom_buf);
       t.slice(1, 0, ghost_layers).copy_(recv_top_buf);
     }
   }
+  else
+  {
+    // Single rank periodicity
+    auto dest = t.slice(1, 0, ghost_layers);
+    auto src = t.slice(1, t.size(1) - 2 * ghost_layers, t.size(1) - ghost_layers);
+    dest.copy_(src);
+    t.slice(1, t.size(1) - ghost_layers, t.size(1)).copy_(t.slice(1, ghost_layers, 2 * ghost_layers));
+  }
+  }
 
   // Dimension 2 (Z) exchange
+  if (2 < _dim)
+  {
   if (_real_space_partitions[2] > 1)
   {
     const int front_rank =
@@ -1493,7 +1525,7 @@ DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) co
     auto recv_back_buf =
         torch::empty_like(send_front, _gpu_aware_mpi ? device_options : cpu_options);
 
-    auto send_back = t.slice(2, -2 * ghost_layers, -ghost_layers).contiguous();
+    auto send_back = t.slice(2, t.size(2) - 2 * ghost_layers, t.size(2) - ghost_layers).contiguous();
     auto recv_front_buf =
         torch::empty_like(send_back, _gpu_aware_mpi ? device_options : cpu_options);
 
@@ -1531,14 +1563,23 @@ DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) co
 
     if (!_gpu_aware_mpi)
     {
-      t.slice(2, -ghost_layers, t.size(2)).copy_(recv_back_buf.to(device_options));
+      t.slice(2, t.size(2) - ghost_layers, t.size(2)).copy_(recv_back_buf.to(device_options));
       t.slice(2, 0, ghost_layers).copy_(recv_front_buf.to(device_options));
     }
     else
     {
-      t.slice(2, -ghost_layers, t.size(2)).copy_(recv_back_buf);
+      t.slice(2, t.size(2) - ghost_layers, t.size(2)).copy_(recv_back_buf);
       t.slice(2, 0, ghost_layers).copy_(recv_front_buf);
     }
+  }
+  else
+  {
+    // Single rank periodicity
+    auto dest = t.slice(2, 0, ghost_layers);
+    auto src = t.slice(2, t.size(2) - 2 * ghost_layers, t.size(2) - ghost_layers);
+    dest.copy_(src);
+    t.slice(2, t.size(2) - ghost_layers, t.size(2)).copy_(t.slice(2, ghost_layers, 2 * ghost_layers));
+  }
   }
 }
 

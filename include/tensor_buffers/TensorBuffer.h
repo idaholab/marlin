@@ -30,11 +30,14 @@ public:
   virtual const torch::Tensor & getRawTensor() const override;
   virtual const torch::Tensor & getRawCPUTensor() override;
 
-  void setMaxGhostLayers(unsigned int layers)
+  void requestGhostLayers(unsigned int layers)
   {
     _max_ghost_layers = std::max(_max_ghost_layers, layers);
   }
   unsigned int getMaxGhostLayers() const { return _max_ghost_layers; }
+
+  T & getUnpaddedTensor() { return _unpadded_u; }
+
 
 protected:
   /// current state of the tensor (interior)
@@ -42,6 +45,10 @@ protected:
 
   /// padded tensor storage (if ghost layers are used)
   T _padded_u;
+
+  /// unpadded view of the tensor
+  T _unpadded_u;
+
 
   /// views for different ghost layer requests
   std::map<unsigned int, T> _views;

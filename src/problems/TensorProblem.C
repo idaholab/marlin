@@ -81,19 +81,26 @@ TensorProblem::init()
   }
 
   // initialize tensors
+  // First, we need to let all computes register their ghost layer requirements
+  for (auto & initializer : _ics)
+    initializer->init();
+  for (auto & cmp : _computes)
+    cmp->init();
+
+  // Now initialize buffers with the aggregated ghost layer info
   for (auto pair : _tensor_buffer)
     pair.second->init();
+
+
+  // compute grid dependent quantities
+  gridChanged();
 
   // compute grid dependent quantities
   gridChanged();
 
   // init computes (must happen before dependency update)
-  for (auto & initializer : _ics)
-    initializer->init();
+  // Already done above to register ghost layers
 
-  // init computes (must happen before dependency update)
-  for (auto & cmp : _computes)
-    cmp->init();
 
   // update dependencies
   if (_solver)
