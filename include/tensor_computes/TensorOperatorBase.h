@@ -50,10 +50,11 @@ public:
 
 protected:
   template <typename T = torch::Tensor>
-  const T & getInputBuffer(const std::string & param);
+  const T & getInputBuffer(const std::string & param, unsigned int ghost_layers = 0);
 
   template <typename T = torch::Tensor>
-  const T & getInputBufferByName(const TensorInputBufferName & buffer_name);
+  const T & getInputBufferByName(const TensorInputBufferName & buffer_name,
+                                 unsigned int ghost_layers = 0);
 
   template <typename T = torch::Tensor>
   T & getOutputBuffer(const std::string & param);
@@ -87,17 +88,18 @@ protected:
 
 template <typename T>
 const T &
-TensorOperatorBase::getInputBuffer(const std::string & param)
+TensorOperatorBase::getInputBuffer(const std::string & param, unsigned int ghost_layers)
 {
-  return getInputBufferByName<T>(getParam<TensorInputBufferName>(param));
+  return getInputBufferByName<T>(getParam<TensorInputBufferName>(param), ghost_layers);
 }
 
 template <typename T>
 const T &
-TensorOperatorBase::getInputBufferByName(const TensorInputBufferName & buffer_name)
+TensorOperatorBase::getInputBufferByName(const TensorInputBufferName & buffer_name,
+                                         unsigned int ghost_layers)
 {
   _requested_buffers.insert(buffer_name);
-  return _tensor_problem.getBuffer<T>(buffer_name);
+  return _tensor_problem.getBuffer<T>(buffer_name, ghost_layers);
 }
 
 template <typename T>

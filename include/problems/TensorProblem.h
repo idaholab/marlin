@@ -103,7 +103,7 @@ public:
 
   /// returns the current state of the tensor
   template <typename T = torch::Tensor>
-  T & getBuffer(const std::string & buffer_name);
+  T & getBuffer(const std::string & buffer_name, unsigned int ghost_layers = 0);
 
   /// requests a tensor regardless of type
   TensorBufferBase & getBufferBase(const std::string & buffer_name);
@@ -297,9 +297,9 @@ TensorProblem::getBufferHelper(const std::string & buffer_name)
 
 template <typename T>
 T &
-TensorProblem::getBuffer(const std::string & buffer_name)
+TensorProblem::getBuffer(const std::string & buffer_name, unsigned int ghost_layers)
 {
-  return getBufferHelper<T>(buffer_name).getTensor();
+  return getBufferHelper<T>(buffer_name).getTensor(ghost_layers);
 }
 
 template <typename T>

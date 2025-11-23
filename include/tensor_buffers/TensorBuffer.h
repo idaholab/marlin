@@ -24,15 +24,30 @@ public:
   virtual std::size_t advanceState() override;
   virtual void clearStates() override;
 
-  T & getTensor();
+  T & getTensor(unsigned int ghost_layers = 0);
   const std::vector<T> & getOldTensor(std::size_t states_requested);
 
   virtual const torch::Tensor & getRawTensor() const override;
   virtual const torch::Tensor & getRawCPUTensor() override;
 
+  void setMaxGhostLayers(unsigned int layers)
+  {
+    _max_ghost_layers = std::max(_max_ghost_layers, layers);
+  }
+  unsigned int getMaxGhostLayers() const { return _max_ghost_layers; }
+
 protected:
-  /// current state of the tensor
+  /// current state of the tensor (interior)
   T _u;
+
+  /// padded tensor storage (if ghost layers are used)
+  T _padded_u;
+
+  /// views for different ghost layer requests
+  std::map<unsigned int, T> _views;
+
+  /// max ghost layers requested
+  unsigned int _max_ghost_layers = 0;
 
   /// potential CPU copy of the tensor (if requested)
   T _u_cpu;
@@ -102,9 +117,23 @@ TensorBuffer<T>::getRawCPUTensor()
 
 template <typename T>
 T &
-TensorBuffer<T>::getTensor()
+TensorBuffer<T>::getTensor(unsigned int ghost_layers)
 {
-  return _u;
+  if (ghost_layers == 0)
+    return _u;
+
+  // If we haven't initialized yet, we might need to create a placeholder in the map
+  // to return a reference to.
+  if (_views.find(ghost_layers) == _views.end())
+  {
+    // Create an empty tensor in the map. It will be populated in init().
+    _views[ghost_layers] = T();
+  }
+
+  // Update max ghost layers required
+  setMaxGhostLayers(ghost_layers);
+
+  return _views[ghost_layers];
 }
 
 template <typename T>

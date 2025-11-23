@@ -33,7 +33,7 @@ DomainAction::validParams()
   MooseEnum dims("1=1 2 3");
   params.addRequiredParam<MooseEnum>("dim", dims, "Problem dimension");
 
-  MooseEnum parmode("NONE FFT_SLAB FFT_PENCIL", "NONE");
+  MooseEnum parmode("NONE FFT_SLAB FFT_PENCIL REAL_SPACE", "NONE");
   parmode.addDocumentation("NONE", "Serial execution without domain decomposition.");
   parmode.addDocumentation("FFT_SLAB",
                            "Slab decomposition with X-Z slabs stacked along the Y direction in "
@@ -43,6 +43,10 @@ DomainAction::validParams()
       "FFT_PENCIL",
       "Pencil decomposition (3D only). Three 1D FFTs in pencil arrays along the X, Y, and lastly Z "
       "direction. Thie requires two many-to-many communications per FFT.");
+  parmode.addDocumentation("REAL_SPACE",
+                           "Real space decomposition. The domain is partitioned into a grid of "
+                           "sub-domains based on the number of MPI ranks. This mode supports ghost "
+                           "layer exchanges for finite difference/volume calculations.");
 
   params.addParam<MooseEnum>("parallel_mode", parmode, "Parallelization mode.");
 
@@ -80,6 +84,7 @@ DomainAction::validParams()
                         false,
                         "Enable GPU-aware MPI. If true, tensors will not be copied to the CPU "
                         "before MPI communication. Requires a CUDA-aware MPI implementation.");
+  params.addParam<unsigned int>("ghost_layers", 1, "Number of ghost layers for REAL_SPACE mode.");
   return params;
 }
 
@@ -104,7 +109,8 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _send_tensor(_n_rank),
     _recv_tensor(_n_rank),
     _debug(getParam<bool>("debug")),
-    _gpu_aware_mpi(getParam<bool>("gpu_aware_mpi"))
+    _gpu_aware_mpi(getParam<bool>("gpu_aware_mpi")),
+    _ghost_layers(getParam<unsigned int>("ghost_layers"))
 {
   for (const auto d : make_range(3u))
   {
@@ -277,6 +283,10 @@ DomainAction::gridChanged()
 
     case ParallelMode::FFT_PENCIL:
       partitionPencils();
+      break;
+
+    case ParallelMode::REAL_SPACE:
+      partitionRealSpace();
       break;
   }
 
@@ -542,6 +552,131 @@ DomainAction::partitionPencils()
               "×",
               local_kz,
               "]");
+}
+
+void
+DomainAction::partitionRealSpace()
+{
+  // Factorize _n_rank into Px * Py * Pz
+  // We want to minimize the surface area to volume ratio of the local domains,
+  // which roughly corresponds to making the local domain as cubic as possible.
+  // This is equivalent to minimizing the sum of squared differences of the local dimensions.
+
+  std::array<unsigned int, 3> best_p = {1, 1, 1};
+  double best_score = std::numeric_limits<double>::max();
+
+  for (unsigned int px = 1; px <= _n_rank; ++px)
+  {
+    if (_n_rank % px != 0)
+      continue;
+    const unsigned int rem_x = _n_rank / px;
+    for (unsigned int py = 1; py <= rem_x; ++py)
+    {
+      if (rem_x % py != 0)
+        continue;
+      const unsigned int pz = rem_x / py;
+
+      // Calculate local dimensions
+      const double lx = static_cast<double>(_n_global[0]) / px;
+      const double ly = static_cast<double>(_n_global[1]) / py;
+      const double lz = static_cast<double>(_n_global[2]) / pz;
+
+      // Score: sum of squared differences from the mean dimension
+      const double mean_l = (lx + ly + lz) / 3.0;
+      const double score =
+          std::pow(lx - mean_l, 2) + std::pow(ly - mean_l, 2) + std::pow(lz - mean_l, 2);
+
+      if (score < best_score)
+      {
+        best_score = score;
+        best_p = {px, py, pz};
+      }
+    }
+  }
+
+  _real_space_partitions = best_p;
+
+  // Determine rank coordinates
+  unsigned int rank = _rank;
+  _real_space_index[2] = rank / (_real_space_partitions[0] * _real_space_partitions[1]);
+  rank %= (_real_space_partitions[0] * _real_space_partitions[1]);
+  _real_space_index[1] = rank / _real_space_partitions[0];
+  _real_space_index[0] = rank % _real_space_partitions[0];
+
+  // Partition logic
+  std::vector<int64_t> unit_weights_x(_real_space_partitions[0], 1);
+  std::vector<int64_t> unit_weights_y(_real_space_partitions[1], 1);
+  std::vector<int64_t> unit_weights_z(_real_space_partitions[2], 1);
+
+  auto x_counts = partitionHepler<int64_t>(_n_global[0], unit_weights_x);
+  auto y_counts = partitionHepler<int64_t>(_n_global[1], unit_weights_y);
+  auto z_counts = partitionHepler<int64_t>(_n_global[2], unit_weights_z);
+
+  auto buildOffsets = [](const std::vector<int64_t> & counts)
+  {
+    std::vector<int64_t> offsets(counts.size(), 0);
+    int64_t cursor = 0;
+    for (const auto i : index_range(counts))
+    {
+      offsets[i] = cursor;
+      cursor += counts[i];
+    }
+    return offsets;
+  };
+
+  auto x_offsets = buildOffsets(x_counts);
+  auto y_offsets = buildOffsets(y_counts);
+  auto z_offsets = buildOffsets(z_counts);
+
+  // Set local bounds for all ranks (needed for communication?)
+  // Actually, we only strictly need our own, but keeping the structure consistent
+  for (unsigned int r = 0; r < _n_rank; ++r)
+  {
+    unsigned int temp_r = r;
+    unsigned int iz = temp_r / (_real_space_partitions[0] * _real_space_partitions[1]);
+    temp_r %= (_real_space_partitions[0] * _real_space_partitions[1]);
+    unsigned int iy = temp_r / _real_space_partitions[0];
+    unsigned int ix = temp_r % _real_space_partitions[0];
+
+    _n_local_all[0][r] = x_counts[ix];
+    _n_local_all[1][r] = y_counts[iy];
+    _n_local_all[2][r] = z_counts[iz];
+
+    _local_begin[0][r] = x_offsets[ix];
+    _local_end[0][r] = x_offsets[ix] + x_counts[ix];
+
+    _local_begin[1][r] = y_offsets[iy];
+    _local_end[1][r] = y_offsets[iy] + y_counts[iy];
+
+    _local_begin[2][r] = z_offsets[iz];
+    _local_end[2][r] = z_offsets[iz] + z_counts[iz];
+  }
+
+  _n_local[0] = _n_local_all[0][_rank];
+  _n_local[1] = _n_local_all[1][_rank];
+  _n_local[2] = _n_local_all[2][_rank];
+
+  // Slice global axes
+  _local_axis[0] = _global_axis[0].slice(0, _local_begin[0][_rank], _local_end[0][_rank]);
+  _local_axis[1] = _global_axis[1].slice(1, _local_begin[1][_rank], _local_end[1][_rank]);
+  _local_axis[2] = _global_axis[2].slice(2, _local_begin[2][_rank], _local_end[2][_rank]);
+
+  // Reciprocal axes are not really used in REAL_SPACE mode in the same way,
+  // but we can just keep them global or slice them similarly if needed.
+  // For now, let's just replicate global for simplicity or leave as is.
+  _local_reciprocal_axis = _global_reciprocal_axis;
+
+  if (_rank == 0)
+  {
+    mooseInfo("REAL_SPACE decomposition: ",
+              _n_rank,
+              " ranks = ",
+              _real_space_partitions[0],
+              "x",
+              _real_space_partitions[1],
+              "x",
+              _real_space_partitions[2]);
+  }
 }
 
 void
@@ -1198,6 +1333,213 @@ DomainAction::pencilStage1Inverse(const torch::Tensor & input) const
 
   MPI_Waitall(_pencil_y_partitions, send_requests.data(), MPI_STATUSES_IGNORE);
   return result;
+}
+
+void
+DomainAction::updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) const
+{
+  if (_parallel_mode != ParallelMode::REAL_SPACE)
+    mooseError("updateGhostLayers only supported in REAL_SPACE mode");
+
+  if (ghost_layers == 0)
+    return;
+
+  const auto mpi_type = mpiTypeFromScalar(t.scalar_type());
+  const auto cpu_options = t.options().device(torch::kCPU);
+  const auto device_options = t.options();
+
+  // Helper to get rank from indices
+  auto get_rank = [&](int ix, int iy, int iz)
+  {
+    // Apply periodicity
+    ix = (ix + _real_space_partitions[0]) % _real_space_partitions[0];
+    iy = (iy + _real_space_partitions[1]) % _real_space_partitions[1];
+    iz = (iz + _real_space_partitions[2]) % _real_space_partitions[2];
+    return iz * _real_space_partitions[0] * _real_space_partitions[1] +
+           iy * _real_space_partitions[0] + ix;
+  };
+
+  // Dimension 0 (X) exchange
+  if (_real_space_partitions[0] > 1)
+  {
+    const int left_rank =
+        get_rank(_real_space_index[0] - 1, _real_space_index[1], _real_space_index[2]);
+    const int right_rank =
+        get_rank(_real_space_index[0] + 1, _real_space_index[1], _real_space_index[2]);
+
+    // Send to left, receive from right
+    auto send_left = t.slice(0, ghost_layers, 2 * ghost_layers).contiguous();
+    auto recv_right_buf =
+        torch::empty_like(send_left, _gpu_aware_mpi ? device_options : cpu_options);
+
+    // Send to right, receive from left
+    auto send_right = t.slice(0, -2 * ghost_layers, -ghost_layers).contiguous();
+    auto recv_left_buf =
+        torch::empty_like(send_right, _gpu_aware_mpi ? device_options : cpu_options);
+
+    torch::Tensor sl_buf, sr_buf;
+    if (_gpu_aware_mpi)
+    {
+      sl_buf = send_left;
+      sr_buf = send_right;
+    }
+    else
+    {
+      sl_buf = send_left.to(cpu_options);
+      sr_buf = send_right.to(cpu_options);
+    }
+
+    MPI_Request reqs_x[4];
+    MPI_Isend(sl_buf.data_ptr(), sl_buf.numel(), mpi_type, left_rank, 100, mpiComm(), &reqs_x[0]);
+    MPI_Irecv(recv_right_buf.data_ptr(),
+              recv_right_buf.numel(),
+              mpi_type,
+              right_rank,
+              100,
+              mpiComm(),
+              &reqs_x[1]);
+    MPI_Isend(sr_buf.data_ptr(), sr_buf.numel(), mpi_type, right_rank, 101, mpiComm(), &reqs_x[2]);
+    MPI_Irecv(recv_left_buf.data_ptr(),
+              recv_left_buf.numel(),
+              mpi_type,
+              left_rank,
+              101,
+              mpiComm(),
+              &reqs_x[3]);
+
+    MPI_Waitall(4, reqs_x, MPI_STATUSES_IGNORE);
+
+    if (!_gpu_aware_mpi)
+    {
+      t.slice(0, -ghost_layers, t.size(0)).copy_(recv_right_buf.to(device_options));
+      t.slice(0, 0, ghost_layers).copy_(recv_left_buf.to(device_options));
+    }
+    else
+    {
+      t.slice(0, -ghost_layers, t.size(0)).copy_(recv_right_buf);
+      t.slice(0, 0, ghost_layers).copy_(recv_left_buf);
+    }
+  }
+
+  // Dimension 1 (Y) exchange
+  if (_real_space_partitions[1] > 1)
+  {
+    const int top_rank =
+        get_rank(_real_space_index[0], _real_space_index[1] - 1, _real_space_index[2]);
+    const int bottom_rank =
+        get_rank(_real_space_index[0], _real_space_index[1] + 1, _real_space_index[2]);
+
+    auto send_top = t.slice(1, ghost_layers, 2 * ghost_layers).contiguous();
+    auto recv_bottom_buf =
+        torch::empty_like(send_top, _gpu_aware_mpi ? device_options : cpu_options);
+
+    auto send_bottom = t.slice(1, -2 * ghost_layers, -ghost_layers).contiguous();
+    auto recv_top_buf =
+        torch::empty_like(send_bottom, _gpu_aware_mpi ? device_options : cpu_options);
+
+    torch::Tensor st_buf, sb_buf;
+    if (_gpu_aware_mpi)
+    {
+      st_buf = send_top;
+      sb_buf = send_bottom;
+    }
+    else
+    {
+      st_buf = send_top.to(cpu_options);
+      sb_buf = send_bottom.to(cpu_options);
+    }
+
+    MPI_Request reqs_y[4];
+    MPI_Isend(st_buf.data_ptr(), st_buf.numel(), mpi_type, top_rank, 200, mpiComm(), &reqs_y[0]);
+    MPI_Irecv(recv_bottom_buf.data_ptr(),
+              recv_bottom_buf.numel(),
+              mpi_type,
+              bottom_rank,
+              200,
+              mpiComm(),
+              &reqs_y[1]);
+    MPI_Isend(sb_buf.data_ptr(), sb_buf.numel(), mpi_type, bottom_rank, 201, mpiComm(), &reqs_y[2]);
+    MPI_Irecv(recv_top_buf.data_ptr(),
+              recv_top_buf.numel(),
+              mpi_type,
+              top_rank,
+              201,
+              mpiComm(),
+              &reqs_y[3]);
+
+    MPI_Waitall(4, reqs_y, MPI_STATUSES_IGNORE);
+
+    if (!_gpu_aware_mpi)
+    {
+      t.slice(1, -ghost_layers, t.size(1)).copy_(recv_bottom_buf.to(device_options));
+      t.slice(1, 0, ghost_layers).copy_(recv_top_buf.to(device_options));
+    }
+    else
+    {
+      t.slice(1, -ghost_layers, t.size(1)).copy_(recv_bottom_buf);
+      t.slice(1, 0, ghost_layers).copy_(recv_top_buf);
+    }
+  }
+
+  // Dimension 2 (Z) exchange
+  if (_real_space_partitions[2] > 1)
+  {
+    const int front_rank =
+        get_rank(_real_space_index[0], _real_space_index[1], _real_space_index[2] - 1);
+    const int back_rank =
+        get_rank(_real_space_index[0], _real_space_index[1], _real_space_index[2] + 1);
+
+    auto send_front = t.slice(2, ghost_layers, 2 * ghost_layers).contiguous();
+    auto recv_back_buf =
+        torch::empty_like(send_front, _gpu_aware_mpi ? device_options : cpu_options);
+
+    auto send_back = t.slice(2, -2 * ghost_layers, -ghost_layers).contiguous();
+    auto recv_front_buf =
+        torch::empty_like(send_back, _gpu_aware_mpi ? device_options : cpu_options);
+
+    torch::Tensor sf_buf, sb_buf;
+    if (_gpu_aware_mpi)
+    {
+      sf_buf = send_front;
+      sb_buf = send_back;
+    }
+    else
+    {
+      sf_buf = send_front.to(cpu_options);
+      sb_buf = send_back.to(cpu_options);
+    }
+
+    MPI_Request reqs_z[4];
+    MPI_Isend(sf_buf.data_ptr(), sf_buf.numel(), mpi_type, front_rank, 300, mpiComm(), &reqs_z[0]);
+    MPI_Irecv(recv_back_buf.data_ptr(),
+              recv_back_buf.numel(),
+              mpi_type,
+              back_rank,
+              300,
+              mpiComm(),
+              &reqs_z[1]);
+    MPI_Isend(sb_buf.data_ptr(), sb_buf.numel(), mpi_type, back_rank, 301, mpiComm(), &reqs_z[2]);
+    MPI_Irecv(recv_front_buf.data_ptr(),
+              recv_front_buf.numel(),
+              mpi_type,
+              front_rank,
+              301,
+              mpiComm(),
+              &reqs_z[3]);
+
+    MPI_Waitall(4, reqs_z, MPI_STATUSES_IGNORE);
+
+    if (!_gpu_aware_mpi)
+    {
+      t.slice(2, -ghost_layers, t.size(2)).copy_(recv_back_buf.to(device_options));
+      t.slice(2, 0, ghost_layers).copy_(recv_front_buf.to(device_options));
+    }
+    else
+    {
+      t.slice(2, -ghost_layers, t.size(2)).copy_(recv_back_buf);
+      t.slice(2, 0, ghost_layers).copy_(recv_front_buf);
+    }
+  }
 }
 
 torch::Tensor

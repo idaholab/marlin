@@ -81,12 +81,16 @@ public:
   /// check if debugging is enabled
   bool debug() const { return _debug; }
 
+  /// get number of ghost layers
+  unsigned int getGhostLayers() const { return _ghost_layers; }
+
 protected:
   void gridChanged();
 
   void partitionSerial();
   void partitionSlabs();
   void partitionPencils();
+  void partitionRealSpace();
 
   torch::Tensor fftSerial(const torch::Tensor & t) const;
   torch::Tensor fftSlab(const torch::Tensor & t) const;
@@ -119,7 +123,7 @@ protected:
   } _floating_precision;
 
   /// parallelization mode
-  const enum class ParallelMode { NONE, FFT_SLAB, FFT_PENCIL } _parallel_mode;
+  const enum class ParallelMode { NONE, FFT_SLAB, FFT_PENCIL, REAL_SPACE } _parallel_mode;
 
   /// host local ranks of all procs
   std::vector<unsigned int> _local_ranks;
@@ -207,11 +211,18 @@ protected:
   std::vector<int64_t> _pencil_stage2_y_offsets;
   std::vector<int64_t> _pencil_stage2_y_sizes;
 
+  /// real space decomposition partitions
+  std::array<unsigned int, 3> _real_space_partitions;
+  std::array<unsigned int, 3> _real_space_index;
+
   /// enable debugging
   const bool _debug;
 
   /// enable GPU-aware MPI
   const bool _gpu_aware_mpi;
+
+  /// number of ghost layers
+  const unsigned int _ghost_layers;
 
   /// helper utilities
   MPI_Comm mpiComm() const;
@@ -220,6 +231,9 @@ protected:
   torch::Tensor pencilStage2Forward(const torch::Tensor & input) const;
   torch::Tensor pencilStage2Inverse(const torch::Tensor & input) const;
   torch::Tensor pencilStage1Inverse(const torch::Tensor & input) const;
+
+  /// update ghost layers
+  void updateGhostLayers(torch::Tensor & t, unsigned int ghost_layers) const;
 };
 
 template <typename T>

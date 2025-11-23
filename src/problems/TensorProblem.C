@@ -175,6 +175,27 @@ TensorProblem::execute(const ExecFlagType & exec_type)
     // update time
     _sub_time = FEProblem::timeOld();
 
+    // update ghost layers
+    for (auto & pair : _tensor_buffer)
+    {
+      auto & buffer = *pair.second;
+      // We need to cast to TensorBuffer<torch::Tensor> to access getTensor/getMaxGhostLayers
+      // But TensorBufferBase doesn't expose them.
+      // However, we know most buffers are torch::Tensor.
+      // Let's try dynamic cast.
+      auto tb = dynamic_cast<TensorBuffer<torch::Tensor> *>(&buffer);
+      if (tb)
+      {
+        unsigned int ghosts = tb->getMaxGhostLayers();
+        if (ghosts > 0)
+        {
+          // Get the padded tensor (view with max ghosts)
+          auto & t = tb->getTensor(ghosts);
+          _domain.updateGhostLayers(t, ghosts);
+        }
+      }
+    }
+
     // run solver
     if (_solver)
       _solver->computeBuffer();
