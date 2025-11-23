@@ -13,9 +13,25 @@
 []
 
 [TensorBuffers]
+  [f]
+    type = LBMTensorBuffer
+    buffer_type = df
+  []
+  [feq]
+    type = LBMTensorBuffer
+    buffer_type = df
+  []
+  [fpc]
+    type = LBMTensorBuffer
+    buffer_type = df
+  []
   [density]
     type=LBMTensorBuffer
     buffer_type = ms
+  []
+  [velocity]
+    type = LBMTensorBuffer
+    buffer_type = mv
   []
 []
 
@@ -26,42 +42,84 @@
       buffer = density
       constants = 1.0
     []
+    [equilibrium]
+      type = LBMEquilibrium
+      buffer = feq
+      bulk = density
+      velocity = velocity
+    []
+    [non_equilibrium]
+      type = LBMEquilibrium
+      buffer = f
+      bulk = density
+      velocity = velocity
+    []
+    [post_collision_equilibrium]
+      type = LBMEquilibrium
+      buffer = fpc
+      bulk = density
+      velocity = velocity
+    []
   []
   [Boundary]
     [left]
-      type = LBMMacroscopicNeumannBC
-      buffer = density
-      value = 0.1
+      type = LBMNeumannBC
+      buffer = f
+      f_old = fpc
+      feq = feq
+      velocity = velocity
+      rho = density
+      value = 0.001
       boundary = left
     []
     [right]
-      type = LBMMacroscopicNeumannBC
-      buffer = density
-      value = 0.1
+      type = LBMNeumannBC
+      buffer = f
+      f_old = fpc
+      feq = feq
+      velocity = velocity
+      rho = density
+      gradient = 0.001
       boundary = right
     []
     [top]
-      type = LBMMacroscopicNeumannBC
-      buffer = density
-      value = 0.1
+      type = LBMNeumannBC
+      buffer = f
+      f_old = fpc
+      feq = feq
+      velocity = velocity
+      rho = density
+      gradient = 0.001
       boundary = top
     []
     [bottom]
-      type = LBMMacroscopicNeumannBC
-      buffer = density
-      value = 0.1
+      type = LBMNeumannBC
+      buffer = f
+      f_old = fpc
+      feq=geq
+      velocity = velocity
+      rho = density
+      gradient = 0.001
       boundary = bottom
     []
     [front]
-      type = LBMMacroscopicNeumannBC
-      buffer = density
-      value = 0.1
+      type = LBMNeumannBC
+      buffer = f
+      f_old = fpc
+      feq = feq
+      velocity = velocity
+      rho = density
+      gradient = 0.001
       boundary = front
     []
     [back]
-      type = LBMMacroscopicNeumannBC
-      buffer = density
-      value = 0.1
+      type = LBMNeumannBC
+      buffer = f
+      f_old = fpc
+      feq = feq
+      velocity = velocity
+      rho = density
+      gradient = 0.001
       boundary = back
     []
   []

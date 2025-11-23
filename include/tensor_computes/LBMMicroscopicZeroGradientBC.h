@@ -27,6 +27,6 @@ public:
   void rightBoundary() override;
   void frontBoundary() override;
   void backBoundary() override;
-  void wallBoundary() override{};
+  void wallBoundary() override {};
   void computeBuffer() override;
 };

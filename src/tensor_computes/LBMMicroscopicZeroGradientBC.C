@@ -53,12 +53,14 @@ LBMMicroscopicZeroGradientBC::topBoundary()
                 _u.index({Slice(), _grid_size[1] - 2, Slice(), Slice()}));
 }
 
-void LBMMicroscopicZeroGradientBC::frontBoundary()
+void
+LBMMicroscopicZeroGradientBC::frontBoundary()
 {
   _u.index_put_({Slice(), Slice(), 0, Slice()}, _u.index({Slice(), Slice(), 1, Slice()}));
 }
 
-void LBMMicroscopicZeroGradientBC::backBoundary()
+void
+LBMMicroscopicZeroGradientBC::backBoundary()
 {
   _u.index_put_({Slice(), Slice(), _grid_size[2] - 1, Slice()},
                 _u.index({Slice(), Slice(), _grid_size[2] - 2, Slice()}));

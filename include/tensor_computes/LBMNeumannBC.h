@@ -40,7 +40,7 @@ protected:
   const torch::Tensor & _velocity;
   const Real & _gradient_value;
   int _region_id = 0;
-  
+
   torch::Tensor _feq_boundary;
   torch::Tensor _binary_mesh;
   torch::Tensor _boundary_mask;

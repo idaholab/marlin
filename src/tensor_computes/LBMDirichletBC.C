@@ -23,11 +23,11 @@ LBMDirichletBC::validParams()
   params.addRequiredParam<TensorInputBufferName>("velocity", "Fluid velocity");
   params.addRequiredParam<TensorInputBufferName>("rho", "Fluid density");
   params.addParam<Real>("value",
-                               "0.0"
-                               "Value at the boundary");
+                        "0.0"
+                        "Value at the boundary");
   params.addParam<int>("region_id",
-                               "0"
-                               "Region ID for regional boundary condition");
+                       "0"
+                       "Region ID for regional boundary condition");
   return params;
 }
 
@@ -37,11 +37,11 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
     _feq(getInputBuffer("feq")),
     _rho(getInputBuffer("rho")),
     _velocity(getInputBuffer("velocity")),
-    _boundary_value(getParam<Real>("value"))    
+    _boundary_value(getParam<Real>("value"))
 {
   _feq_boundary = torch::zeros_like(_feq, MooseTensor::floatTensorOptions());
 
-  if(isParamValid("region_id") && _lb_problem.isBinaryMedia())
+  if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
     _region_id = getParam<int>("region_id");
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
@@ -66,7 +66,7 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
 
 void
 LBMDirichletBC::computeBoundaryEquilibrium()
-{ 
+{
   const int dim = _domain.getDim();
   auto rho_unsqueezed = torch::full_like(_feq, _boundary_value);
   torch::Tensor ux = _velocity.select(3, 0).unsqueeze(3);
@@ -99,25 +99,25 @@ LBMDirichletBC::computeBoundaryEquilibrium()
 
 void
 LBMDirichletBC::topBoundary()
-{ 
+{
   for (int64_t i = 0; i < _stencil._q; i++)
-  { 
-    _u.index_put_(
-        {Slice(), _grid_size[1] - 1, Slice(), i}, 
-        _feq_boundary.index({Slice(), _grid_size[1] - 1, Slice(), i}) + 
-        (_f_old[0].index({Slice(), _grid_size[1] - 1, Slice(), i}) - _feq.index({Slice(), _grid_size[1] - 1, Slice(), i})));
+  {
+    _u.index_put_({Slice(), _grid_size[1] - 1, Slice(), i},
+                  _feq_boundary.index({Slice(), _grid_size[1] - 1, Slice(), i}) +
+                      (_f_old[0].index({Slice(), _grid_size[1] - 1, Slice(), i}) -
+                       _feq.index({Slice(), _grid_size[1] - 1, Slice(), i})));
   }
 }
 
 void
 LBMDirichletBC::bottomBoundary()
-{ 
+{
   for (int64_t i = 0; i < _stencil._q; i++)
   {
     _u.index_put_(
-        {Slice(), 0, Slice(), i}, 
-        _feq_boundary.index({Slice(), 0, Slice(), i}) + 
-        (_f_old[0].index({Slice(), 0, Slice(), i}) - _feq.index({Slice(), 0, Slice(), i})));
+        {Slice(), 0, Slice(), i},
+        _feq_boundary.index({Slice(), 0, Slice(), i}) +
+            (_f_old[0].index({Slice(), 0, Slice(), i}) - _feq.index({Slice(), 0, Slice(), i})));
   }
 }
 
@@ -127,9 +127,9 @@ LBMDirichletBC::leftBoundary()
   for (int64_t i = 0; i < _stencil._q; i++)
   {
     _u.index_put_(
-        {0, Slice(), Slice(), i}, 
-        _feq_boundary.index({0, Slice(), Slice(), i}) + 
-        (_f_old[0].index({0, Slice(), Slice(), i}) - _feq.index({0, Slice(), Slice(), i})));
+        {0, Slice(), Slice(), i},
+        _feq_boundary.index({0, Slice(), Slice(), i}) +
+            (_f_old[0].index({0, Slice(), Slice(), i}) - _feq.index({0, Slice(), Slice(), i})));
   }
 }
 
@@ -138,11 +138,10 @@ LBMDirichletBC::rightBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_(
-        {_grid_size[0] - 1, Slice(), Slice(), i}, 
-        _feq_boundary.index({_grid_size[0] - 1, Slice(), Slice(), i}) + 
-        (_f_old[0].index({_grid_size[0] - 1, Slice(), Slice(), i}) - 
-        _feq.index({_grid_size[0] - 1, Slice(), Slice(), i})));
+    _u.index_put_({_grid_size[0] - 1, Slice(), Slice(), i},
+                  _feq_boundary.index({_grid_size[0] - 1, Slice(), Slice(), i}) +
+                      (_f_old[0].index({_grid_size[0] - 1, Slice(), Slice(), i}) -
+                       _feq.index({_grid_size[0] - 1, Slice(), Slice(), i})));
   }
 }
 
@@ -152,9 +151,9 @@ LBMDirichletBC::frontBoundary()
   for (int64_t i = 0; i < _stencil._q; i++)
   {
     _u.index_put_(
-        {Slice(), Slice(), 0, i}, 
-        _feq_boundary.index({Slice(), Slice(), 0, i}) + 
-        (_f_old[0].index({Slice(), Slice(), 0, i}) - _feq.index({Slice(), Slice(), 0, i})));
+        {Slice(), Slice(), 0, i},
+        _feq_boundary.index({Slice(), Slice(), 0, i}) +
+            (_f_old[0].index({Slice(), Slice(), 0, i}) - _feq.index({Slice(), Slice(), 0, i})));
   }
 }
 
@@ -163,11 +162,10 @@ LBMDirichletBC::backBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_(
-        {Slice(), Slice(), _grid_size[2] - 1, i}, 
-        _feq_boundary.index({Slice(), Slice(), _grid_size[2] - 1, i}) + 
-        (_f_old[0].index({Slice(), Slice(), _grid_size[2] - 1, i}) - 
-        _feq.index({Slice(), Slice(), _grid_size[2] - 1, i})));
+    _u.index_put_({Slice(), Slice(), _grid_size[2] - 1, i},
+                  _feq_boundary.index({Slice(), Slice(), _grid_size[2] - 1, i}) +
+                      (_f_old[0].index({Slice(), Slice(), _grid_size[2] - 1, i}) -
+                       _feq.index({Slice(), Slice(), _grid_size[2] - 1, i})));
   }
 }
 
@@ -179,9 +177,9 @@ LBMDirichletBC::wallBoundary()
     _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == -1);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u.index_put_({_boundary_mask}, 
-        _feq_boundary.index({_boundary_mask}) + 
-        (_f_old[0].index({_boundary_mask}) - _feq.index({_boundary_mask})));
+  _u.index_put_({_boundary_mask},
+                _feq_boundary.index({_boundary_mask}) +
+                    (_f_old[0].index({_boundary_mask}) - _feq.index({_boundary_mask})));
 }
 
 void
@@ -192,9 +190,9 @@ LBMDirichletBC::regionalBoundary()
     _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == _region_id);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u.index_put_({_boundary_mask}, 
-        _feq_boundary.index({_boundary_mask}) + 
-        (_f_old[0].index({_boundary_mask}) - _feq.index({_boundary_mask})));
+  _u.index_put_({_boundary_mask},
+                _feq_boundary.index({_boundary_mask}) +
+                    (_f_old[0].index({_boundary_mask}) - _feq.index({_boundary_mask})));
 }
 
 void
