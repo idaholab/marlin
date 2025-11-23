@@ -26,12 +26,6 @@ public:
   void rightBoundary() override;
   void frontBoundary() override;
   void backBoundary() override;
-  void topBoundary() override;
-  void bottomBoundary() override;
-  void leftBoundary() override;
-  void rightBoundary() override;
-  void frontBoundary() override;
-  void backBoundary() override;
   void wallBoundary() override;
   void regionalBoundary() override;
 
