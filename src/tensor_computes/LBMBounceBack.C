@@ -79,7 +79,7 @@ LBMBounceBack::LBMBounceBack(const InputParameters & parameters)
       int64_t ey = _stencil._ey[ic].item<int64_t>();
       int64_t ez = _stencil._ez[ic].item<int64_t>();
       torch::Tensor shifted_mesh = torch::roll(binary_mesh, {ex, ey, ez}, {0, 1, 2});
-      torch::Tensor adjacent_to_boundary = (shifted_mesh == 0) & (binary_mesh > 1);
+      torch::Tensor adjacent_to_boundary = (shifted_mesh == 0) & (binary_mesh >= 1);
       _binary_mesh.masked_fill_(adjacent_to_boundary, -1);
     }
   }

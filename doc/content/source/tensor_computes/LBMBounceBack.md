@@ -1,15 +1,16 @@
 # LBMBounceBack
 
-!syntax description /TensorComputes/Solve/LBMBounceBack
+!syntax description /TensorComputes/Boundary/LBMBounceBack
 
-This compute object implements simple bounce-back rule on boundaries for Lattice Boltzmann simulations. Boundary can be on the left, right, top, bottom, front and back as well as wall. Wall boundary refers to any solid object the fluid cannot penetrate.
+This compute object implements simple bounce-back rule on boundaries for Lattice Boltzmann simulations. Boundary can be on the left, right, top, bottom, front and back as well as wall and regional. Wall boundary refers to any solid object the fluid cannot penetrate.
 
 ## Overview
 
 Imposes no-penetration by reflecting incoming distributions into their opposite directions at the
 selected boundary. Supports domain faces (`left`, `right`, `top`, `bottom`, `front`, `back`) and
-`wall` for solid-embedded geometries. For 3D binary media masks, adjacent-to-solid cells are handled
-by a specialized path. Corner exclusion on each axis can be enabled to avoid double-applying rules.
+`wall` and `regional` for solid-embedded geometries. For 3D binary media masks, adjacent-to-solid cells are handled
+by a specialized path. The `regional` boundary enables users to mark different walls of the domain with different 
+values and apply bounce-back only in those regions. Corner exclusion on each axis can be enabled to avoid double-applying rules. 
 
 ## Usage with Binary Media
 
@@ -36,8 +37,8 @@ The `wall` boundary type automatically detects fluid cells adjacent to solid reg
 []
 !listing-end
 
-!syntax parameters /TensorComputes/Solve/LBMBounceBack
+!syntax parameters /TensorComputes/Boundary/LBMBounceBack
 
-!syntax inputs /TensorComputes/Solve/LBMBounceBack
+!syntax inputs /TensorComputes/Boundary/LBMBounceBack
 
-!syntax children /TensorComputes/Solve/LBMBounceBack
+!syntax children /TensorComputes/Boundary/LBMBounceBack

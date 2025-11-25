@@ -6,9 +6,14 @@ Implements a Dirichlet boundary condition for Lattice Boltzmann simulations. It 
 
 ## Overview
 
-This boundary condition enforces a fixed value at the specified boundaries. It computes the equilibrium distribution function based on the prescribed boundary value and the local velocity, and then applies a non-equilibrium extrapolation scheme to determine the incoming distribution functions.
+This boundary condition enforces a specified value at the boundaries. This boundary conditions computes all directions by applying Non-Equilibrium Boundary Condition (NEBC). This means that the non-equilibirum part of the distribution function is computed from the existing values in the current cell and the equilibrium part is computed from the prescribed values at the boundary.
 
-It supports both domain boundaries (top, bottom, etc.) and internal boundaries defined by a region ID in binary media.
+It supports domain faces (`left`, `right`, `top`, `bottom`, `front`, `back`) and
+`wall` and `regional` for solid-embedded geometries. For 3D binary media masks, adjacent-to-solid cells are handled
+by a specialized path. The `regional` boundary enables users to mark different walls of the domain with different 
+values and apply Neumann condition only in those regions.
+
+Please note that, this boundary condition is not recommended for prescribed velocity boundary conditions. For that, please use `LBMFixedFirstOrderBC`
 
 ## Example Input File Syntax
 

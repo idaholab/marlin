@@ -37,7 +37,7 @@
 
 [TensorComputes]
   [Initialize]
-    [density]
+    [init_density]
       type = LBMConstantTensor
       buffer = density
       constants = 1.0
@@ -59,6 +59,13 @@
       buffer = fpc
       bulk = density
       velocity = velocity
+    []
+  []
+  [Solve]
+    [density]
+      type = LBMComputeDensity
+      buffer = density
+      f = f
     []
   []
   [Boundary]
@@ -96,7 +103,7 @@
       type = LBMDirichletBC
       buffer = f
       f_old = fpc
-      feq=geq
+      feq = feq
       velocity = velocity
       rho = density
       value = 1.1

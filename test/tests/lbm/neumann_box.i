@@ -37,7 +37,7 @@
 
 [TensorComputes]
   [Initialize]
-    [density]
+    [init_density]
       type = LBMConstantTensor
       buffer = density
       constants = 1.0
@@ -61,6 +61,13 @@
       velocity = velocity
     []
   []
+  [Solve]
+    [density]
+      type = LBMComputeDensity
+      buffer = density
+      f = f
+    []
+  []
   [Boundary]
     [left]
       type = LBMNeumannBC
@@ -69,7 +76,7 @@
       feq = feq
       velocity = velocity
       rho = density
-      value = 0.001
+      gradient = 0.001
       boundary = left
     []
     [right]
@@ -79,7 +86,7 @@
       feq = feq
       velocity = velocity
       rho = density
-      gradient = 0.001
+      gradient = 0.1
       boundary = right
     []
     [top]
@@ -89,17 +96,17 @@
       feq = feq
       velocity = velocity
       rho = density
-      gradient = 0.001
+      gradient = 0.1
       boundary = top
     []
     [bottom]
       type = LBMNeumannBC
       buffer = f
       f_old = fpc
-      feq=geq
+      feq = feq
       velocity = velocity
       rho = density
-      gradient = 0.001
+      gradient = 0.1
       boundary = bottom
     []
     [front]
@@ -109,7 +116,7 @@
       feq = feq
       velocity = velocity
       rho = density
-      gradient = 0.001
+      gradient = 0.1
       boundary = front
     []
     [back]
@@ -119,7 +126,7 @@
       feq = feq
       velocity = velocity
       rho = density
-      gradient = 0.001
+      gradient = 0.1
       boundary = back
     []
   []

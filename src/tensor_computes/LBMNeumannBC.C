@@ -11,7 +11,7 @@
 
 using namespace torch::indexing;
 
-registerMooseObject("SwiftApp", LBMNeumannBC);
+registerMooseObject("MarlinApp", LBMNeumannBC);
 
 InputParameters
 LBMNeumannBC::validParams()

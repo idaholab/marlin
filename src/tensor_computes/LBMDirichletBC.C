@@ -11,7 +11,7 @@
 
 using namespace torch::indexing;
 
-registerMooseObject("SwiftApp", LBMDirichletBC);
+registerMooseObject("MarlinApp", LBMDirichletBC);
 
 InputParameters
 LBMDirichletBC::validParams()
@@ -39,7 +39,7 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
     _velocity(getInputBuffer("velocity")),
     _boundary_value(getParam<Real>("value"))
 {
-  _feq_boundary = torch::zeros_like(_feq, MooseTensor::floatTensorOptions());
+  _feq_boundary = torch::zeros_like(_feq);
 
   if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
