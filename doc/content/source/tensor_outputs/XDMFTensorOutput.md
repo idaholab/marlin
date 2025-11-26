@@ -10,6 +10,11 @@ and can be selected using the [!param](/TensorOutputs/XDMFTensorOutput/output_mo
 results in a value per simulation grid cell (e.g. `N[0] * N[1] * N[2]` entries), while for node centered output
 the cell edge nodes are periodically replicated, resulting in `(N[0]+1) * (N[1]+1) * (N[2]+1)` exported entries.
 
+!alert note title=Parallel limitation
+When running with more than one MPI rank, this output currently supports only `CELL` mode. Each
+rank writes its local data to rank-suffixed files and rank 0 emits the global XDMF collection that
+references those blocks.
+
 ## Overview
 
 Writes one or more buffers selected by

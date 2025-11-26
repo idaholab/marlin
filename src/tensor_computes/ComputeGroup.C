@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -9,10 +9,10 @@
 #include "ComputeGroup.h"
 #include "MooseError.h"
 #include "TensorProblem.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include <utility>
 
-registerMooseObject("SwiftApp", ComputeGroup);
+registerMooseObject("MarlinApp", ComputeGroup);
 
 InputParameters
 ComputeGroup::validParams()

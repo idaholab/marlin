@@ -1,8 +1,8 @@
-# SwiftExpressionParser
+# MarlinExpressionParser
 
 ## Overview
 
-SwiftExpressionParser is a custom mathematical expression parser built on [cpp-peglib](https://github.com/yhirose/cpp-peglib) that provides robust parsing, symbolic differentiation, algebraic simplification, and JIT compilation of mathematical expressions for Swift. It replaces the previous FParser-based implementation with a cleaner, more maintainable architecture based on Abstract Syntax Trees (ASTs).
+MarlinExpressionParser is a custom mathematical expression parser built on [cpp-peglib](https://github.com/yhirose/cpp-peglib) that provides robust parsing, symbolic differentiation, algebraic simplification, and JIT compilation of mathematical expressions for Marlin. It replaces the previous FParser-based implementation with a cleaner, more maintainable architecture based on Abstract Syntax Trees (ASTs).
 
 ## Architecture
 
@@ -341,7 +341,7 @@ parser.differentiate("x");  // Chain rule applied automatically
 
 ## Integration with ParsedCompute
 
-[ParsedCompute](ParsedCompute.md) uses SwiftExpressionParser for expression evaluation in tensor computations:
+[ParsedCompute](ParsedCompute.md) uses MarlinExpressionParser for expression evaluation in tensor computations:
 
 ```
 [compute]

@@ -1,17 +1,16 @@
-# Swift [<img align="right" src="https://civet.inl.gov/idaholab/swift/main/branch_status.svg/">](https://civet.inl.gov/repo/idaholab/swift/)</span>
+ <img src="https://github.com/idaholab/marlin/blob/devel/doc/content/marlin.png?raw=true" width="80%" alt="Marlin Logo">
 
-![Swift Logo](https://github.com/idaholab/swift/blob/main/doc/content/swift.png?raw=true)
-
-**Swift** is a device independent Fourier spectral solver application based on the [MOOSE Finite Element Framework](http://mooseframework.org). Swift supports[^1] CPU, CUDA, and MPS[^2] with automatic detection of supported device precision.
+**Marlin** is a device independent Fourier spectral solver application based on the [MOOSE Finite Element Framework](http://mooseframework.org). Marlin supports[^1] CPU, CUDA, and MPS[^2] with automatic detection of supported device precision.
+[<img align="right" src="https://civet.inl.gov/idaholab/marlin/main/branch_status.svg/">](https://civet.inl.gov/repo/idaholab/marlin/)
 
 [^1]: more compute device types might be supported, but have not been tested.
 [^2]: torch MPS supports only single precision calculations!
 
-> Note: This is not the Hydride modeling code SWIFT by Los Alamos National Laboratory
+> Note: Marlin was previously named Swift <img src="https://github.com/idaholab/marlin/blob/devel/doc/content/swift.png?raw=true" height="20pt">
 
 ## Contacts
 
-The primary developer of Swift is _Daniel Schwen_. Lattice Boltzmann implementation by _Nijat Rustamov_. In case of questions or problems please file a GitHub issue.
+The primary developer of Marlin is _Daniel Schwen_. Lattice Boltzmann implementation by _Nijat Rustamov_. In case of questions or problems please file a GitHub issue.
 
 ## Install
 
@@ -19,13 +18,13 @@ The primary developer of Swift is _Daniel Schwen_. Lattice Boltzmann implementat
 
 ## Why another spectral solver?
 
-Swift...
+Marlin...
 
 - ...uses familiar MOOSE input format
 - ...can couple to MOOSE FE/FV models
 - ...can utilize MOOSE postprocessing objects
 - ...uses MOOSE input/outputs
-- ...integrates with the MOOSE multiapp and transfers system (enabling it to work with stochastic tools to MCMC sample thousands of Swift mesoscale models, perform inverse Bayesian inference, parameter calibration, UQ etc.)
+- ...integrates with the MOOSE multiapp and transfers system (enabling it to work with stochastic tools to MCMC sample thousands of Marlin mesoscale models, perform inverse Bayesian inference, parameter calibration, UQ etc.)
 - ...is fully device independent through libTorch
 - ...has all its dependencies provided by MOOSE alone
 - ...is focussed on ease of model development (with runtime parsed expressions, just-in-time compilation, and automatic dependency resolution)

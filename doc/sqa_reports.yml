@@ -1,9 +1,9 @@
 Applications:
-    swift:
+    marlin:
         exe_directory: ${ROOT_DIR}
-        exe_name: swift
+        exe_name: marlin
         app_types:
-            - SwiftApp
+            - MarlinApp
         content_directory: doc/content
         show_warning: false
 

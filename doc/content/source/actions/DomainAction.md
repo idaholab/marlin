@@ -5,13 +5,13 @@
 ## Overview
 
 `DomainAction` configures the FFT simulation domain and compute devices, and wires up
-the minimal runtime needed for Swift problems:
+the minimal runtime needed for Marlin problems:
 
 - Sets problem dimension and grid resolution ([!param](/Domain/dim), [!param](/Domain/nx), [!param](/Domain/ny), [!param](/Domain/nz)) and computes grid spacing from [!param](/Domain/xmin)/[!param](/Domain/xmax), [!param](/Domain/ymin)/[!param](/Domain/ymax), [!param](/Domain/zmin)/[!param](/Domain/zmax).
-- Builds real-space axes (cell-centered) and reciprocal-space axes (via `fftfreq/rfftfreq`, scaled by `2π`) and exposes helper accessors used throughout Swift.
+- Builds real-space axes (cell-centered) and reciprocal-space axes (via `fftfreq/rfftfreq`, scaled by `2π`) and exposes helper accessors used throughout Marlin.
 - Partitions the domain for parallel execution based on [!param](/Domain/parallel_mode) and optional [!param](/Domain/device_names)/[!param](/Domain/device_weights).
 - Creates a matching mesh automatically (optional) using [!param](/Domain/mesh_mode) and adds a `DomainMeshGenerator`.
-- Creates a `TensorProblem` by default if one is not provided, enabling all Swift objects to run.
+- Creates a `TensorProblem` by default if one is not provided, enabling all Marlin objects to run.
 
 ### Key concepts and behavior
 
@@ -20,12 +20,12 @@ the minimal runtime needed for Swift problems:
 - On-demand tensors: `getXGrid()`, `getKGrid()`, and `getKSquare()` lazily build coordinate arrays for the local partition when first requested.
 - FFT helpers: `fft()`/`ifft()` dispatch to serial or parallel implementations depending on `parallel_mode`. In serial, 1D/2D/3D transforms call `torch::fft::rfft{,2,n}` and inverse `irfft{,2,n}` with appropriate dimension lists. Slab/pencil modes target distributed FFTs (pencil not yet implemented).
 - Reductions: `sum()` and `average()` reduce over the spatial dimensions. Note: reductions are implemented in serial; MPI reduction is not yet provided.
-- Device and precision: If [!param](/Domain/device_names) are given, Swift assigns a device per local host-rank and sets Torch floating precision with [!param](/Domain/floating_precision).
+- Device and precision: If [!param](/Domain/device_names) are given, Marlin assigns a device per local host-rank and sets Torch floating precision with [!param](/Domain/floating_precision).
 
 ### Mesh generation and problem creation
 
 - [!param](/Domain/mesh_mode) = `DOMAIN` generates a mesh with one element per grid cell; `DUMMY` creates a single-element mesh spanning the domain; `MANUAL` disables automatic mesh creation (user supplies `[Mesh]`). When mesh creation is enabled, `DomainAction` injects `SetupMeshAction` and adds a `DomainMeshGenerator` with consistent domain bounds and resolution.
-- If no `Problem` is provided, `DomainAction` creates a `TensorProblem` during `create_problem_custom` to ensure Swift components can run.
+- If no `Problem` is provided, `DomainAction` creates a `TensorProblem` during `create_problem_custom` to ensure Marlin components can run.
 
 ### Parallel partitioning modes
 
@@ -71,4 +71,4 @@ Parallel slab decomposition with explicit device selection and weights
 ## Related
 
 - `DomainMeshGenerator`: Mesh generator added automatically when `mesh_mode != MANUAL`.
-- `TensorProblem`: Created by default if the user does not provide a `[Problem]` compatible with Swift.
+- `TensorProblem`: Created by default if the user does not provide a `[Problem]` compatible with Marlin.

@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "SwiftExpressionParser.h"
+#include "MarlinExpressionParser.h"
 #include <torch/csrc/jit/ir/ir.h>
 #include <torch/torch.h>
 
@@ -57,8 +57,8 @@ public:
   std::string toString() const;
 
 protected:
-  SwiftExpressionParser::Parser _parser;
-  SwiftExpressionParser::ExprPtr _ast;
+  MarlinExpressionParser::Parser _parser;
+  MarlinExpressionParser::ExprPtr _ast;
   std::vector<std::string> _variables;
   std::unordered_map<std::string, torch::Tensor> _constants;
   std::string _error;

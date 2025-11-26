@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -17,11 +17,11 @@
 #include "TensorOutput.h"
 #include "DomainAction.h"
 
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include "DependencyResolverInterface.h"
 #include <memory>
 
-registerMooseObject("SwiftApp", TensorProblem);
+registerMooseObject("MarlinApp", TensorProblem);
 
 InputParameters
 TensorProblem::validParams()

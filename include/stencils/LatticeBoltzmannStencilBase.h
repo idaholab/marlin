@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -11,8 +11,8 @@
 #include "torch/torch.h"
 
 #include "MooseObject.h"
-#include "SwiftTypes.h"
-#include "SwiftUtils.h"
+#include "MarlinTypes.h"
+#include "MarlinUtils.h"
 
 /**
  * Base class for lattice stencils

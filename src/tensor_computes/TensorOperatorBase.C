@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -24,7 +24,7 @@ TensorOperatorBase::validParams()
 TensorOperatorBase::TensorOperatorBase(const InputParameters & parameters)
   : MooseObject(parameters),
     DependencyResolverInterface(),
-    SwiftConstantInterface(parameters),
+    MarlinConstantInterface(parameters),
     _requested_buffers(),
     _supplied_buffers(),
     _tensor_problem(*getCheckedPointerParam<TensorProblem *>("_tensor_problem")),

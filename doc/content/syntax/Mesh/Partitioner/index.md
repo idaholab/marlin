@@ -1,7 +1,7 @@
 # Partitioner System
 
 The Partitioner System allows the developer to control the partitioning process
-to split up a mesh among two or more processors. For Swift the [/DomainPartitioner.md]
+to split up a mesh among two or more processors. For Marlin the [/DomainPartitioner.md]
 has been developed to enable mesh partitioning along the same scheme as the parallel
 FFT domain partitioning.
 

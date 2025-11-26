@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -8,10 +8,10 @@
 
 #include "DeAliasingTensor.h"
 #include "MooseEnum.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include "wasplsp/LSP.h"
 
-registerMooseObject("SwiftApp", DeAliasingTensor);
+registerMooseObject("MarlinApp", DeAliasingTensor);
 
 InputParameters
 DeAliasingTensor::validParams()

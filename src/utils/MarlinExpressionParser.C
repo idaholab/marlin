@@ -1,18 +1,18 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
 
-#include "SwiftExpressionParser.h"
+#include "MarlinExpressionParser.h"
 #include <torch/csrc/jit/runtime/custom_operator.h>
 #include <stdexcept>
 #include <sstream>
 #include <cmath>
 
-namespace SwiftExpressionParser
+namespace MarlinExpressionParser
 {
 
 // Helper to check if an expression is a constant
@@ -1353,4 +1353,4 @@ Parser::parse(const std::string & expr, const std::unordered_set<std::string> & 
   return result;
 }
 
-} // namespace SwiftExpressionParser
+} // namespace MarlinExpressionParser

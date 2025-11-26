@@ -1,32 +1,32 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
 
 #include "ConstantTensor.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include "DomainAction.h"
 
-registerMooseObject("SwiftApp", ConstantTensor);
-registerMooseObject("SwiftApp", ConstantReciprocalTensor);
+registerMooseObject("MarlinApp", ConstantTensor);
+registerMooseObject("MarlinApp", ConstantReciprocalTensor);
 
 template <bool reciprocal>
 InputParameters
 ConstantTensorTempl<reciprocal>::validParams()
 {
   InputParameters params = TensorOperator<>::validParams();
-  params.addParam<SwiftConstantName>("imaginary", "0.0", "Imaginary part of the constant value.");
+  params.addParam<MarlinConstantName>("imaginary", "0.0", "Imaginary part of the constant value.");
   if constexpr (reciprocal)
     params.addClassDescription("Constant tensor in reciprocal space.");
   else
   {
     params.addClassDescription("Constant tensor in real space.");
-    params.suppressParameter<SwiftConstantName>("imaginary");
+    params.suppressParameter<MarlinConstantName>("imaginary");
   }
-  params.addParam<SwiftConstantName>("real", "0.0", "Real part of the constant value.");
+  params.addParam<MarlinConstantName>("real", "0.0", "Real part of the constant value.");
   params.addParam<bool>("full", false, "Construct a full tensor will all entries");
   return params;
 }

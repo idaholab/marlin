@@ -1,17 +1,17 @@
 
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
 
 #include "ReciprocalMatDiffusion.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include <torch/torch.h>
 
-registerMooseObject("SwiftApp", ReciprocalMatDiffusion);
+registerMooseObject("MarlinApp", ReciprocalMatDiffusion);
 
 InputParameters
 ReciprocalMatDiffusion::validParams()

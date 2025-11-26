@@ -1,28 +1,36 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
 
-#include "SwiftApp.h"
+#include "MarlinApp.h"
 #include "Moose.h"
 #include "AppFactory.h"
 #include "ModulesApp.h"
 #include "MooseSyntax.h"
 #include "DomainAction.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 
 #include <cstdlib>
 
+#ifdef LIBMESH_HAVE_HDF5
+#include "hdf5.h"
+#endif
+
+#ifdef MPIX_CUDA_AWARE_SUPPORT
+#include <mpi-ext.h>
+#endif
+
 namespace MooseTensor
 {
-static struct SwiftGlobalSettings
+static struct MarlinGlobalSettings
 {
-  SwiftGlobalSettings()
+  MarlinGlobalSettings()
   {
-    const auto env = std::getenv("SWIFT_TORCH_DEVICE");
+    const auto env = std::getenv("MARLIN_TORCH_DEVICE");
     if (env)
       _torch_device = std::string(env);
     else
@@ -30,23 +38,23 @@ static struct SwiftGlobalSettings
   }
   std::string _torch_device;
   std::string _floating_precision;
-} swift_global_settings;
+} marlin_global_settings;
 
 std::string
 torchDevice()
 {
-  return swift_global_settings._torch_device;
+  return marlin_global_settings._torch_device;
 }
 
 std::string
 precision()
 {
-  return swift_global_settings._floating_precision;
+  return marlin_global_settings._floating_precision;
 }
 }
 
 InputParameters
-SwiftApp::validParams()
+MarlinApp::validParams()
 {
   InputParameters params = MooseApp::validParams();
   params.set<bool>("use_legacy_material_output") = false;
@@ -54,39 +62,39 @@ SwiftApp::validParams()
   return params;
 }
 
-SwiftApp::SwiftApp(const InputParameters & parameters) : MooseApp(parameters)
+MarlinApp::MarlinApp(const InputParameters & parameters) : MooseApp(parameters)
 {
-  SwiftApp::registerAll(_factory, _action_factory, _syntax);
-  MooseTensor::swift_global_settings._torch_device =
+  MarlinApp::registerAll(_factory, _action_factory, _syntax);
+  MooseTensor::marlin_global_settings._torch_device =
       std::string(parameters.get<MooseEnum>("compute_device"));
 }
 
-SwiftApp::~SwiftApp() {}
+MarlinApp::~MarlinApp() {}
 
 void
-SwiftApp::setTorchDevice(std::string device, const MooseTensor::Key<DomainAction> &)
+MarlinApp::setTorchDevice(std::string device, const MooseTensor::Key<DomainAction> &)
 {
-  MooseTensor::swift_global_settings._torch_device = device;
+  MooseTensor::marlin_global_settings._torch_device = device;
 }
 
 void
-SwiftApp::setTorchDeviceStatic(std::string device, const MooseTensor::Key<SwiftInit> &)
+MarlinApp::setTorchDeviceStatic(std::string device, const MooseTensor::Key<MarlinInit> &)
 {
-  MooseTensor::swift_global_settings._torch_device = device;
+  MooseTensor::marlin_global_settings._torch_device = device;
 }
 
 void
-SwiftApp::setTorchPrecision(std::string precision, const MooseTensor::Key<DomainAction> &)
+MarlinApp::setTorchPrecision(std::string precision, const MooseTensor::Key<DomainAction> &)
 {
-  MooseTensor::swift_global_settings._floating_precision = precision;
+  MooseTensor::marlin_global_settings._floating_precision = precision;
 }
 
 void
-SwiftApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
+MarlinApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
 {
-  ModulesApp::registerAllObjects<SwiftApp>(f, af, syntax);
-  Registry::registerObjectsTo(f, {"SwiftApp"});
-  Registry::registerActionsTo(af, {"SwiftApp"});
+  ModulesApp::registerAllObjects<MarlinApp>(f, af, syntax);
+  Registry::registerObjectsTo(f, {"MarlinApp"});
+  Registry::registerActionsTo(af, {"MarlinApp"});
 
   auto registerDeep = [&](const std::string & base_path, const std::string & task)
   {
@@ -155,26 +163,50 @@ SwiftApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
   registerMooseObjectTask("add_tensor_predictor", TensorPredictor, false);
   addTaskDependency("add_tensor_predictor", "create_tensor_solver");
 
+  // Register data file path
+  registerAppDataFilePath("marlin");
+
   // make sure all this gets run before `add_mortar_variable`
   addTaskDependency("add_mortar_variable", "add_tensor_predictor");
 }
 
 void
-SwiftApp::registerApps()
+MarlinApp::registerApps()
 {
-  registerApp(SwiftApp);
+  {
+    const std::string doc = "A threadsafe version of libhdf5 ";
+#ifdef LIBMESH_HAVE_HDF5
+    // Check if the library is thread-safe
+    hbool_t is_threadsafe;
+    H5is_library_threadsafe(&is_threadsafe);
+    addCapability("hdf5_threadsafe", true, doc + "is available.");
+#else
+    addCapability("hdf5_threadsafe", false, doc + "is not available.");
+#endif
+  }
+
+  {
+    const std::string doc = "A CUDA enabled version of MPI ";
+    bool flag = false;
+#if defined(MPIX_CUDA_AWARE_SUPPORT)
+    flag = MPIX_Query_cuda_support();
+#endif
+    addCapability("mpi_cuda_aware", flag, doc + (flag ? "is available." : "is not available."));
+  }
+
+  registerApp(MarlinApp);
 }
 
 /***************************************************************************************************
  *********************** Dynamic Library Entry Points - DO NOT MODIFY ******************************
  **************************************************************************************************/
 extern "C" void
-SwiftApp__registerAll(Factory & f, ActionFactory & af, Syntax & s)
+MarlinApp__registerAll(Factory & f, ActionFactory & af, Syntax & s)
 {
-  SwiftApp::registerAll(f, af, s);
+  MarlinApp::registerAll(f, af, s);
 }
 extern "C" void
-SwiftApp__registerApps()
+MarlinApp__registerApps()
 {
-  SwiftApp::registerApps();
+  MarlinApp::registerApps();
 }

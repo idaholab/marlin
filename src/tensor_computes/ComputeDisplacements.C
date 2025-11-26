@@ -1,6 +1,6 @@
 /**********************************************************************/
-/*                    DO NOT MODIFY THIS HEADER                       */
-/*             Swift, a Fourier spectral solver for MOOSE             */
+/*                     DO NOT MODIFY THIS HEADER                      */
+/*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
@@ -9,10 +9,10 @@
 #include "ComputeDisplacements.h"
 #include "MooseError.h"
 #include "DomainAction.h"
-#include "SwiftUtils.h"
+#include "MarlinUtils.h"
 #include <ATen/core/TensorBody.h>
 
-registerMooseObject("SwiftApp", ComputeDisplacements);
+registerMooseObject("MarlinApp", ComputeDisplacements);
 
 InputParameters
 ComputeDisplacements::validParams()

@@ -10,6 +10,7 @@
       cli_args = 'Domain/dim=1 Domain/nx=10'
       detail = 'in one dimension with an even number of grid cells'
       compute_devices = 'cpu cuda mps'
+      max_parallel = 1
     []
     [odd_1d]
       type = CSVDiff
@@ -18,6 +19,7 @@
       cli_args = 'Domain/dim=1 Domain/nx=11'
       detail = 'in one dimension with an odd number of grid cells'
       compute_devices = 'cpu cuda mps'
+      max_parallel = 1
     []
     [even_2d]
       type = CSVDiff
@@ -26,6 +28,7 @@
       cli_args = 'Domain/dim=2 Domain/nx=10 Domain/ny=8'
       detail = 'in two dimensions with an even number of grid cells'
       compute_devices = 'cpu cuda mps'
+      max_parallel = 1
     []
     [odd_2d]
       type = CSVDiff
@@ -34,6 +37,7 @@
       cli_args = 'Domain/dim=2 Domain/nx=9 Domain/ny=11'
       detail = 'in two dimensions with an odd number of grid cells'
       compute_devices = 'cpu cuda mps'
+      max_parallel = 1
     []
     [even_3d]
       type = CSVDiff
@@ -42,6 +46,7 @@
       cli_args = 'Domain/dim=3 Domain/nx=10 Domain/ny=8 Domain/nz=12'
       detail = 'in three dimensions with an even number of grid cells'
       compute_devices = 'cpu cuda mps'
+      max_parallel = 1
     []
     [odd_3d]
       type = CSVDiff
@@ -50,6 +55,7 @@
       cli_args = 'Domain/dim=3 Domain/nx=9 Domain/ny=13 Domain/nz=11'
       detail = 'in three dimensions with an odd number of grid cells'
       compute_devices = 'cpu cuda mps'
+      max_parallel = 1
     []
 
     [constants]
@@ -59,6 +65,7 @@
       cli_args = 'Domain/dim=1 Domain/nx=10 Problem/scalar_constant_names="null zero" Problem/scalar_constant_values="0 0" TensorComputes/Initialize/zero/real=null TensorComputes/Initialize/zero/imaginary=zero'
       detail = ' throwing an error when encountering multiple undefined constants'
       compute_devices = 'cpu'
+      max_parallel = 1
     []
     [constant_1error]
       type = RunException
@@ -67,6 +74,7 @@
       cli_args = 'Domain/dim=1 Domain/nx=10 TensorComputes/Initialize/zero/real=null'
       detail = ' throwing an error when encountering one undefined constant'
       compute_devices = 'cpu'
+      max_parallel = 1
     []
     [constant_2errors]
       type = RunException
@@ -75,8 +83,10 @@
       cli_args = 'Domain/dim=1 Domain/nx=10 TensorComputes/Initialize/zero/real=null TensorComputes/Initialize/zero/imaginary=zero'
       detail = ' throwing an error when encountering multiple undefined constants'
       compute_devices = 'cpu'
+      max_parallel = 1
     []
   []
+
   [rotating_grain_secant]
     type = HDF5Diff
     input = rotating_grain_secant.i
@@ -86,6 +96,7 @@
     requirement = 'The system shall be able to solve a Swift-Hohenberg equation using a secant solve'
     design = SecantSolver.md
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [smooth_rectangle]
     type = HDF5Diff
@@ -96,5 +107,6 @@
     requirement = 'The system shall be able to interpolate two values smoothly between the inside and outside of a rectangle'
     design = SmoothRectangleCompute.md
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []
