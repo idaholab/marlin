@@ -48,6 +48,13 @@ public:
   /// called if the simulation cell dimensions change
   virtual void gridChanged() {}
 
+  /// Whether this compute supports JIT tracing. Override and return false for computes that:
+  /// - Use random number generation with changing seeds
+  /// - Have data-dependent control flow (if statements based on tensor values)
+  /// - Call external libraries that aren't traceable
+  /// - Modify global state
+  virtual bool supportsJIT() const { return true; }
+
 protected:
   template <typename T = torch::Tensor>
   const T & getInputBuffer(const std::string & param);

@@ -7,6 +7,7 @@
 /**********************************************************************/
 
 #include "ComputeGroup.h"
+#include "JITExecutor.h"
 #include "MooseError.h"
 #include "TensorProblem.h"
 #include "MarlinUtils.h"
@@ -18,14 +19,19 @@ InputParameters
 ComputeGroup::validParams()
 {
   InputParameters params = TensorOperatorBase::validParams();
-  params.addClassDescription("Group of operators with internal dependency resolution.");
+  params.addClassDescription("Group of operators with internal dependency resolution and optional "
+                             "JIT tracing support.");
   params.addParam<std::vector<TensorComputeName>>(
       "computes", {}, "List of grouped tensor computes.");
+  params.addParam<bool>("enable_jit", true, "Enable JIT tracing for this compute group");
   return params;
 }
 
 ComputeGroup::ComputeGroup(const InputParameters & parameters)
-  : TensorOperatorBase(parameters), _visited(false), _compute_count(0)
+  : TensorOperatorBase(parameters),
+    _visited(false),
+    _compute_count(0),
+    _jit_enabled(getParam<bool>("enable_jit"))
 {
 }
 
@@ -43,6 +49,15 @@ ComputeGroup::init()
 void
 ComputeGroup::computeBuffer()
 {
+  // Use JIT executor if enabled and available
+  if (_jit_enabled && _jit_executor)
+  {
+    _jit_executor->execute();
+    _compute_count++;
+    return;
+  }
+
+  // Fallback to direct execution
   for (const auto i : index_range(_computes))
   {
     if (_domain.debug())
@@ -114,4 +129,29 @@ ComputeGroup::updateDependencies()
                       in.begin(),
                       in.end(),
                       std::inserter(_supplied_buffers, _supplied_buffers.begin()));
+
+  // Build JIT execution plan if enabled
+  if (_jit_enabled)
+  {
+    _jit_executor = std::make_unique<JITExecutor>(_tensor_problem, true);
+    _jit_executor->buildExecutionPlan(_computes);
+
+    if (_domain.debug())
+      mooseInfoRepeated("JIT executor built: ",
+                        _jit_executor->getTracedSequenceCount(),
+                        " traced sequences, ",
+                        _jit_executor->getNonJITableCount(),
+                        " non-JITable computes");
+  }
+}
+
+void
+ComputeGroup::gridChanged()
+{
+  // Invalidate JIT caches when grid changes
+  if (_jit_executor)
+    _jit_executor->invalidateAllCaches();
+
+  // Call base implementation
+  TensorOperatorBase::gridChanged();
 }

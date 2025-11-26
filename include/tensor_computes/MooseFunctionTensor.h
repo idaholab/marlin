@@ -25,5 +25,8 @@ public:
 
   virtual void computeBuffer() override;
 
+  /// MOOSE functions are not traceable by PyTorch JIT
+  virtual bool supportsJIT() const override { return false; }
+
   const Function & _func;
 };

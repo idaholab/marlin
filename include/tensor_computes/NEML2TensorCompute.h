@@ -28,6 +28,9 @@ public:
   void init() override;
   void computeBuffer() override;
 
+  /// NEML2 models have their own JIT tracing infrastructure
+  virtual bool supportsJIT() const override { return false; }
+
 protected:
 #ifdef NEML2_ENABLED
   std::shared_ptr<neml2::Model> _model;

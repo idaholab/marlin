@@ -10,8 +10,12 @@
 
 #include "TensorOperatorBase.h"
 
+#include <memory>
+
+class JITExecutor;
+
 /**
- * Compute group with internal dependency resolution
+ * Compute group with internal dependency resolution and optional JIT tracing
  */
 class ComputeGroup : public TensorOperatorBase
 {
@@ -25,6 +29,9 @@ public:
   virtual void computeBuffer() override;
 
   virtual void updateDependencies() override;
+
+  /// Called when grid changes - invalidates JIT caches
+  virtual void gridChanged() override;
 
   std::size_t getComputeCount() const { return _compute_count; }
 
@@ -40,4 +47,10 @@ protected:
   bool _visited;
 
   std::size_t _compute_count;
+
+  /// JIT execution manager
+  std::unique_ptr<JITExecutor> _jit_executor;
+
+  /// Whether JIT tracing is enabled for this group
+  const bool _jit_enabled;
 };
