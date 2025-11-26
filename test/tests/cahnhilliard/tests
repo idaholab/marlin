@@ -55,6 +55,19 @@
     compute_devices = 'cpu cuda mps'
     max_parallel = 1
   []
+  [xdmf_output_hdf5_parallel]
+    type = HDF5Diff
+    input = cahnhilliard.i
+    cli_args = 'TensorOutputs/active="xdmf2" Domain/parallel_mode=FFT_SLAB Domain/device_names=cpu'
+    hdf5diff = cahnhilliard.rank0001.h5
+    abs_tol = 1e-13
+    issues = '#110'
+    requirement = 'The system shall be able to output a parallel distributed tensor in XDMF format using a set of HDF5 data files'
+    design = 'XDMFTensorOutput.md'
+    compute_devices = 'cpu'
+    max_parallel = 2
+    min_parallel = 2
+  []
 
   [xdmf_output_hdf5_threading_error]
     type = RunException
