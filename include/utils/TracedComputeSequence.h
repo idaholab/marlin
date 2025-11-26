@@ -9,6 +9,7 @@
 #pragma once
 
 #include "TraceSchema.h"
+#include "TraceableUtils.h"
 #include "TensorOperatorBase.h"
 
 #include <torch/torch.h>
@@ -29,6 +30,18 @@ class TensorProblem;
  *
  * Manages a sequence of TensorOperatorBase instances that can be traced together
  * as a single PyTorch JIT graph. Handles tracing, caching, and execution.
+ *
+ * Key feature: Generalized tracing across different batch sizes
+ * ============================================================
+ * Following the NEML2 approach, traces are cached by dimension COUNT (ndim),
+ * not concrete sizes. PyTorch's JIT tracer automatically creates symbolic
+ * dimension references when operations access tensor.size(i). This allows:
+ *
+ * 1. Trace at small batch size (e.g., 16x16 grid that fits in memory)
+ * 2. Run traced graph at large batch size (e.g., 512x512 grid)
+ *
+ * This is particularly useful when the untraced computation doesn't fit
+ * in GPU memory, but the traced version (with fused operations) would.
  */
 class TracedComputeSequence
 {
@@ -97,7 +110,8 @@ private:
   torch::jit::Stack collectOutputStack(TensorProblem & problem) const;
 
   /// Perform tracing of the compute sequence
-  void trace(TensorProblem & problem, const TraceSchema & schema, const torch::TensorOptions & options);
+  void
+  trace(TensorProblem & problem, const TraceSchema & schema, const torch::TensorOptions & options);
 
   /// Lookup buffer name by tensor pointer (for JIT variable naming)
   std::string lookupBufferName(const torch::Tensor & tensor, TensorProblem & problem) const;

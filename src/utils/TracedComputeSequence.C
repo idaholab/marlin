@@ -162,8 +162,7 @@ TracedComputeSequence::collectOutputStack(TensorProblem & problem) const
 }
 
 std::string
-TracedComputeSequence::lookupBufferName(const torch::Tensor & tensor,
-                                        TensorProblem & problem) const
+TracedComputeSequence::lookupBufferName(const torch::Tensor & tensor, TensorProblem & problem) const
 {
   // Try to find this tensor in our known buffers
   for (const auto & name : _ordered_input_names)

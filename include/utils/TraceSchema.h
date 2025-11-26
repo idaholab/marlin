@@ -14,13 +14,18 @@
 /**
  * TraceSchema - Cache key for traced JIT functions
  *
- * Determines when a cached traced graph can be reused. Different batch
- * dimensions or devices require different traced graphs.
+ * Determines when a cached traced graph can be reused. Traces are keyed by
+ * the NUMBER of dimensions in each tensor (not their sizes), allowing a single
+ * trace to work across different grid sizes. This enables tracing at a small
+ * batch size and running at a larger one.
+ *
+ * Following the NEML2 approach: torch::jit::tracer::getSizeOf() creates symbolic
+ * dimension references in the graph that evaluate to actual sizes at runtime.
  */
 struct TraceSchema
 {
-  /// Batch dimensions of all input buffers involved in the trace
-  std::vector<int64_t> batch_dims;
+  /// Number of dimensions for each input tensor (NOT the actual sizes)
+  std::vector<int64_t> tensor_ndims;
 
   /// Dispatch key (determines device: CPU, CUDA, etc.)
   at::DispatchKey dispatch_key;
@@ -30,9 +35,10 @@ struct TraceSchema
 
   /**
    * Create a schema from input tensors and tensor options.
+   * Only captures dimension counts (ndim), not concrete sizes.
    * @param inputs Vector of pointers to input tensors
    * @param options TensorOptions specifying device/dtype
-   * @return TraceSchema capturing the current input configuration
+   * @return TraceSchema capturing the dimension structure
    */
   static TraceSchema fromTensors(const std::vector<const torch::Tensor *> & inputs,
                                  const torch::TensorOptions & options);

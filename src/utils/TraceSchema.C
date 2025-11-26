@@ -11,14 +11,14 @@
 bool
 TraceSchema::operator==(const TraceSchema & other) const
 {
-  return batch_dims == other.batch_dims && dispatch_key == other.dispatch_key;
+  return tensor_ndims == other.tensor_ndims && dispatch_key == other.dispatch_key;
 }
 
 bool
 TraceSchema::operator<(const TraceSchema & other) const
 {
-  if (batch_dims != other.batch_dims)
-    return batch_dims < other.batch_dims;
+  if (tensor_ndims != other.tensor_ndims)
+    return tensor_ndims < other.tensor_ndims;
   return dispatch_key < other.dispatch_key;
 }
 
@@ -28,11 +28,11 @@ TraceSchema::fromTensors(const std::vector<const torch::Tensor *> & inputs,
 {
   TraceSchema schema;
 
-  // Collect batch dimensions from all input tensors
+  // Collect number of dimensions from all input tensors (NOT the actual sizes)
+  // This allows the same trace to work with different tensor sizes
   for (const auto * tensor : inputs)
     if (tensor && tensor->defined())
-      for (int64_t i = 0; i < tensor->dim(); ++i)
-        schema.batch_dims.push_back(tensor->size(i));
+      schema.tensor_ndims.push_back(tensor->dim());
 
   // Get dispatch key from tensor options
   schema.dispatch_key = options.computeDispatchKey();

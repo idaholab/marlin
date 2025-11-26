@@ -17,14 +17,16 @@ The JIT tracing system consists of three main components:
 
 ### TraceSchema
 
-A cache key that determines when a traced graph can be reused. Different tensor shapes or devices require different traced graphs.
+A cache key that determines when a traced graph can be reused. Importantly, traces are keyed by **dimension count** (ndim), not concrete sizes, enabling a single trace to work across different grid sizes.
 
 ```cpp
 struct TraceSchema {
-  std::vector<int64_t> batch_dims;  // Dimensions of all input tensors
-  at::DispatchKey dispatch_key;      // Device (CPU/CUDA) information
+  std::vector<int64_t> tensor_ndims;  // Number of dimensions per tensor (NOT sizes!)
+  at::DispatchKey dispatch_key;        // Device (CPU/CUDA) information
 };
 ```
+
+This design follows the NEML2 approach, where `torch::jit::tracer::getSizeOf()` creates symbolic dimension references in the traced graph that evaluate to actual sizes at runtime.
 
 ### TracedComputeSequence
 
@@ -138,6 +140,56 @@ Override `supportsJIT()` to return `false` if your compute:
 4. **Modifies global state** that affects subsequent computations
 5. **Uses operations not supported by the tracer** (see PyTorch JIT limitations)
 
+## Generalized Tracing Across Grid Sizes
+
+A key feature of this implementation is the ability to trace at a small grid size and run at a larger size. This is particularly useful when:
+
+1. **Memory constraints**: The untraced computation doesn't fit in GPU memory, but the traced version (with fused operations) would
+2. **Development workflow**: Quickly trace on a small test case, then deploy to production-size grids
+3. **Batch processing**: Use the same trace for varying input sizes
+
+### How It Works
+
+Following the NEML2 approach, the tracer uses `torch::jit::tracer::getSizeOf()` to create **symbolic dimension references** instead of hardcoded constants:
+
+```cpp
+// During tracing, this creates a graph node that reads the dimension at runtime
+TraceableSize size = getTraceableSize(tensor, 0);
+
+// The traced graph contains: tensor.size(0) -> symbolic reference
+// NOT: hardcoded value like 64
+```
+
+### Example Workflow
+
+```
+1. Trace at small size (16×16 grid that fits in memory):
+   - Graph captures operations with symbolic size references
+   - Cache stores graph keyed by ndim (e.g., [3] for 3D tensor)
+
+2. Run at large size (512×512 grid):
+   - Same TraceSchema (ndim = [3], same device)
+   - Cached graph retrieved
+   - Symbolic size references evaluate to 512 at runtime
+   - Fused operations execute with reduced memory footprint
+```
+
+### TraceableSize and TraceableTensorShape
+
+Helper types are provided for working with potentially symbolic dimensions:
+
+```cpp
+// TraceableSize: variant type holding either int64_t or torch::Tensor (symbolic)
+TraceableSize size = getTraceableSize(input_tensor, 0);
+int64_t concrete = size.concrete();  // Evaluates symbolic if needed
+
+// TraceableTensorShape: collection of TraceableSize values
+TraceableTensorShape shape = getTraceableShape(tensor);
+std::vector<int64_t> dims = shape.concrete();  // Get all concrete values
+```
+
+These are available via `TraceableUtils.h` and as protected methods on `TensorOperatorBase`.
+
 ## Graph Optimizations
 
 Traced graphs automatically receive the following optimizations:
@@ -241,7 +293,10 @@ JIT tracing caches graphs for each unique `TraceSchema`. If your simulation uses
 
 | File | Purpose |
 |------|---------|
-| `include/utils/TraceSchema.h` | Cache key structure |
+| `include/utils/TraceSchema.h` | Cache key structure (keyed by ndim, not size) |
+| `include/utils/TraceableSize.h` | Variant type for symbolic/concrete dimensions |
+| `include/utils/TraceableTensorShape.h` | Collection of traceable dimensions |
+| `include/utils/TraceableUtils.h` | Utility functions for extracting traceable sizes |
 | `include/utils/TracedComputeSequence.h` | Sequence tracing and execution |
 | `include/utils/JITExecutor.h` | Execution plan management |
 | `src/utils/TraceSchema.C` | Schema comparison operators |
