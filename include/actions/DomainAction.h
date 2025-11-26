@@ -12,6 +12,7 @@
 #include <vector>
 #include <string>
 #include <array>
+#include <mpi.h>
 
 #include <torch/torch.h>
 
@@ -72,6 +73,11 @@ public:
   /// align a 1d tensor in a specific dimension
   torch::Tensor align(torch::Tensor t, unsigned int dim) const;
 
+  /// get local begin/end indices for a specific rank (real space)
+  void getLocalBounds(unsigned int rank,
+                      std::array<int64_t, 3> & begin,
+                      std::array<int64_t, 3> & end) const;
+
   /// check if debugging is enabled
   bool debug() const { return _debug; }
 
@@ -85,6 +91,8 @@ protected:
   torch::Tensor fftSerial(const torch::Tensor & t) const;
   torch::Tensor fftSlab(const torch::Tensor & t) const;
   torch::Tensor fftPencil(const torch::Tensor & t) const;
+  torch::Tensor ifftSlab(const torch::Tensor & t) const;
+  torch::Tensor ifftPencil(const torch::Tensor & t) const;
 
   template <bool is_real>
   torch::Tensor cosineTransform(const torch::Tensor & t, int64_t axis) const;
@@ -186,13 +194,32 @@ protected:
 
   /// send tensors
   mutable std::vector<torch::Tensor> _send_tensor;
-  /// receive buffer
-  mutable std::vector<std::vector<double>> _recv_data;
   /// receive tensors
   mutable std::vector<torch::Tensor> _recv_tensor;
 
+  /// pencil decomposition partitions
+  unsigned int _pencil_y_partitions = 1;
+  unsigned int _pencil_z_partitions = 1;
+  std::vector<unsigned int> _pencil_y_index;
+  std::vector<unsigned int> _pencil_z_index;
+  std::vector<int64_t> _pencil_x_offsets;
+  std::vector<int64_t> _pencil_x_sizes;
+  std::vector<int64_t> _pencil_stage2_y_offsets;
+  std::vector<int64_t> _pencil_stage2_y_sizes;
+
   /// enable debugging
   const bool _debug;
+
+  /// enable GPU-aware MPI
+  const bool _gpu_aware_mpi;
+
+  /// helper utilities
+  MPI_Comm mpiComm() const;
+  MPI_Datatype mpiTypeFromScalar(torch::ScalarType scalar) const;
+  torch::Tensor pencilStage1Forward(const torch::Tensor & input) const;
+  torch::Tensor pencilStage2Forward(const torch::Tensor & input) const;
+  torch::Tensor pencilStage2Inverse(const torch::Tensor & input) const;
+  torch::Tensor pencilStage1Inverse(const torch::Tensor & input) const;
 };
 
 template <typename T>

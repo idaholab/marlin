@@ -7,5 +7,6 @@
     design = 'TensorHistogram.md'
     requirement = 'The system shall be able to compute a histogram of a given tensor buffer'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []

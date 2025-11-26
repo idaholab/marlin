@@ -7,6 +7,7 @@
     design = 'LBMStream.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [channel_flow_3d]
     type = HDF5Diff
@@ -16,6 +17,7 @@
     design = 'LBMD3Q19.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [isotropic_mrt]
     type = HDF5Diff
@@ -25,6 +27,7 @@
     design = 'LBMD3Q27.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [flow_around_obstacle]
     type = HDF5Diff
@@ -34,6 +37,7 @@
     design = 'LBMTensorBuffer.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [phase-field]
     type = HDF5Diff
@@ -43,6 +47,7 @@
     design = 'LBMComputeChemicalPotential.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [mass_heat_advan_bc]
     type = HDF5Diff
@@ -52,6 +57,7 @@
     design = 'LBMDirichletWallBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [dirichlet_box]
     type = HDF5Diff
@@ -61,6 +67,7 @@
     design = 'LBMMacroscopicDirichletBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [neumann_box]
     type = HDF5Diff
@@ -70,6 +77,7 @@
     design = 'LBMMacroscopicNeumannBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [stacking]
     type = HDF5Diff
@@ -79,6 +87,7 @@
     design = 'LBMStackTensors.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [vertical_density_bcs]
     type = HDF5Diff
@@ -88,6 +97,7 @@
     design = 'LBMFixedZerothOrderBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [vertical_velocity_bcs]
     type = HDF5Diff
@@ -97,6 +107,7 @@
     design = 'LBMFixedFirstOrderBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [horizontal_mixed_bcs_d2q9]
     type = HDF5Diff
@@ -106,6 +117,7 @@
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [horizontal_mixed_bcs_d2q9_reverse]
     type = HDF5Diff
@@ -115,6 +127,7 @@
     design = 'LBMFixedZerothOrderBC.md LBMMicroscopicZeroGradientBC'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [mixed_bcs_d3q19]
     type = HDF5Diff
@@ -124,6 +137,7 @@
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [mixed_bcs_d3q19_reverse]
     type = HDF5Diff
@@ -133,6 +147,7 @@
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [mixed_bcs_d3q27]
     type = HDF5Diff
@@ -142,6 +157,7 @@
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [mixed_bcs_d3q27_reverse]
     type = HDF5Diff
@@ -151,6 +167,7 @@
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [smagorinsky_mrt]
     type = HDF5Diff
@@ -160,5 +177,6 @@
     design = 'LBMCollisionDynamics.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []

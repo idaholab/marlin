@@ -8,6 +8,7 @@
     issues = '#6'
     design = 'TensorExtremeValuePostprocessor.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 
   [average]
@@ -19,6 +20,7 @@
     issues = '#6'
     design = 'TensorAveragePostprocessor.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 
   [integral]
@@ -30,7 +32,9 @@
     issues = '#6'
     design = 'TensorIntegralPostprocessor.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
+
   [reciprocal_integral]
     type = CSVDiff
     input = postprocessors.i
@@ -40,6 +44,7 @@
     issues = '#6'
     design = 'ReciprocalIntegral.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 
   [interface_velocity]
@@ -50,6 +55,7 @@
     issues = '#6'
     design = 'TensorInterfaceVelocityPostprocessor.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 
   [count]
@@ -61,5 +67,6 @@
     issues = '#80'
     design = 'ComputeGroupExecutionCount.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []

@@ -35,27 +35,7 @@ protected:
   torch::Tensor extendTensor(torch::Tensor tensor);
   torch::Tensor upsampleTensor(torch::Tensor tensor);
 
-  /// mesh dimension
-  const unsigned int _dim;
-
-  /// xml document references
-  pugi::xml_document _doc;
-  pugi::xml_node _tgrid;
-
-  /// node grid is original buffer dimensions plus one
-  std::vector<std::size_t> _nnode;
-  std::string _node_grid;
-
-  /// data dimensions (depends on choice of Cell or Node output)
-  std::array<std::vector<std::size_t>, 2> _ndata;
-  std::array<std::string, 2> _data_grid;
-
-  /// outputted frame
-  std::size_t _frame;
-
-  /// transpose tensors before outputting to counter a Paraview XDMF reader ideosyncracy
-  const bool _transpose;
-
+private:
   enum class OutputMode
   {
     CELL,
@@ -63,13 +43,53 @@ protected:
     OVERSIZED_NODAL
   };
 
+  void writeLocalData();
+  void writeSerialXMF();
+  void writeParallelXMF();
+  std::vector<std::string> buildAttributeNames(const TensorInputBufferName & buffer_name,
+                                               int64_t num_fields) const;
+  unsigned int mappedAxis(unsigned int axis) const;
+  std::vector<int64_t> localCellCounts(unsigned int rank) const;
+  std::vector<int64_t> localNodeCounts(unsigned int rank) const;
+  std::vector<Real> localOrigin(unsigned int rank) const;
+  std::vector<Real> localSpacing() const;
+  std::string dimsToString(const std::vector<int64_t> & dims) const;
+  std::string rankTag(unsigned int rank) const;
+  std::string hdf5FileName(unsigned int rank) const;
+  std::string binaryFileName(const std::string & setname, unsigned int rank) const;
+
+  /// mesh dimension
+  const unsigned int _dim;
+
+  /// frame counter
+  std::size_t _frame;
+
+  /// communicator info
+  const unsigned int _rank;
+  const unsigned int _n_rank;
+  const bool _is_parallel;
+
+  /// transpose tensors before outputting to counter a Paraview XDMF reader ideosyncracy
+  const bool _transpose;
+
   /// whether the tensor uses Cell or Node output
   std::map<std::string, OutputMode> _output_mode;
+
+  /// precomputed global data dimensions (serial)
+  std::array<std::vector<std::size_t>, 2> _ndata;
+  std::array<std::string, 2> _data_grid;
+  std::vector<std::size_t> _nnode;
+  std::string _node_grid;
+  std::string _geometry_type;
+
+  /// xml document references (root rank only in parallel)
+  pugi::xml_document _doc;
+  pugi::xml_node _tgrid;
 
 #ifdef LIBMESH_HAVE_HDF5
   const bool _enable_hdf5;
 
-  /// HDF5 file name
+  /// HDF5 file name (rank-specific)
   const std::string _hdf5_name;
 
   /// HDF5 file handle

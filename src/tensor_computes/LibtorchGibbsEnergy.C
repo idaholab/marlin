@@ -42,7 +42,7 @@ LibtorchGibbsEnergy::LibtorchGibbsEnergy(const InputParameters & parameters)
 
   auto ref = torch::empty({0}, opts);
   const auto dev = ref.device();
-  const auto dt  = ref.scalar_type();
+  const auto dt = ref.scalar_type();
   _surrogate->to(dev, dt, /*non_blocking=*/false);
   _surrogate->eval();
 

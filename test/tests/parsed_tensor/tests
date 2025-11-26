@@ -7,5 +7,6 @@
     issues = '#TBD'
     design = 'ParsedCompute.md MarlinExpressionParser.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 []

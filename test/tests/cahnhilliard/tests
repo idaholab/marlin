@@ -8,6 +8,7 @@
     requirement = 'The system shall be able to map a tensor directly to an aux variable solution vector in 2d'
     design = 'TensorProblem.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [map_to_aux_3d]
     type = Exodiff
@@ -18,6 +19,7 @@
     requirement = 'The system shall be able to map a tensor directly to an aux variable solution vector in 3d'
     design = 'TensorProblem.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [project_tensor]
     type = Exodiff
@@ -28,6 +30,7 @@
     requirement = 'The system shall be able to project a tensor onto an aux variable using an aux kernel'
     design = 'ProjectTensorAux.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [xdmf_output_xml]
     type = XMLDiff
@@ -38,6 +41,7 @@
     requirement = 'The system shall be able to output a tensor in XDMF format'
     design = 'XDMFTensorOutput.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
   [xdmf_output_hdf5]
     type = HDF5Diff
@@ -49,6 +53,20 @@
     requirement = 'The system shall be able to output a tensor in XDMF format using a HDF5 data file'
     design = 'XDMFTensorOutput.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [xdmf_output_hdf5_parallel]
+    type = HDF5Diff
+    input = cahnhilliard.i
+    cli_args = 'TensorOutputs/active="xdmf2" Domain/parallel_mode=FFT_SLAB Domain/device_names=cpu'
+    hdf5diff = cahnhilliard.rank0001.h5
+    abs_tol = 1e-13
+    issues = '#110'
+    requirement = 'The system shall be able to output a parallel distributed tensor in XDMF format using a set of HDF5 data files'
+    design = 'XDMFTensorOutput.md'
+    compute_devices = 'cpu'
+    max_parallel = 2
+    min_parallel = 2
   []
 
   [xdmf_output_hdf5_threading_error]
@@ -57,10 +75,13 @@
     cli_args = 'TensorOutputs/active="xdmf xdmf2"'
     expect_err = 'Using an hdf5 library that is not threadsafe and multiple XDMF output objects'
     issues = '#12'
+    capabilities = '!hdf5_threadsafe'
     requirement = 'The system shall throw an error if multiple XDMF outputs are active and the hdf5 library is not threadsave'
     design = 'XDMFTensorOutput.md'
     # this should have a corresponding capability check '!hdf5_thread_safe'
-  []
+    compute_devices = 'cpu'
+    max_parallel = 1
+ []
 
   # Explicit solve tests
   [explicit_euler_exodiff]
@@ -71,6 +92,7 @@
     requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly.'
     design = 'ForwardEulerSolver.md'
     compute_devices = 'cpu cuda mps'
+    max_parallel = 1
   []
 
   [explicit_smoothed]
@@ -83,6 +105,7 @@
       requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly with a 2/3 de-aliasing.'
       design = 'DeAliasingTensor.md'
       compute_devices = 'cpu cuda mps'
+      max_parallel = 1
     []
     [hou-li]
       type = Exodiff
@@ -93,6 +116,7 @@
       requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly with Hou-Li de-aliasing.'
       design = 'DeAliasingTensor.md'
       compute_devices = 'cpu cuda mps'
+     max_parallel = 1
     []
   []
 []

@@ -14,6 +14,8 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <iomanip>
+#include <sstream>
 
 #ifdef LIBMESH_HAVE_HDF5
 namespace
@@ -21,7 +23,7 @@ namespace
 void addDataToHDF5(hid_t file_id,
                    const std::string & dataset_name,
                    const char * data,
-                   std::vector<std::size_t> & ndim,
+                   const std::vector<std::size_t> & ndim,
                    hid_t type);
 }
 #endif
@@ -58,11 +60,14 @@ XDMFTensorOutput::XDMFTensorOutput(const InputParameters & parameters)
   : TensorOutput(parameters),
     _dim(_domain.getDim()),
     _frame(0),
+    _rank(_domain.comm().rank()),
+    _n_rank(_domain.comm().size()),
+    _is_parallel(_n_rank > 1),
     _transpose(getParam<bool>("transpose"))
 #ifdef LIBMESH_HAVE_HDF5
     ,
     _enable_hdf5(getParam<bool>("enable_hdf5")),
-    _hdf5_name(_file_base + ".h5")
+    _hdf5_name(_file_base + (_is_parallel ? rankTag(_rank) : std::string()) + ".h5")
 #endif
 {
   const auto output_mode = getParam<MultiMooseEnum>("output_mode").getSetValueIDs<OutputMode>();
@@ -81,6 +86,11 @@ XDMFTensorOutput::XDMFTensorOutput(const InputParameters & parameters)
     for (const auto i : make_range(nbuffers))
       _output_mode[buffer_name[i]] = output_mode[i];
   }
+
+  if (_is_parallel)
+    for (const auto & mode_pair : _output_mode)
+      if (mode_pair.second != OutputMode::CELL)
+        mooseError("XDMFTensorOutput currently supports only CELL output mode in parallel.");
 
 #ifdef LIBMESH_HAVE_HDF5
   // Check if the library is thread-safe
@@ -117,7 +127,7 @@ XDMFTensorOutput::init()
   {
     // we need to transpose the tensor because of
     // https://discourse.paraview.org/t/axis-swapped-with-xdmf-topologytype-3dcorectmesh/3059/4
-    const auto j = _transpose ? _dim - i - 1 : i;
+    const auto j = mappedAxis(i);
     _ndata[0].push_back(_domain.getGridSize()[j]);
     _ndata[1].push_back(_domain.getGridSize()[j] + 1);
     _nnode.push_back(_domain.getGridSize()[j] + 1);
@@ -128,9 +138,31 @@ XDMFTensorOutput::init()
   _data_grid[1] = Moose::stringify(_ndata[1], " ");
   _node_grid = Moose::stringify(_nnode, " ");
 
+  const char * dxyz[] = {"DX", "DY", "DZ"};
+  _geometry_type = "ORIGIN_";
+  for (const auto i : make_range(_dim))
+    _geometry_type += dxyz[i];
+
   //
   // setup XDMF skeleton
   //
+
+  if (_is_parallel && _rank != 0)
+  {
+#ifdef LIBMESH_HAVE_HDF5
+    if (_enable_hdf5)
+    {
+      std::filesystem::remove(_hdf5_name);
+      _hdf5_file_id = H5Fcreate(_hdf5_name.c_str(), H5F_ACC_TRUNC, H5P_DEFAULT, H5P_DEFAULT);
+      if (_hdf5_file_id < 0)
+      {
+        H5Eprint(H5E_DEFAULT, stderr);
+        mooseError("Error opening HDF5 file '", _hdf5_name, "'.");
+      }
+    }
+#endif
+    return;
+  }
 
   // Top level xdmf block
   auto xdmf = _doc.append_child("Xdmf");
@@ -147,11 +179,7 @@ XDMFTensorOutput::init()
 
   // -  Geometry
   auto geometry = domain.append_child("Geometry");
-  std::string type = "ORIGIN_";
-  const char * dxyz[] = {"DX", "DY", "DZ"};
-  for (const auto i : make_range(_dim))
-    type += dxyz[i];
-  geometry.append_attribute("Type") = type.c_str();
+  geometry.append_attribute("Type") = _geometry_type.c_str();
 
   // -- Origin
   {
@@ -196,76 +224,63 @@ XDMFTensorOutput::init()
 void
 XDMFTensorOutput::output()
 {
-  // add grid for new timestep
-  auto grid = _tgrid.append_child("Grid");
-  grid.append_attribute("Name") = ("T" + Moose::stringify(_frame)).c_str();
-  grid.append_attribute("GridType") = "Uniform";
+  writeLocalData();
 
-  // time
-  auto time = grid.append_child("Time");
-  time.append_attribute("Value") = _time;
+#ifdef LIBMESH_HAVE_HDF5
+  if (_enable_hdf5)
+    H5Fflush(_hdf5_file_id, H5F_SCOPE_GLOBAL);
+#endif
 
-  // add references
-  grid.append_child("xi:include").append_attribute("xpointer") = "xpointer(//Xdmf/Domain/Topology)";
-  grid.append_child("xi:include").append_attribute("xpointer") = "xpointer(//Xdmf/Domain/Geometry)";
+  if (_is_parallel && _rank != 0)
+  {
+    _frame++;
+    return;
+  }
 
-  // loop over buffers
+  if (_is_parallel)
+    writeParallelXMF();
+  else
+    writeSerialXMF();
+
+  _doc.save_file((_file_base + ".xmf").c_str());
+
+  _frame++;
+}
+
+void
+XDMFTensorOutput::writeLocalData()
+{
   for (const auto & [buffer_name, original_buffer] : _out_buffers)
   {
-    // skip empty tensors (no device)
     if (!original_buffer->defined())
       continue;
 
     const auto output_mode = _output_mode[buffer_name];
     torch::Tensor buffer;
 
-    // we need to transpose the tensor because of
-    // https://discourse.paraview.org/t/axis-swapped-with-xdmf-topologytype-3dcorectmesh/3059/4
     switch (output_mode)
     {
       case OutputMode::NODE:
-        if (_transpose)
-        {
-          if (_dim == 2)
-          {
-            buffer = buffer = torch::transpose(extendTensor(*original_buffer), 0, 1).contiguous();
-            break;
-          }
-          else if (_dim == 3)
-          {
-            buffer = buffer = torch::transpose(extendTensor(*original_buffer), 0, 2).contiguous();
-            break;
-          }
-        }
-        buffer = extendTensor(*original_buffer);
+      {
+        auto extended = extendTensor(*original_buffer);
+        buffer = _transpose ? (_dim == 2 ? torch::transpose(extended, 0, 1).contiguous()
+                                         : torch::transpose(extended, 0, 2).contiguous())
+                            : extended;
         break;
+      }
 
-      case OutputMode::CELL:
       case OutputMode::OVERSIZED_NODAL:
-        if (_transpose)
-        {
-          if (_dim == 2)
-          {
-            buffer = torch::transpose(*original_buffer, 0, 1).contiguous();
-            break;
-          }
-          else if (_dim == 3)
-          {
-            buffer = torch::transpose(*original_buffer, 0, 2).contiguous();
-          }
-          break;
-        }
-
-        buffer = *original_buffer;
+      case OutputMode::CELL:
+      {
+        buffer = _transpose ? (_dim == 2 ? torch::transpose(*original_buffer, 0, 1).contiguous()
+                                         : torch::transpose(*original_buffer, 0, 2).contiguous())
+                            : *original_buffer;
         break;
+      }
     }
 
-    const auto is_cell = output_mode == OutputMode::CELL;
-
     const auto sizes = buffer.sizes();
-    const auto total_dims = sizes.size();
-
-    if (total_dims < _dim)
+    if (sizes.size() < _dim)
       mooseError("Tensor has fewer dimensions than specified spatial dimension.");
 
     int64_t num_grid_fields = 1;
@@ -273,101 +288,227 @@ XDMFTensorOutput::output()
       num_grid_fields *= sizes[i];
 
     int64_t num_scalar_fields = 1;
-    for (std::size_t i = _dim; i < total_dims; ++i)
+    for (std::size_t i = _dim; i < sizes.size(); ++i)
       num_scalar_fields *= sizes[i];
 
     std::vector<int64_t> reshape_sizes = {num_grid_fields, num_scalar_fields};
-    const auto reshaped = buffer.reshape(reshape_sizes);
+    auto reshaped = buffer.reshape(reshape_sizes);
+    auto component_names = buildAttributeNames(buffer_name, num_scalar_fields);
 
-    // now loop over scalar components
-    const std::array<std::string, 3> xyz = {"x", "y", "z"};
-    for (const auto index : make_range(num_scalar_fields))
+    for (const auto component : make_range(component_names.size()))
     {
-      auto name =
-          buffer_name + (num_scalar_fields > 1
-                             ? "_" + (num_scalar_fields <= 3 ? xyz[index] : Moose::stringify(index))
-                             : "");
+      auto slice = reshaped.select(1, component).contiguous();
+      if (!slice.device().is_cpu())
+        slice = slice.to(slice.options().device(torch::kCPU));
 
-      buffer = reshaped.select(1, index).contiguous();
-
-      auto attr = grid.append_child("Attribute");
-      attr.append_attribute("Name") = name.c_str();
-      attr.append_attribute("Center") = output_mode == OutputMode::CELL ? "Cell" : "Node";
-      auto data = attr.append_child("DataItem");
-      data.append_attribute("DataType") = "Float";
-
-      // TODO: recompute data grid from sizes[0:_dim]
-      data.append_attribute("Dimensions") = _data_grid[is_cell ? 0 : 1].c_str();
-
-      // save file
-      const auto setname = name + "." + Moose::stringify(_frame);
-
-      char * raw_ptr = static_cast<char *>(buffer.data_ptr());
-      std::size_t raw_size = buffer.numel();
+      const auto setname = component_names[component] + "." + Moose::stringify(_frame);
+      char * raw_ptr = static_cast<char *>(slice.data_ptr());
+      const std::size_t raw_size = slice.nbytes();
 
 #ifdef LIBMESH_HAVE_HDF5
       if (_enable_hdf5)
       {
-        if (buffer.dtype() == torch::kFloat32)
-          addDataToHDF5(_hdf5_file_id, setname, raw_ptr, _ndata[is_cell ? 0 : 1], H5T_NATIVE_FLOAT);
-        else if (buffer.dtype() == torch::kFloat64)
-          addDataToHDF5(
-              _hdf5_file_id, setname, raw_ptr, _ndata[is_cell ? 0 : 1], H5T_NATIVE_DOUBLE);
-        else if (buffer.dtype() == torch::kInt32)
-          addDataToHDF5(_hdf5_file_id, setname, raw_ptr, _ndata[is_cell ? 0 : 1], H5T_NATIVE_INT32);
-        else if (buffer.dtype() == torch::kInt64)
-          addDataToHDF5(_hdf5_file_id, setname, raw_ptr, _ndata[is_cell ? 0 : 1], H5T_NATIVE_INT64);
+        std::vector<std::size_t> dims;
+        dims.reserve(_dim);
+        for (const auto i : make_range(_dim))
+          dims.push_back(static_cast<std::size_t>(sizes[i]));
+
+        hid_t hdf_type = H5I_INVALID_HID;
+        if (slice.dtype() == torch::kFloat32)
+          hdf_type = H5T_NATIVE_FLOAT;
+        else if (slice.dtype() == torch::kFloat64)
+          hdf_type = H5T_NATIVE_DOUBLE;
+        else if (slice.dtype() == torch::kInt32)
+          hdf_type = H5T_NATIVE_INT32;
+        else if (slice.dtype() == torch::kInt64)
+          hdf_type = H5T_NATIVE_INT64;
         else
           mooseError("Unsupported output type");
 
+        addDataToHDF5(_hdf5_file_id, setname, raw_ptr, dims, hdf_type);
+      }
+      else
+#endif
+      {
+        const auto fname = binaryFileName(setname, _rank);
+        auto file = std::fstream(fname.c_str(), std::ios::out | std::ios::binary);
+        file.write(raw_ptr, raw_size);
+        file.close();
+      }
+    }
+  }
+}
+
+void
+XDMFTensorOutput::writeSerialXMF()
+{
+  auto grid = _tgrid.append_child("Grid");
+  grid.append_attribute("Name") = ("T" + Moose::stringify(_frame)).c_str();
+  grid.append_attribute("GridType") = "Uniform";
+
+  auto time = grid.append_child("Time");
+  time.append_attribute("Value") = _time;
+
+  grid.append_child("xi:include").append_attribute("xpointer") = "xpointer(//Xdmf/Domain/Topology)";
+  grid.append_child("xi:include").append_attribute("xpointer") = "xpointer(//Xdmf/Domain/Geometry)";
+
+  for (const auto & [buffer_name, original_buffer] : _out_buffers)
+  {
+    if (!original_buffer->defined())
+      continue;
+
+    const auto output_mode = _output_mode[buffer_name];
+    const bool is_cell = output_mode == OutputMode::CELL;
+
+    const auto sizes = original_buffer->sizes();
+    if (sizes.size() < _dim)
+      mooseError("Tensor has fewer dimensions than specified spatial dimension.");
+
+    int64_t num_scalar_fields = 1;
+    for (std::size_t i = _dim; i < sizes.size(); ++i)
+      num_scalar_fields *= sizes[i];
+
+    const auto component_names = buildAttributeNames(buffer_name, num_scalar_fields);
+    const char * center = is_cell ? "Cell" : "Node";
+    const auto data_dims = _data_grid[is_cell ? 0 : 1];
+    const auto dtype = original_buffer->dtype();
+
+    const char * dtype_str = (dtype == torch::kInt32 || dtype == torch::kInt64) ? "Int" : "Float";
+    const std::string precision = (dtype == torch::kFloat64 || dtype == torch::kInt64)   ? "8"
+                                  : (dtype == torch::kFloat32 || dtype == torch::kInt32) ? "4"
+                                                                                         : "1";
+
+    for (const auto & attr_name : component_names)
+    {
+      auto attr = grid.append_child("Attribute");
+      attr.append_attribute("Name") = attr_name.c_str();
+      attr.append_attribute("Center") = center;
+
+      auto data = attr.append_child("DataItem");
+      data.append_attribute("DataType") = dtype_str;
+      data.append_attribute("Dimensions") = data_dims.c_str();
+
+      const auto dataset = attr_name + "." + Moose::stringify(_frame);
+
+#ifdef LIBMESH_HAVE_HDF5
+      if (_enable_hdf5)
+      {
         data.append_attribute("Format") = "HDF";
-        const auto h5path = _hdf5_name + ":/" + setname;
+        const auto h5path = _hdf5_name + ":/" + dataset;
         data.append_child(pugi::node_pcdata).set_value(h5path.c_str());
       }
       else
 #endif
       {
-        if (buffer.dtype() == torch::kFloat32)
-        {
-          data.append_attribute("Precision") = "4";
-          raw_size *= 4;
-        }
-        else if (buffer.dtype() == torch::kFloat64)
-        {
-          data.append_attribute("Precision") = "8";
-          raw_size *= 8;
-        }
-        else if (buffer.dtype() == torch::kInt32 || buffer.dtype() == torch::kInt64)
-        {
-          data.append_attribute("Precision") = "1";
-          raw_size *= 1;
-        }
-        else
-          mooseError("Unsupported output type");
-
-        const auto fname = _file_base + "." + setname + ".bin";
-        auto file = std::fstream(fname.c_str(), std::ios::out | std::ios::binary);
-        file.write(raw_ptr, raw_size);
-        file.close();
-
         data.append_attribute("Format") = "Binary";
         data.append_attribute("Endian") = "Little";
+        data.append_attribute("Precision") = precision.c_str();
+        const auto fname = binaryFileName(dataset, 0);
         data.append_child(pugi::node_pcdata).set_value(fname.c_str());
       }
     }
   }
+}
 
-  // write XDMF file
-  _doc.save_file((_file_base + ".xmf").c_str());
+void
+XDMFTensorOutput::writeParallelXMF()
+{
+  auto grid = _tgrid.append_child("Grid");
+  grid.append_attribute("Name") = ("T" + Moose::stringify(_frame)).c_str();
+  grid.append_attribute("GridType") = "Collection";
+  grid.append_attribute("CollectionType") = "Spatial";
+
+  auto time = grid.append_child("Time");
+  time.append_attribute("Value") = _time;
+
+  const auto spacing = localSpacing();
+  const std::string spacing_dims = Moose::stringify(_dim);
+
+  for (unsigned int r = 0; r < _n_rank; ++r)
+  {
+    const auto cells = localCellCounts(r);
+    const auto nodes = localNodeCounts(r);
+    const auto origin = localOrigin(r);
+
+    auto subgrid = grid.append_child("Grid");
+    subgrid.append_attribute("Name") = ("Rank" + Moose::stringify(r)).c_str();
+    subgrid.append_attribute("GridType") = "Uniform";
+
+    auto topology = subgrid.append_child("Topology");
+    topology.append_attribute("TopologyType") = (Moose::stringify(_dim) + "DCoRectMesh").c_str();
+    topology.append_attribute("Dimensions") = dimsToString(nodes).c_str();
+
+    auto geometry = subgrid.append_child("Geometry");
+    geometry.append_attribute("Type") = _geometry_type.c_str();
+
+    auto origin_data = geometry.append_child("DataItem");
+    origin_data.append_attribute("Format") = "XML";
+    origin_data.append_attribute("Dimensions") = spacing_dims.c_str();
+    origin_data.append_child(pugi::node_pcdata).set_value(Moose::stringify(origin, " ").c_str());
+
+    auto spacing_data = geometry.append_child("DataItem");
+    spacing_data.append_attribute("Format") = "XML";
+    spacing_data.append_attribute("Dimensions") = spacing_dims.c_str();
+    spacing_data.append_child(pugi::node_pcdata).set_value(Moose::stringify(spacing, " ").c_str());
+
+    for (const auto & [buffer_name, original_buffer] : _out_buffers)
+    {
+      if (!original_buffer->defined())
+        continue;
+
+      const auto sizes = original_buffer->sizes();
+      if (sizes.size() < _dim)
+        mooseError("Tensor has fewer dimensions than specified spatial dimension.");
+
+      int64_t num_scalar_fields = 1;
+      for (std::size_t i = _dim; i < sizes.size(); ++i)
+        num_scalar_fields *= sizes[i];
+
+      const auto attr_names = buildAttributeNames(buffer_name, num_scalar_fields);
+      const std::string dims_str = dimsToString(cells);
+      const char * dtype_str =
+          (original_buffer->dtype() == torch::kInt32 || original_buffer->dtype() == torch::kInt64)
+              ? "Int"
+              : "Float";
+      const std::string precision =
+          (original_buffer->dtype() == torch::kFloat64 || original_buffer->dtype() == torch::kInt64)
+              ? "8"
+          : (original_buffer->dtype() == torch::kFloat32 ||
+             original_buffer->dtype() == torch::kInt32)
+              ? "4"
+              : "1";
+
+      for (const auto & attr_name : attr_names)
+      {
+        auto attr = subgrid.append_child("Attribute");
+        attr.append_attribute("Name") = attr_name.c_str();
+        attr.append_attribute("Center") = "Cell";
+
+        auto data = attr.append_child("DataItem");
+        data.append_attribute("DataType") = dtype_str;
+        data.append_attribute("Dimensions") = dims_str.c_str();
+
+        const auto dataset = attr_name + "." + Moose::stringify(_frame);
 
 #ifdef LIBMESH_HAVE_HDF5
-  // flush hdf5 file contents to disk
-  if (_enable_hdf5)
-    H5Fflush(_hdf5_file_id, H5F_SCOPE_GLOBAL);
+        if (_enable_hdf5)
+        {
+          data.append_attribute("Format") = "HDF";
+          const auto h5path = hdf5FileName(r) + ":/" + dataset;
+          data.append_child(pugi::node_pcdata).set_value(h5path.c_str());
+        }
+        else
 #endif
-
-  // increment frame
-  _frame++;
+        {
+          data.append_attribute("Format") = "Binary";
+          data.append_attribute("Endian") = "Little";
+          data.append_attribute("Precision") = precision.c_str();
+          const auto fname = binaryFileName(dataset, r);
+          data.append_child(pugi::node_pcdata).set_value(fname.c_str());
+        }
+      }
+    }
+  }
 }
 
 torch::Tensor
@@ -422,7 +563,7 @@ void
 addDataToHDF5(hid_t file_id,
               const std::string & dataset_name,
               const char * data,
-              std::vector<std::size_t> & ndim,
+              const std::vector<std::size_t> & ndim,
               hid_t type)
 {
   hid_t dataset_id, dataspace_id, plist_id;
@@ -494,3 +635,106 @@ addDataToHDF5(hid_t file_id,
 }
 }
 #endif
+std::vector<std::string>
+XDMFTensorOutput::buildAttributeNames(const TensorInputBufferName & buffer_name,
+                                      int64_t num_fields) const
+{
+  const std::array<std::string, 3> xyz = {"x", "y", "z"};
+  std::vector<std::string> names;
+  names.reserve(num_fields);
+  for (const auto index : make_range(static_cast<std::size_t>(num_fields)))
+  {
+    std::string name = buffer_name;
+    if (num_fields > 1)
+      name += "_" + (num_fields <= 3 ? xyz[index] : Moose::stringify(index));
+    names.push_back(std::move(name));
+  }
+  return names;
+}
+
+unsigned int
+XDMFTensorOutput::mappedAxis(unsigned int axis) const
+{
+  return _transpose ? _dim - axis - 1 : axis;
+}
+
+std::vector<int64_t>
+XDMFTensorOutput::localCellCounts(unsigned int rank) const
+{
+  std::array<int64_t, 3> begin = {0, 0, 0};
+  std::array<int64_t, 3> end = {0, 0, 0};
+  _domain.getLocalBounds(rank, begin, end);
+
+  std::vector<int64_t> counts(_dim, 1);
+  for (const auto i : make_range(_dim))
+  {
+    const auto axis = mappedAxis(i);
+    counts[i] = end[axis] - begin[axis];
+  }
+  return counts;
+}
+
+std::vector<int64_t>
+XDMFTensorOutput::localNodeCounts(unsigned int rank) const
+{
+  auto counts = localCellCounts(rank);
+  for (auto & c : counts)
+    c += 1;
+  return counts;
+}
+
+std::vector<Real>
+XDMFTensorOutput::localOrigin(unsigned int rank) const
+{
+  std::array<int64_t, 3> begin = {0, 0, 0};
+  std::array<int64_t, 3> end = {0, 0, 0};
+  _domain.getLocalBounds(rank, begin, end);
+
+  std::vector<Real> origin(_dim, 0.0);
+  for (const auto i : make_range(_dim))
+  {
+    const auto axis = mappedAxis(i);
+    origin[i] = _domain.getDomainMin()(axis) + begin[axis] * _domain.getGridSpacing()(axis);
+  }
+  return origin;
+}
+
+std::vector<Real>
+XDMFTensorOutput::localSpacing() const
+{
+  std::vector<Real> spacing(_dim, 0.0);
+  for (const auto i : make_range(_dim))
+  {
+    const auto axis = mappedAxis(i);
+    spacing[i] = _domain.getGridSpacing()(axis);
+  }
+  return spacing;
+}
+
+std::string
+XDMFTensorOutput::dimsToString(const std::vector<int64_t> & dims) const
+{
+  return Moose::stringify(dims, " ");
+}
+
+std::string
+XDMFTensorOutput::rankTag(unsigned int rank) const
+{
+  if (!_is_parallel)
+    return "";
+  std::ostringstream os;
+  os << ".rank" << std::setfill('0') << std::setw(4) << rank;
+  return os.str();
+}
+
+std::string
+XDMFTensorOutput::hdf5FileName(unsigned int rank) const
+{
+  return _file_base + rankTag(rank) + ".h5";
+}
+
+std::string
+XDMFTensorOutput::binaryFileName(const std::string & setname, unsigned int rank) const
+{
+  return _file_base + rankTag(rank) + "." + setname + ".bin";
+}
