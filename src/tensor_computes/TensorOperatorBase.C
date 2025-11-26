@@ -51,3 +51,9 @@ TensorOperatorBase::getCompute(const std::string & param_name)
       return *cmp;
   paramError(param_name, "Compute not found.");
 }
+
+bool
+TensorOperatorBase::usesParallelFFT() const
+{
+  return _domain.isParallelFFT();
+}

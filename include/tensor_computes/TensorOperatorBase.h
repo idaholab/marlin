@@ -53,9 +53,12 @@ public:
   /// - Have data-dependent control flow (if statements based on tensor values)
   /// - Call external libraries that aren't traceable
   /// - Modify global state
+  /// - Use FFT operations in parallel mode (MPI communication is not traceable)
   virtual bool supportsJIT() const { return true; }
 
 protected:
+  /// Helper for computes that use FFT: returns true if FFT requires MPI (not JIT-traceable)
+  bool usesParallelFFT() const;
   template <typename T = torch::Tensor>
   const T & getInputBuffer(const std::string & param);
 

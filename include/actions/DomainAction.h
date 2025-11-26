@@ -65,6 +65,9 @@ public:
   torch::Tensor fft(const torch::Tensor & t) const;
   torch::Tensor ifft(const torch::Tensor & t) const;
 
+  /// Check if FFT operations require MPI communication (parallel slab/pencil decomposition)
+  bool isParallelFFT() const { return _parallel_mode != ParallelMode::NONE; }
+
   /// compute the sum of a tensor, reduced over the spatial dimensions
   torch::Tensor sum(const torch::Tensor & t) const;
   /// compute the average of a tensor, reduced over the spatial dimensions
