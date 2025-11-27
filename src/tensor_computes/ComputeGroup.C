@@ -23,7 +23,7 @@ ComputeGroup::validParams()
                              "JIT tracing support.");
   params.addParam<std::vector<TensorComputeName>>(
       "computes", {}, "List of grouped tensor computes.");
-  params.addParam<bool>("enable_jit", true, "Enable JIT tracing for this compute group");
+  params.addParam<bool>("enable_jit", false, "Enable JIT tracing for this compute group");
   return params;
 }
 

@@ -68,6 +68,32 @@
     max_parallel = 2
     min_parallel = 2
   []
+  [xdmf_output_hdf5_jit]
+    type = HDF5Diff
+    input = cahnhilliard.i
+    cli_args = 'TensorOutputs/active="xdmf" TensorComputes/Solve/cahn_hilliard/enable_jit=true'
+    hdf5diff = cahnhilliard.h5
+    abs_tol = 1e-13
+    issues = '#113'
+    requirement = 'The system shall be able to trace and JIT compile a set of solve tensor computes'
+    design = 'jit_tracing.md'
+    compute_devices = 'cpu'
+    max_parallel = 1
+  []
+  [xdmf_output_hdf5_parallel_jit]
+    type = HDF5Diff
+    input = cahnhilliard.i
+    cli_args = 'TensorOutputs/active="xdmf2" Domain/parallel_mode=FFT_SLAB Domain/device_names=cpu TensorComputes/Solve/cahn_hilliard/enable_jit=true'
+    hdf5diff = cahnhilliard.rank0001.h5
+    abs_tol = 1e-13
+    issues = '#113'
+    requirement = 'The system shall be able to trace and JIT compile a set of solve tensor computes in a parallel simulation'
+    design = 'jit_tracing.md'
+    compute_devices = 'cpu'
+    max_parallel = 2
+    min_parallel = 2
+  []
+
 
   [xdmf_output_hdf5_threading_error]
     type = RunException

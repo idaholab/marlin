@@ -28,6 +28,9 @@ public:
 
   void computeBuffer() override;
 
+  /// Block this for now, because time is not properly updated
+  virtual bool supportsJIT() const override { return false; }
+
 protected:
   const bool _extra_symbols;
 
