@@ -41,6 +41,32 @@ LBMMicroscopicZeroGradientBC::rightBoundary()
 }
 
 void
+LBMMicroscopicZeroGradientBC::bottomBoundary()
+{
+  _u.index_put_({Slice(), 0, Slice(), Slice()}, _u.index({Slice(), 1, Slice(), Slice()}));
+}
+
+void
+LBMMicroscopicZeroGradientBC::topBoundary()
+{
+  _u.index_put_({Slice(), _grid_size[1] - 1, Slice(), Slice()},
+                _u.index({Slice(), _grid_size[1] - 2, Slice(), Slice()}));
+}
+
+void
+LBMMicroscopicZeroGradientBC::frontBoundary()
+{
+  _u.index_put_({Slice(), Slice(), 0, Slice()}, _u.index({Slice(), Slice(), 1, Slice()}));
+}
+
+void
+LBMMicroscopicZeroGradientBC::backBoundary()
+{
+  _u.index_put_({Slice(), Slice(), _grid_size[2] - 1, Slice()},
+                _u.index({Slice(), Slice(), _grid_size[2] - 2, Slice()}));
+}
+
+void
 LBMMicroscopicZeroGradientBC::computeBuffer()
 {
   // do not overwrite previous
@@ -49,10 +75,10 @@ LBMMicroscopicZeroGradientBC::computeBuffer()
   switch (_boundary)
   {
     case Boundary::top:
-      mooseError("Top boundary is not implemented");
+      topBoundary();
       break;
     case Boundary::bottom:
-      mooseError("Bottom boundary is not implemented");
+      bottomBoundary();
       break;
     case Boundary::left:
       leftBoundary();
@@ -61,10 +87,10 @@ LBMMicroscopicZeroGradientBC::computeBuffer()
       rightBoundary();
       break;
     case Boundary::front:
-      mooseError("Front boundary is not implemented");
+      frontBoundary();
       break;
     case Boundary::back:
-      mooseError("Back boundary is not implemented");
+      backBoundary();
       break;
     case Boundary::wall:
       mooseError("Wall boundary is not implemented");

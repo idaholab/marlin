@@ -1,18 +1,32 @@
 [Domain]
   dim = 3
-  nx = 10
-  ny = 10
-  nz = 10
+  nx = 270
+  ny = 270
+  nz = 405
+  xmax = 270
+  ymax = 270
+  zmax = 405
+  device_names='cuda'
   mesh_mode=DUMMY
+  floating_precision=SINGLE
 []
 
 [Stencil]
-  [d2q9]
+  [d3q19]
     type = LBMD3Q19
   []
 []
 
 [TensorBuffers]
+  # Simulation binary media
+  [binary_media]
+    type = LBMTensorBuffer
+    file = binary_media.h5
+    buffer_type = ms
+    is_integer = true
+  []
+
+  # Density distribution functions
   [f]
     type = LBMTensorBuffer
     buffer_type = df
@@ -25,6 +39,7 @@
     type = LBMTensorBuffer
     buffer_type = df
   []
+  # Temperature distribution functions
   [g]
     type = LBMTensorBuffer
     buffer_type = df
@@ -37,6 +52,7 @@
     type = LBMTensorBuffer
     buffer_type = df
   []
+  # Fluid macroscopic variables: density and velocity
   [density]
     type = LBMTensorBuffer
     buffer_type = ms
@@ -49,79 +65,65 @@
     type=LBMTensorBuffer
     buffer_type = ms
   []
+  # Temperature macroscpic variables: temperature and 'velocity'
   [T]
     type = LBMTensorBuffer
     buffer_type = ms
   []
+  # Forces
   [F]
     type = LBMTensorBuffer
     buffer_type = mv
   []
-  [binary_media]
-    type = LBMTensorBuffer
-    buffer_type = ms
-    file = 'input_media.h5'
-    is_integer = true
-  []
 []
 
 [TensorComputes]
-
-  #### Initialzie ####
   [Initialize]
     [density]
       type = LBMConstantTensor
       buffer = density
       constants = 'rho0'
     []
-
     [velocity]
       type = LBMConstantTensor
       buffer = velocity
       constants = '0.0 0.0 0.0'
     []
-
     [temperature]
       type = LBMConstantTensor
       buffer = T
       constants = T_C
     []
-
     [equilibrium_fluid]
       type = LBMEquilibrium
       buffer = feq
       bulk = density
       velocity = velocity
     []
-
     [equilibrium_fluid_total]
       type = LBMEquilibrium
       buffer = f
       bulk = density
       velocity = velocity
     []
-
     [equilibrium_fluid_pc]
       type = LBMEquilibrium
       buffer = fpc
       bulk = density
       velocity = velocity
     []
-
     [equilibrium_temperature]
       type = LBMEquilibrium
       buffer = geq
       bulk = T
       velocity = velocity
     []
-
     [equilibrium_temperature_total]
       type = LBMEquilibrium
       buffer = g
       bulk = T
       velocity = velocity
     []
-
     [equilibrium_temperature_pc]
       type = LBMEquilibrium
       buffer = gpc
@@ -133,12 +135,14 @@
   #### Compute ####
   [Solve]
 
+    # For temperature
     [Temperature]
       type = LBMComputeDensity
       buffer = T
       f = g
     []
 
+    # For fluid
     [Fluid_density]
       type = LBMComputeDensity
       buffer = density
@@ -154,6 +158,7 @@
       enable_forces = true
     []
 
+    # For temperature
     [Equilibrium_temperature]
       type = LBMEquilibrium
       buffer = geq
@@ -162,22 +167,23 @@
     []
 
     [Collision_temperature]
-      type = LBMMRTCollision
+      type = LBMBGKCollision
       buffer = gpc
       f = g
       feq = geq
       tau0 = tau_T
     []
 
+    # For fluid
     [Compute_forces]
       type = LBMComputeForces
       buffer = F
       rho0 = 'rho0'
       temperature = T
-      T0 = T_H
+      T0 = 1.00
       enable_buoyancy = true
       gravity = g
-      gravity_direction=0
+      gravity_direction = 2
     []
 
     [Equilibrium_fluid]
@@ -188,7 +194,7 @@
     []
 
     [Collision_fluid]
-      type = LBMMRTCollision
+      type = LBMBGKCollision
       buffer = fpc
       f = f
       feq = feq
@@ -204,113 +210,45 @@
       tau0 = tau_f
     []
 
-    [speed]
-      type=LBMComputeVelocityMagnitude
-      buffer=speed
-      velocity=velocity
-    []
-
-    [residual]
+    [Residual]
       type = LBMComputeResidual
-      buffer = speed
-      speed = speed
+      speed = T
+      # TODO this buffer is redundant, but avoids 'missing parameter' error
+      buffer = T
     []
   []
 
   #### Boundary ####
   [Boundary]
     ##### for fluid
-    [inlet]
-      type = LBMFixedFirstOrderBC
-      buffer = f
-      f = f
-      value = u0
-      boundary = left
-    []
-    [outlet]
-      type = LBMMicroscopicZeroGradientBC
-      buffer = f
-      boundary = right
-    []
-    [top]
-      type = LBMBounceBack
-      buffer = f
-      f_old = fpc
-      boundary = top
-      # exclude_corners_x = true
-    []
-    [bottom]
-      type = LBMBounceBack
-      buffer = f
-      f_old = fpc
-      boundary = bottom
-      # exclude_corners_x = true
-    []
-    [front]
-      type = LBMBounceBack
-      buffer = f
-      f_old = fpc
-      boundary = front
-      # exclude_corners_x = true
-    []
-    [back]
-      type = LBMBounceBack
-      buffer = f
-      f_old = fpc
-      boundary = back
-      # exclude_corners_x = true
-    []
     [wall]
       type = LBMBounceBack
       buffer = f
       f_old = fpc
       boundary = wall
     []
-
     ##### for temperature
-    [t_inlet]
-      type = LBMFixedZerothOrderBC
-      buffer = g
-      f = g
-      value = T_C
-      boundary = left
-    []
-    [t_outlet]
-      type = LBMMicroscopicZeroGradientBC
-      buffer = g
-      boundary = right
-    []
-    [t_top]
-      type = LBMBounceBack
+    [heat_source]
+      type = LBMNeumannBC
       buffer = g
       f_old = gpc
-      boundary = top
-    []
-    [t_bottom]
-      type = LBMBounceBack
-      buffer = g
-      f_old = gpc
-      boundary = bottom
-    []
-    [t_front]
-      type = LBMBounceBack
-      buffer = g
-      f_old = gpc
-      boundary = front
-    []
-    [t_back]
-      type = LBMBounceBack
-      buffer = g
-      f_old = gpc
-      boundary = back
-    []
-    [t_wall_hot]
-      type = LBMDirichletWallBC
-      buffer = g
-      f_old = gpc
-      value = 1.2
+      feq=geq
       velocity = velocity
-      boundary = wall
+      rho = T
+      gradient = 0.001
+      region_id = 3
+      boundary = regional
+    []
+    [walls]
+      type = LBMDirichletBC
+      buffer = g
+      f_old = gpc
+      feq=geq
+      velocity = velocity
+      rho = T
+      value = 1.0
+      region_id = 2
+      boundary = regional
     []
   []
 []
@@ -323,30 +261,22 @@
 
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 10
-  scalar_constant_names = 'rho0 T_C T_H tau_f tau_T g u0'
-  scalar_constant_values = '1.0 1.0 1.2 0.9 0.9 0.001 0.001'
   binary_media = binary_media
-[]
-
-[Postprocessors]
-  [reynolds]
-    type = ComputeReynoldsNumber
-    buffer = speed
-    tau = tau_f
-    diameter = 15
-  []
+  scalar_constant_names = 'rho0 T_C T_H tau_f tau_T g'
+  scalar_constant_values = '1.0 1.0 1.05 0.55 0.55 0.01'
+  substeps = 100
+  print_debug_output = true
 []
 
 [Executioner]
   type = Transient
-  num_steps = 2
+  num_steps = 1000
 []
 
 [TensorOutputs]
   [xdmf2]
     type = XDMFTensorOutput
-    buffer = 'T velocity density'
+    buffer = 'T density velocity'
     output_mode = 'Cell Cell Cell'
     enable_hdf5 = true
   []

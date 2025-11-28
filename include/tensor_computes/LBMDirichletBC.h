@@ -11,36 +11,37 @@
 #include "LBMBoundaryCondition.h"
 
 /**
- * LBMDirichletWallBC object that fixes the value at the complex walls
+ * LBMDirichletBC object that fixes the value at the walls
  */
-class LBMDirichletWallBC : public LBMBoundaryCondition
+class LBMDirichletBC : public LBMBoundaryCondition
 {
 public:
   static InputParameters validParams();
 
-  LBMDirichletWallBC(const InputParameters & parameters);
+  LBMDirichletBC(const InputParameters & parameters);
 
-  void topBoundary() override {};
-  void bottomBoundary() override {};
-  void leftBoundary() override {};
-  void rightBoundary() override {};
-  void frontBoundary() override {};
-  void backBoundary() override {};
+  void topBoundary() override;
+  void bottomBoundary() override;
+  void leftBoundary() override;
+  void rightBoundary() override;
+  void frontBoundary() override;
+  void backBoundary() override;
   void wallBoundary() override;
+  void regionalBoundary() override;
 
-  void computeBoundaryNormals();
+  void computeBoundaryEquilibrium();
+
+  void computeBuffer() override;
 
 protected:
   const std::vector<torch::Tensor> & _f_old;
+  const torch::Tensor & _feq;
+  const torch::Tensor & _rho;
+  const torch::Tensor & _velocity;
+  const Real & _boundary_value;
+  int _region_id = 0;
 
+  torch::Tensor _feq_boundary;
   torch::Tensor _binary_mesh;
   torch::Tensor _boundary_mask;
-  torch::Tensor _boundary_normals;
-  torch::Tensor _boundary_tangent_vectors;
-  torch::Tensor _e_xyz;
-
-  const torch::Tensor _velocity;
-  bool _is_value_tensor;
-  torch::Tensor _value_tensor;
-  Real _value;
 };

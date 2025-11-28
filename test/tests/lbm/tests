@@ -49,22 +49,32 @@
     compute_devices = 'cpu cuda mps'
     max_parallel = 1
   []
-  [mass_heat_advan_bc]
-    type = HDF5Diff
-    input = advan_bc.i
-    hdf5diff = advan_bc.h5
-    requirement = 'The system shall be able to solve coupled heat and mass transfer with advanced boundary conditions using LBM.'
-    design = 'LBMDirichletWallBC.md'
-    abs_tol = 1e-10
-    compute_devices = 'cpu cuda mps'
-    max_parallel = 1
-  []
   [dirichlet_box]
     type = HDF5Diff
     input = dirichlet_box.i
     hdf5diff = dirichlet_box.h5
-    requirement = 'The system shall be able to apply Dirichlet boundary conditions at the macroscopic level.'
-    design = 'LBMMacroscopicDirichletBC.md'
+    requirement = 'The system shall be able to apply Dirichlet boundary conditions.'
+    design = 'LBMDirichletBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [dirichlet_wall]
+    type = HDF5Diff
+    input = dirichlet_wall.i
+    hdf5diff = dirichlet_wall.h5
+    requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls.'
+    design = 'LBMDirichletBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [dirichlet_regional]
+    type = HDF5Diff
+    input = dirichlet_regional.i
+    hdf5diff = dirichlet_regional.h5
+    requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls defined by region id.'
+    design = 'LBMDirichletBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
     max_parallel = 1
@@ -73,8 +83,28 @@
     type = HDF5Diff
     input = neumann_box.i
     hdf5diff = neumann_box.h5
-    requirement = 'The system shall be able to apply Neumann boundary conditions at the macroscopic level.'
-    design = 'LBMMacroscopicNeumannBC.md'
+    requirement = 'The system shall be able to apply Neumann boundary conditions.'
+    design = 'LBMNeumannBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [neumann_wall]
+    type = HDF5Diff
+    input = neumann_wall.i
+    hdf5diff = neumann_wall.h5
+    requirement = 'The system shall be able to apply Neumann boundary conditions on the walls.'
+    design = 'LBMNeumannBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [neumann_regional]
+    type = HDF5Diff
+    input = neumann_regional.i
+    hdf5diff = neumann_regional.h5
+    requirement = 'The system shall be able to apply Neumann boundary conditions on the walls defined by region id.'
+    design = 'LBMNeumannBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
     max_parallel = 1

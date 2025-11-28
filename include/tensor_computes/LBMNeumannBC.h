@@ -11,14 +11,14 @@
 #include "LBMBoundaryCondition.h"
 
 /**
- * LBMMacroscopicNeumannBC object
+ * LBMNeumannBC object that fixes the value at the walls
  */
-class LBMMacroscopicNeumannBC : public LBMBoundaryCondition
+class LBMNeumannBC : public LBMBoundaryCondition
 {
 public:
   static InputParameters validParams();
 
-  LBMMacroscopicNeumannBC(const InputParameters & parameters);
+  LBMNeumannBC(const InputParameters & parameters);
 
   void topBoundary() override;
   void bottomBoundary() override;
@@ -27,7 +27,21 @@ public:
   void frontBoundary() override;
   void backBoundary() override;
   void wallBoundary() override;
+  void regionalBoundary() override;
+
+  void computeBoundaryEquilibrium();
+
+  void computeBuffer() override;
 
 protected:
-  const Real & _value;
+  const std::vector<torch::Tensor> & _f_old;
+  const torch::Tensor & _feq;
+  const torch::Tensor & _rho;
+  const torch::Tensor & _velocity;
+  const Real & _gradient_value;
+  int _region_id = 0;
+
+  torch::Tensor _feq_boundary;
+  torch::Tensor _binary_mesh;
+  torch::Tensor _boundary_mask;
 };
