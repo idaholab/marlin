@@ -59,11 +59,51 @@
     compute_devices = 'cpu cuda mps'
     max_parallel = 1
   []
+  [dirichlet_wall]
+    type = HDF5Diff
+    input = dirichlet_wall.i
+    hdf5diff = dirichlet_wall.h5
+    requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls.'
+    design = 'LBMDirichletBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [dirichlet_regional]
+    type = HDF5Diff
+    input = dirichlet_regional.i
+    hdf5diff = dirichlet_regional.h5
+    requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls defined by region id.'
+    design = 'LBMDirichletBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
   [neumann_box]
     type = HDF5Diff
     input = neumann_box.i
     hdf5diff = neumann_box.h5
     requirement = 'The system shall be able to apply Neumann boundary conditions.'
+    design = 'LBMNeumannBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [neumann_wall]
+    type = HDF5Diff
+    input = neumann_wall.i
+    hdf5diff = neumann_wall.h5
+    requirement = 'The system shall be able to apply Neumann boundary conditions on the walls.'
+    design = 'LBMNeumannBC.md'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
+  [neumann_regional]
+    type = HDF5Diff
+    input = neumann_regional.i
+    hdf5diff = neumann_regional.h5
+    requirement = 'The system shall be able to apply Neumann boundary conditions on the walls defined by region id.'
     design = 'LBMNeumannBC.md'
     abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'

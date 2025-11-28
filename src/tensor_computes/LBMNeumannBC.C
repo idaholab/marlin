@@ -58,7 +58,7 @@ LBMNeumannBC::LBMNeumannBC(const InputParameters & parameters)
       int64_t ey = _stencil._ey[ic].item<int64_t>();
       int64_t ez = _stencil._ez[ic].item<int64_t>();
       torch::Tensor shifted_mesh = torch::roll(binary_mesh, {ex, ey, ez}, {0, 1, 2});
-      torch::Tensor adjacent_to_boundary = (shifted_mesh == 0) & (binary_mesh > 1);
+      torch::Tensor adjacent_to_boundary = (shifted_mesh == 0) & (binary_mesh >= 1);
       _binary_mesh.masked_fill_(adjacent_to_boundary, -1);
     }
   }
@@ -178,7 +178,7 @@ LBMNeumannBC::wallBoundary()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == -1) & (_u == 0);
+    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == -1);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
   _u.index_put_({_boundary_mask},
@@ -191,7 +191,7 @@ LBMNeumannBC::regionalBoundary()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == _region_id) & (_u == 0);
+    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == _region_id);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
   _u.index_put_({_boundary_mask},
