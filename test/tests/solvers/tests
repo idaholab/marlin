@@ -217,4 +217,15 @@
       max_parallel = 1
     []
   []
+  [etdrk4_diffusion]
+    requirement = 'The system shall advance periodic diffusion with the ETDRK4 solver to the analytical solution'
+    [rmse_validation]
+      type = CSVDiff
+      input = etdrk4_diffusion.i
+      csvdiff = etdrk4_diffusion_rmse.csv
+      cli_args = 'ss=1 dt=10.0'
+      compute_devices = 'cpu cuda mps'
+      max_parallel = 1
+    []
+  []
 []
