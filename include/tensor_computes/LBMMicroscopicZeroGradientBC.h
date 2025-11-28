@@ -21,12 +21,12 @@ public:
 
   LBMMicroscopicZeroGradientBC(const InputParameters & parameters);
 
-  void topBoundary() override {};
-  void bottomBoundary() override {};
+  void topBoundary() override;
+  void bottomBoundary() override;
   void leftBoundary() override;
   void rightBoundary() override;
-  void frontBoundary() override {};
-  void backBoundary() override {};
+  void frontBoundary() override;
+  void backBoundary() override;
   void wallBoundary() override {};
   void computeBuffer() override;
 };

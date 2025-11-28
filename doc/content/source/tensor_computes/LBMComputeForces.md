@@ -12,7 +12,7 @@ output force buffer via [!param](/TensorComputes/Solve/LBMComputeForces/buffer).
 
 ## Example Input File Syntax
 
-!listing test/tests/lbm/advan_bc.i block=TensorComputes/Solve/Compute_forces
+!listing examples/lbm/natural_convection_3D/convection.i block=TensorComputes/Solve/Compute_forces
 
 !syntax parameters /TensorComputes/Solve/LBMComputeForces
 

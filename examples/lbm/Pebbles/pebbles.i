@@ -329,11 +329,13 @@
       boundary = back
     []
     [t_wall_hot]
-      type = LBMDirichletWallBC
+      type = LBMDirichletBC
       buffer = g
       f_old = gpc
-      value = 1.2
+      feq = geq
       velocity = velocity
+      rho = T
+      value = 1.2
       boundary = wall
     []
   []
