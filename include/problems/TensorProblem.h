@@ -23,7 +23,9 @@
 #include "libmesh/petsc_vector.h"
 #include "libmesh/print_trace.h"
 
+#include <array>
 #include <cstddef>
+#include <map>
 #include <list>
 #include <memory>
 #include <torch/torch.h>
@@ -103,10 +105,11 @@ public:
 
   /// returns the current state of the tensor
   template <typename T = torch::Tensor>
-  T & getBuffer(const std::string & buffer_name);
+  T & getBuffer(const std::string & buffer_name, unsigned int ghost_layers = 0);
 
   /// requests a tensor regardless of type
   TensorBufferBase & getBufferBase(const std::string & buffer_name);
+  void registerGhostLayerRequest(const std::string & buffer_name, unsigned int ghost_layers);
 
   /// return the old states of the tensor
   template <typename T = torch::Tensor>
@@ -127,6 +130,8 @@ public:
 
   /// get the domain shape (to build tensors from scratch) TODO: make sure this is local
   const torch::IntArrayRef & getShape() { return _shape; }
+  unsigned int getMaxGhostLayer() const { return _max_ghost_layers; }
+  std::vector<int64_t> getLocalTensorShape(const std::vector<int64_t> & extra_dims) const;
 
   typedef std::vector<std::shared_ptr<TensorOperatorBase>> TensorComputeList;
   const TensorComputeList & getComputes() const { return _computes; }
@@ -155,6 +160,7 @@ public:
 
 protected:
   void updateDOFMap();
+  void updateLocalTensorShape();
 
   template <typename FLOAT_TYPE>
   void mapBuffersToAux();
@@ -167,6 +173,9 @@ protected:
                                 InputParameters & parameters,
                                 TensorComputeList & list);
 
+  void exchangeGhostLayers(const std::string & buffer_name, unsigned int ghost_layers);
+  void runComputeWithGhosts(TensorOperatorBase & compute);
+
   /// execute initial conditionobjects
   void executeTensorInitialConditions();
 
@@ -175,7 +184,8 @@ protected:
 
   /// helper to get the TensorBuffer wrapper object that holds the actual tensor data
   template <typename T = torch::Tensor>
-  TensorBuffer<T> & getBufferHelper(const std::string & buffer_name);
+  TensorBuffer<T> & getBufferHelper(const std::string & buffer_name,
+                                    unsigned int ghost_layers = 0);
 
   /// tensor options
   const torch::TensorOptions _options;
@@ -244,6 +254,9 @@ protected:
   std::set<std::string> _fetched_constants;
   std::list<Real> _literal_constants;
   bool _can_fetch_constants;
+  unsigned int _max_ghost_layers = 0;
+  std::map<std::string, unsigned int> _buffer_ghost_layers;
+  std::array<int64_t, 3> _local_tensor_shape{{0, 0, 0}};
 
 private:
   std::list<InputParameters> _buffer_params;
@@ -274,12 +287,16 @@ TensorProblem::hasBuffer(const std::string & buffer_name)
 
 template <typename T>
 TensorBuffer<T> &
-TensorProblem::getBufferHelper(const std::string & buffer_name)
+TensorProblem::getBufferHelper(const std::string & buffer_name, unsigned int ghost_layers)
 {
   auto it = _tensor_buffer.find(buffer_name);
 
   if (it == _tensor_buffer.end())
-    return *addTensorBuffer<T>(buffer_name);
+  {
+    auto added = addTensorBuffer<T>(buffer_name);
+    registerGhostLayerRequest(buffer_name, ghost_layers);
+    return *added;
+  }
   else
   {
     auto tensor_buffer = dynamic_cast<TensorBuffer<T> *>(it->second.get());
@@ -291,15 +308,16 @@ TensorProblem::getBufferHelper(const std::string & buffer_name)
                  "' was previously declared as '",
                  it->second->type(),
                  "'.");
+    registerGhostLayerRequest(buffer_name, ghost_layers);
     return *tensor_buffer;
   }
 }
 
 template <typename T>
 T &
-TensorProblem::getBuffer(const std::string & buffer_name)
+TensorProblem::getBuffer(const std::string & buffer_name, unsigned int ghost_layers)
 {
-  return getBufferHelper<T>(buffer_name).getTensor();
+  return getBufferHelper<T>(buffer_name, ghost_layers).getTensor();
 }
 
 template <typename T>
@@ -328,6 +346,7 @@ TensorProblem::addTensorBuffer(const std::string & buffer_name)
   params.template set<THREAD_ID>("_tid") = 0;
   params.template set<std::string>("_type") = "TensorBufferBase";
   params.template set<MooseApp *>("_moose_app") = &getMooseApp();
+  params.template set<TensorProblem *>("_tensor_problem") = this;
   params.finalize(buffer_name);
   auto tensor_buffer = std::make_shared<typename TensorBufferSpecialization<T>::type>(params);
 

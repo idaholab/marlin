@@ -10,6 +10,8 @@
 #include "MooseError.h"
 #include "TensorProblem.h"
 #include "MooseEnum.h"
+#include "MultiMooseEnum.h"
+#include "MooseUtils.h"
 #include "SetupMeshAction.h"
 #include "MarlinApp.h"
 #include "CreateProblemAction.h"
@@ -33,8 +35,9 @@ DomainAction::validParams()
   MooseEnum dims("1=1 2 3");
   params.addRequiredParam<MooseEnum>("dim", dims, "Problem dimension");
 
-  MooseEnum parmode("NONE FFT_SLAB FFT_PENCIL", "NONE");
+  MooseEnum parmode("NONE REAL_SPACE FFT_SLAB FFT_PENCIL", "NONE");
   parmode.addDocumentation("NONE", "Serial execution without domain decomposition.");
+  parmode.addDocumentation("REAL_SPACE", "Real-space domain decomposition with halo exchanges.");
   parmode.addDocumentation("FFT_SLAB",
                            "Slab decomposition with X-Z slabs stacked along the Y direction in "
                            "real space and Y-Z slabs stacked along the X direction in Fourier "
@@ -45,6 +48,11 @@ DomainAction::validParams()
       "direction. Thie requires two many-to-many communications per FFT.");
 
   params.addParam<MooseEnum>("parallel_mode", parmode, "Parallelization mode.");
+  MultiMooseEnum periodic_enum("X=0 Y=1 Z=2");
+  params.addParam<MultiMooseEnum>(
+      "periodic_directions",
+      periodic_enum,
+      "Periodic directions of the simulation cell (controls halo exchange wrap-around).");
 
   params.addParam<unsigned int>("nx", 1, "Number of elements in the X direction");
   params.addParam<unsigned int>("ny", 1, "Number of elements in the Y direction");
@@ -89,6 +97,17 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _device_weights(getParam<std::vector<unsigned int>>("device_weights")),
     _floating_precision(getParam<MooseEnum>("floating_precision").getEnum<FloatingPrecision>()),
     _parallel_mode(getParam<MooseEnum>("parallel_mode").getEnum<ParallelMode>()),
+    _periodic([&]() {
+      std::array<bool, 3> p{{false, false, false}};
+      const auto & periodic_dirs = getParam<MultiMooseEnum>("periodic_directions");
+      for (unsigned int i = 0; i < periodic_dirs.size(); ++i)
+      {
+        const auto id = periodic_dirs.get(i);
+        if (id < 3)
+          p[id] = true;
+      }
+      return p;
+    }()),
     _dim(getParam<MooseEnum>("dim")),
     _n_global(
         {getParam<unsigned int>("nx"), getParam<unsigned int>("ny"), getParam<unsigned int>("nz")}),
@@ -201,6 +220,7 @@ void
 DomainAction::gridChanged()
 {
   auto options = MooseTensor::floatTensorOptions();
+  const bool real_space = _parallel_mode == ParallelMode::REAL_SPACE;
 
   // build real space axes
   _volume_global = 1.0;
@@ -231,6 +251,13 @@ DomainAction::gridChanged()
   // build reciprocal space axes
   for (const unsigned int dim : {0, 1, 2})
   {
+    if (real_space)
+    {
+      _global_reciprocal_axis[dim] = torch::tensor({}, options);
+      _n_reciprocal_global[dim] = 0;
+      continue;
+    }
+
     if (dim < _dim)
     {
       bool use_rfft = false;
@@ -238,6 +265,9 @@ DomainAction::gridChanged()
       {
         case ParallelMode::NONE:
           use_rfft = (dim == _dim - 1);
+          break;
+        case ParallelMode::REAL_SPACE:
+          use_rfft = false;
           break;
         case ParallelMode::FFT_SLAB:
           use_rfft = false;
@@ -271,6 +301,10 @@ DomainAction::gridChanged()
       partitionSerial();
       break;
 
+    case ParallelMode::REAL_SPACE:
+      partitionRealSpace();
+      break;
+
     case ParallelMode::FFT_SLAB:
       partitionSlabs();
       break;
@@ -281,8 +315,11 @@ DomainAction::gridChanged()
   }
 
   // get local reciprocal axis size
-  for (const auto dim : {0, 1, 2})
-    _n_reciprocal_local[dim] = _local_reciprocal_axis[dim].sizes()[dim];
+  if (!real_space)
+    for (const auto dim : {0, 1, 2})
+      _n_reciprocal_local[dim] = _local_reciprocal_axis[dim].sizes()[dim];
+  else
+    _n_reciprocal_local = {0, 0, 0};
 
   // update on-demand grids
   if (_x_grid.defined())
@@ -308,6 +345,156 @@ DomainAction::partitionSerial()
   _local_axis = _global_axis;
   _n_local = _n_global;
   _local_reciprocal_axis = _global_reciprocal_axis;
+}
+
+void
+DomainAction::partitionRealSpace()
+{
+  // determine factorization (near cubic surface area minimization)
+  const auto length = [&](unsigned int d) { return (_max_global(d) - _min_global(d)); };
+  const double lx = length(0);
+  const double ly = (_dim > 1) ? length(1) : 1.0;
+  const double lz = (_dim > 2) ? length(2) : 1.0;
+
+  auto cost2d = [&](unsigned int nx, unsigned int ny) {
+    const double hx = lx / nx;
+    const double hy = ly / ny;
+    return 2.0 * (hx + hy);
+  };
+  auto cost3d = [&](unsigned int nx, unsigned int ny, unsigned int nz) {
+    const double hx = lx / nx;
+    const double hy = ly / ny;
+    const double hz = lz / nz;
+    return 2.0 * (hy * hz + hx * hz + hx * hy);
+  };
+
+  std::array<unsigned int, 3> best{{1, 1, 1}};
+  double best_cost = std::numeric_limits<double>::max();
+  double best_aspect = std::numeric_limits<double>::max();
+
+  if (_dim == 2)
+  {
+    for (unsigned int nx = 1; nx <= _n_rank; ++nx)
+      if (_n_rank % nx == 0)
+      {
+        const unsigned int ny = _n_rank / nx;
+        if (nx > _n_global[0] || ny > _n_global[1])
+          continue;
+        const double c = cost2d(nx, ny);
+        const double aspect = std::abs((lx / nx) - (ly / ny));
+        if (c < best_cost || (MooseUtils::absoluteFuzzyEqual(c, best_cost) && aspect < best_aspect))
+        {
+          best_cost = c;
+          best_aspect = aspect;
+          best = {nx, ny, 1};
+        }
+      }
+  }
+  else
+  {
+    for (unsigned int nx = 1; nx <= _n_rank; ++nx)
+      if (_n_rank % nx == 0)
+      {
+        const unsigned int rem = _n_rank / nx;
+        for (unsigned int ny = 1; ny <= rem; ++ny)
+          if (rem % ny == 0)
+          {
+            const unsigned int nz = rem / ny;
+            if (nx > _n_global[0] || ny > _n_global[1] || nz > _n_global[2])
+              continue;
+            const double c = cost3d(nx, ny, nz);
+            const double max_len = std::max({lx / nx, ly / ny, lz / nz});
+            const double min_len = std::min({lx / nx, ly / ny, lz / nz});
+            const double aspect = max_len - min_len;
+            if (c < best_cost ||
+                (MooseUtils::absoluteFuzzyEqual(c, best_cost) && aspect < best_aspect))
+            {
+              best_cost = c;
+              best_aspect = aspect;
+              best = {nx, ny, nz};
+            }
+          }
+      }
+  }
+
+  if (best_cost == std::numeric_limits<double>::max())
+    mooseError("Unable to factor ", _n_rank, " ranks into a near-cubic real-space grid that fits.");
+
+  _real_space_partitions = best;
+
+  auto buildOffsets = [](const std::vector<int64_t> & counts) {
+    std::vector<int64_t> offsets(counts.size(), 0);
+    int64_t cursor = 0;
+    for (const auto i : index_range(counts))
+    {
+      offsets[i] = cursor;
+      cursor += counts[i];
+    }
+    return offsets;
+  };
+
+  std::array<std::vector<int64_t>, 3> counts;
+  std::array<std::vector<int64_t>, 3> offsets;
+
+  counts[0] = partitionHepler<int64_t>(_n_global[0],
+                                       std::vector<int64_t>(_real_space_partitions[0], 1));
+  counts[1] = partitionHepler<int64_t>(_n_global[1],
+                                       std::vector<int64_t>(_real_space_partitions[1], 1));
+  counts[2] = partitionHepler<int64_t>(_n_global[2],
+                                       std::vector<int64_t>(_real_space_partitions[2], 1));
+
+  offsets[0] = buildOffsets(counts[0]);
+  offsets[1] = buildOffsets(counts[1]);
+  offsets[2] = buildOffsets(counts[2]);
+
+  for (const auto d : {0u, 1u, 2u})
+    _n_local_all[d].assign(_n_rank, 0);
+
+  for (unsigned int r = 0; r < _n_rank; ++r)
+  {
+    const unsigned int ix = r % _real_space_partitions[0];
+    const unsigned int iy = (r / _real_space_partitions[0]) % _real_space_partitions[1];
+    const unsigned int iz = r / (_real_space_partitions[0] * _real_space_partitions[1]);
+
+    _local_begin[0][r] = offsets[0][ix];
+    _local_end[0][r] = offsets[0][ix] + counts[0][ix];
+    _n_local_all[0][r] = counts[0][ix];
+
+    _local_begin[1][r] = offsets[1][iy];
+    _local_end[1][r] = offsets[1][iy] + counts[1][iy];
+    _n_local_all[1][r] = counts[1][iy];
+
+    _local_begin[2][r] = offsets[2][iz];
+    _local_end[2][r] = offsets[2][iz] + counts[2][iz];
+    _n_local_all[2][r] = counts[2][iz];
+  }
+
+  _real_space_index = {static_cast<unsigned int>(_rank % _real_space_partitions[0]),
+                       static_cast<unsigned int>((_rank / _real_space_partitions[0]) %
+                                                 _real_space_partitions[1]),
+                       static_cast<unsigned int>(_rank /
+                                                 (_real_space_partitions[0] *
+                                                  _real_space_partitions[1]))};
+
+  _n_local[0] = counts[0][_real_space_index[0]];
+  _n_local[1] = counts[1][_real_space_index[1]];
+  _n_local[2] = counts[2][_real_space_index[2]];
+
+  _local_axis[0] = _global_axis[0].slice(0, _local_begin[0][_rank], _local_end[0][_rank]);
+  if (_dim > 1)
+    _local_axis[1] = _global_axis[1].slice(1, _local_begin[1][_rank], _local_end[1][_rank]);
+  else
+    _local_axis[1] = _global_axis[1];
+
+  if (_dim > 2)
+    _local_axis[2] = _global_axis[2].slice(2, _local_begin[2][_rank], _local_end[2][_rank]);
+  else
+    _local_axis[2] = _global_axis[2];
+
+  // no reciprocal space decomposition in real-space mode
+  const auto reciprocal_options = MooseTensor::complexFloatTensorOptions();
+  for (const auto d : {0u, 1u, 2u})
+    _local_reciprocal_axis[d] = torch::tensor({}, reciprocal_options);
 }
 
 void
@@ -641,6 +828,9 @@ DomainAction::fft(const torch::Tensor & t) const
     case ParallelMode::NONE:
       return fftSerial(t);
 
+    case ParallelMode::REAL_SPACE:
+      mooseError("FFT is not available in REAL_SPACE parallel mode.");
+
     case ParallelMode::FFT_SLAB:
       return fftSlab(t);
 
@@ -864,6 +1054,9 @@ DomainAction::ifft(const torch::Tensor & t) const
         default:
           mooseError("Unsupported mesh dimension");
       }
+
+    case ParallelMode::REAL_SPACE:
+      mooseError("IFFT is not available in REAL_SPACE parallel mode.");
 
     case ParallelMode::FFT_SLAB:
       return ifftSlab(t);

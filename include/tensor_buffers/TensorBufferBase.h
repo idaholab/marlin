@@ -13,6 +13,8 @@
 #include "InputParameters.h"
 #include "DomainInterface.h"
 
+class TensorProblem;
+
 /**
  * Tensor wrapper arbitrary tensor value dimensions
  */
@@ -44,6 +46,9 @@ public:
   /// get a raw torch tensor representation
   virtual const torch::Tensor & getRawCPUTensor() = 0;
 
+  /// get a view of the owned cells (excludes ghost layers)
+  virtual torch::Tensor ownedView() const;
+
   /// expand the tensor to full dimensions
   void expand();
 
@@ -52,4 +57,5 @@ public:
   const torch::IntArrayRef _domain_shape;
 
   const torch::TensorOptions _options;
+  TensorProblem * const _tensor_problem;
 };

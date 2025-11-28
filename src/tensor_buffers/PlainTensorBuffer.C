@@ -29,8 +29,11 @@ PlainTensorBuffer::PlainTensorBuffer(const InputParameters & parameters)
 void
 PlainTensorBuffer::init()
 {
-  _u = torch::zeros(_domain.getValueShape(getParam<std::vector<int64_t>>("value_dimensions")),
-                    MooseTensor::floatTensorOptions());
+  const auto extra = getParam<std::vector<int64_t>>("value_dimensions");
+  if (!_tensor_problem)
+    mooseError("TensorProblem pointer not initialized for PlainTensorBuffer.");
+
+  _u = torch::zeros(_tensor_problem->getLocalTensorShape(extra), MooseTensor::floatTensorOptions());
 }
 
 void
