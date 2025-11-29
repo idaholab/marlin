@@ -42,6 +42,7 @@ FFTMechanics::validParams()
                                          "Applied macroscopic strain");
   params.addParam<TensorInputBufferName>("F", "F", "Deformation gradient tensor.");
   params.addParam<bool>("verbose", false, "Print non-linear residuals.");
+  params.addParam<bool>("accept_nonconverged", false, "Accept a non-converged solution");
   return params;
 }
 
@@ -69,7 +70,8 @@ FFTMechanics::FFTMechanics(const InputParameters & parameters)
     _applied_macroscopic_strain(isParamValid("applied_macroscopic_strain")
                                     ? &getInputBuffer("applied_macroscopic_strain")
                                     : nullptr),
-    _verbose(getParam<bool>("verbose"))
+    _verbose(getParam<bool>("verbose")),
+    _accept_nonconverged(getParam<bool>("accept_nonconverged"))
 {
   // Build projection tensor once
   const auto & q = _domain.getKGrid();
@@ -148,7 +150,7 @@ FFTMechanics::computeBuffer()
 
     // print nonlinear residual to the screen
     if (_verbose)
-      _console << "|R|=" << anorm << "\t|R/R0|=" << rnorm << '\n';
+      _console << "|R|=" << anorm << "\t|R/R0|=" << rnorm << std::endl;
 
     // check convergence
     if ((rnorm < _nl_rel_tol || anorm < _nl_abs_tol) && iiter > 0)
@@ -157,7 +159,17 @@ FFTMechanics::computeBuffer()
     iiter++;
 
     if (iiter > _nl_max_its)
-      paramError("nl_max_its",
-                 "Exceeded the maximum number of nonlinear iterations without converging.");
+    {
+      if (_accept_nonconverged)
+        paramWarning(
+            "nl_max_its", "Accepting non-converged solution |R|=", anorm, "\t|R/R0|=", rnorm);
+      else
+        paramError(
+            "nl_max_its",
+            "Exceeded the maximum number of nonlinear iterations without converging with |R|=",
+            anorm,
+            "\t|R/R0|=",
+            rnorm);
+    }
   }
 }
