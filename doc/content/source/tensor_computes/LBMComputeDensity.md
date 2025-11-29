@@ -6,8 +6,8 @@ This compute object sums LBM distribution functions along the last dimension to 
 
 ## Overview
 
-Given a distribution tensor `f(x,y,z, q)`, computes the macroscopic scalar quantity
-`rho(x,y,z) = sum_q f`. Values on solid cells are set to zero using the lattice mask.
+Given a distribution tensor $f(x,y,z, q)$, computes the macroscopic scalar quantity
+$rho(x,y,z) = \Sigma_q f$. Values on solid cells are set to zero using the lattice mask.
 
 ## Example Input File Syntax
 
