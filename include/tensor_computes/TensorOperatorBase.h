@@ -13,6 +13,7 @@
 #include "TensorProblem.h"
 #include "DependencyResolverInterface.h"
 #include "MarlinConstantInterface.h"
+#include "TraceableUtils.h"
 
 #include <torch/torch.h>
 
@@ -48,7 +49,37 @@ public:
   /// called if the simulation cell dimensions change
   virtual void gridChanged() {}
 
+  /// Whether this compute supports JIT tracing. Override and return false for computes that:
+  /// - Use random number generation with changing seeds
+  /// - Have data-dependent control flow (if statements based on tensor values)
+  /// - Call external libraries that aren't traceable
+  /// - Modify global state
+  /// - Use FFT operations in parallel mode (MPI communication is not traceable)
+  virtual bool supportsJIT() const { return true; }
+
 protected:
+  /// Helper for computes that use FFT: returns true if FFT requires MPI (not JIT-traceable)
+  bool usesParallelFFT() const;
+
+  /**
+   * Get a tensor dimension as a traceable size.
+   * During JIT tracing, returns a symbolic reference that evaluates at runtime.
+   * This enables traces to work with different tensor sizes.
+   */
+  TraceableSize getTraceableSize(const torch::Tensor & tensor, int64_t dim) const
+  {
+    return TraceableUtils::getTraceableSize(tensor, dim);
+  }
+
+  /**
+   * Extract tensor shape as traceable sizes.
+   * @param tensor The tensor to get shape from
+   * @param ndim Number of dimensions to extract (0 = all)
+   */
+  TraceableTensorShape getTraceableShape(const torch::Tensor & tensor, int64_t ndim = 0) const
+  {
+    return TraceableUtils::extractTraceableSizes(tensor, ndim);
+  }
   template <typename T = torch::Tensor>
   const T & getInputBuffer(const std::string & param);
 

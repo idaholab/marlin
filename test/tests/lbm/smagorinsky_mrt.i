@@ -70,41 +70,43 @@
     []
   []
   [Solve]
-    [equilibrium]
-      type=LBMEquilibrium
-      buffer = feq
-      bulk = density
-      velocity = velocity
-    []
-    [collision]
-      type=LBMSmagorinskyMRTCollision
-      buffer = fpc
-      f = f
-      feq = feq
-      tau0 = 1.0
-    []
-    [density]
-      type = LBMComputeDensity
-      buffer = density
-      f = f
-    []
-    [velocity]
-      type = LBMComputeVelocity
-      buffer = velocity
-      f = f
-      rho = density
-      add_body_force = true
-      body_force_x = 0.0001
-    []
-    [speed]
-      type = LBMComputeVelocityMagnitude
-      buffer = speed
-      velocity = velocity
-    []
-    [residual]
-      type = LBMComputeResidual
-      buffer = speed
-      speed = speed
+    [root]
+      [equilibrium]
+        type=LBMEquilibrium
+        buffer = feq
+        bulk = density
+        velocity = velocity
+      []
+      [collision]
+        type=LBMSmagorinskyMRTCollision
+        buffer = fpc
+        f = f
+        feq = feq
+        tau0 = 1.0
+      []
+      [density]
+        type = LBMComputeDensity
+        buffer = density
+        f = f
+      []
+      [velocity]
+        type = LBMComputeVelocity
+        buffer = velocity
+        f = f
+        rho = density
+        add_body_force = true
+        body_force_x = 0.0001
+      []
+      [speed]
+        type = LBMComputeVelocityMagnitude
+        buffer = speed
+        velocity = velocity
+      []
+      [residual]
+        type = LBMComputeResidual
+        buffer = speed
+        speed = speed
+      []
     []
   []
   [Boundary]
@@ -127,6 +129,7 @@
   type = LBMStream
   buffer = f
   f_old = fpc
+  root_compute = root
 []
 
 [Problem]

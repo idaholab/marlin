@@ -23,6 +23,9 @@ public:
 
   void computeBuffer() override;
 
+  /// Parallel FFT uses MPI communication which cannot be JIT traced
+  virtual bool supportsJIT() const override { return !this->usesParallelFFT(); }
+
 protected:
   const torch::Tensor & _input;
 

@@ -10,6 +10,7 @@
   device_names = 'cuda'
 
   mesh_mode = DUMMY
+  debug = true
 []
 
 [TensorBuffers]

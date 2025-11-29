@@ -23,6 +23,9 @@ public:
 
   virtual void updateDependencies() override final;
 
+  /// Solvers have iterative algorithms with data-dependent control flow
+  virtual bool supportsJIT() const override { return false; }
+
 protected:
   const std::vector<torch::Tensor> & getBufferOld(const std::string & param,
                                                   unsigned int max_states);

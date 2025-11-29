@@ -24,6 +24,9 @@ public:
   virtual void check() override;
   virtual void computeBuffer() override;
 
+  /// FFTMechanics has iterative solving with data-dependent control flow
+  virtual bool supportsJIT() const override { return false; }
+
 protected:
   // // stiffness
   // neml2::SSR4 _C;
