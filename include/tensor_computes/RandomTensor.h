@@ -22,6 +22,9 @@ public:
 
   virtual void computeBuffer() override;
 
+  /// Random generation is non-deterministic and cannot be JIT traced
+  virtual bool supportsJIT() const override { return false; }
+
 protected:
   const bool _generate_on_cpu;
 };

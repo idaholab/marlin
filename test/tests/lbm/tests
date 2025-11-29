@@ -209,4 +209,15 @@
     compute_devices = 'cpu cuda mps'
     max_parallel = 1
   []
+  [smagorinsky_mrt_jit]
+    type = HDF5Diff
+    input = smagorinsky_mrt.i
+    hdf5diff = smagorinsky_mrt.h5
+    requirement = 'The system shall be able to solve Smagorinsky MRT collision with jit tracing.'
+    design = 'LBMCollisionDynamics.md'
+    cli_args = 'TensorComputes/Solve/root/enable_jit=true'
+    abs_tol = 1e-10
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
 []
