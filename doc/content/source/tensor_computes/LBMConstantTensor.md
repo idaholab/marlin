@@ -13,7 +13,27 @@ matching the buffer type and stencil dimension.
 
 ## Example Input File Syntax
 
-!listing test/tests/lbm/channel2D.i block=TensorComputes/Initialize/initial_velocity
+!listing
+[TensorComputes]
+  [Initialize]
+    [density]
+      type = LBMConstantTensor
+      buffer = density
+      constants = 'rho0'
+    []
+    [velocity]
+      type = LBMConstantTensor
+      buffer = velocity
+      constants = '0.0 0.0 0.0'
+    []
+    [temperature]
+      type = LBMConstantTensor
+      buffer = T
+      constants = T_C
+    []
+  []
+[]
+!listing
 
 !syntax parameters /TensorComputes/Solve/LBMConstantTensor
 

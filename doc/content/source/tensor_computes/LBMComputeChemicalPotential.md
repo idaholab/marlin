@@ -13,9 +13,34 @@ potential and interfacial energy term. Provide the scalar field via
 thickness with [!param](/TensorComputes/Solve/LBMComputeChemicalPotential/thickness) and the
 surface tension with [!param](/TensorComputes/Solve/LBMComputeChemicalPotential/sigma).
 
+The chemical potential $\mu$ is computed as:
+
+$$
+\mu = \frac{\sigma}{D} \phi (\phi - 1) - D \sigma \nabla^2 \phi
+$$
+
+where:
+- $\phi$ is the phase field order parameter.
+- $\nabla^2 \phi$ is the Laplacian of the order parameter.
+- $D$ is the interface thickness (`thickness`).
+- $\sigma$ is the interfacial tension coefficient (`sigma`).
+
 ## Example Input File Syntax
 
-!listing test/tests/lbm/phase.i block=TensorComputes/Solve/potential
+!listing
+[TensorComputes]
+  [Solve]
+    [potential]
+      type = LBMComputeChemicalPotential
+      buffer = mu
+      phi = phi
+      laplacian_phi = laplacian_phi
+      thickness = D
+      sigma = sigma
+    []
+  []
+[]
+!listing-end
 
 !syntax parameters /TensorComputes/Solve/LBMComputeChemicalPotential
 
