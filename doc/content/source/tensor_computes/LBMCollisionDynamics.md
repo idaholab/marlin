@@ -92,29 +92,24 @@ This is enabled by setting `projection = true`.
 ## Example Input File Syntax
 
 !listing
-[TensorComputes]
-  [Solve]
-    [collision_bgk]
-      type = LBMBGKCollision
-      buffer = fpc
-      f = f
-      feq = feq
-      tau0 = 1.0
-    []
+[TensorComputes/Solve]
+  [collision_bgk]
+    type = LBMBGKCollision
+    buffer = fpc
+    f = f
+    feq = feq
+    tau0 = 1.0
   []
 []
-
-[TensorComputes]
-  [Solve]
-    [collision_bgk]
-      type = LBMSmagorinskyMRTCollision
-      buffer = fpc
-      f = f
-      feq = feq
-      tau0 = 0.5001
-      Cs = 0.15
-      projection=true
-    []
+[TensorComputes/Solve]
+  [collision_mrt]
+    type = LBMSmagorinskyMRTCollision
+    buffer = fpc
+    f = f
+    feq = feq
+    tau0 = 0.5001
+    Cs = 0.15
+    projection=true
   []
 []
 !listing-end

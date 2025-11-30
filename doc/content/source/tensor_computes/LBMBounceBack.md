@@ -10,9 +10,9 @@ Imposes no-penetration by reflecting incoming distributions into their opposite 
 selected boundary. Supports domain faces (`left`, `right`, `top`, `bottom`, `front`, `back`) and
 `wall` and `regional` for solid-embedded geometries. For 3D binary media masks, adjacent-to-solid cells are handled
 by a specialized path. Corner exclusion on each axis can be enabled to avoid double-applying rules.
-Choose faces with [!param](/TensorComputes/Boundary/LBMFixedZerothOrderBC/boundary).
-Exclude corners with [!param](/TensorComputes/Boundary/LBMFixedZerothOrderBC/exclude_corners_x) set to `True`
-Old state buffer is the post collision distribution [!param](/TensorComputes/Boundary/LBMFixedZerothOrderBC/f_old).
+Choose faces with [!param](/TensorComputes/Boundary/LBMBounceBack/boundary).
+Exclude corners with [!param](/TensorComputes/Boundary/LBMBounceBack/exclude_corners_x) set to `True`
+Old state buffer is the post collision distribution [!param](/TensorComputes/Boundary/LBMBounceBack/f_old).
 
 ## Usage with Binary Media
 
@@ -36,19 +36,15 @@ The `wall` boundary type automatically detects fluid cells adjacent to solid reg
     buffer_type = ms
   []
 []
-
-[TensorComputes]
-  [Boundary]
-    [bb]
-      type = LBMBounceBack
-      buffer = f
-      f_old = f_post_collision
-      boundary = 'left right top bottom'
-      exclude_corners_x = true
-    []
+[TensorComputes/Boundary]
+  [bb]
+    type = LBMBounceBack
+    buffer = f
+    f_old = f_post_collision
+    boundary = 'left right top bottom'
+    exclude_corners_x = true
   []
 []
-
 [Problem]
   type = LatticeBoltzmannProblem
   substeps = 100
