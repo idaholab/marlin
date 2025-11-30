@@ -43,7 +43,6 @@ This ensures that the macroscopic density at the boundary matches the specified 
 ## Example Input File Syntax
 
 !listing
-
 [TensorComputes]
   [Boundary]
     [left]
