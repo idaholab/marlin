@@ -1,0 +1,11 @@
+[Tests]
+  issues = '#122'
+  design = FiniteDifferenceLaplacian.md
+  [laplacian]
+    type = CSVDiff
+    input = laplacian.i
+    csvdiff = laplacian_out.csv
+    compute_devices = 'cpu cuda mps'
+    requirement = 'The system shall be able to compute a Laplacian using a 3x3 stencil in real space.'
+  []
+[]

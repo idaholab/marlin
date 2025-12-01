@@ -632,9 +632,8 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
   const auto device_options = tensor.options();
   const auto cpu_options = tensor.options().device(torch::kCPU);
 
-  const auto toRank = [&](unsigned int ix, unsigned int iy, unsigned int iz) {
-    return static_cast<int>(ix + partitions[0] * (iy + partitions[1] * iz));
-  };
+  const auto toRank = [&](unsigned int ix, unsigned int iy, unsigned int iz)
+  { return static_cast<int>(ix + partitions[0] * (iy + partitions[1] * iz)); };
 
   const int64_t halo = static_cast<int64_t>(_max_ghost_layers);
 
@@ -646,11 +645,10 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
       if (periodic[d] && halo >= static_cast<int64_t>(ghost_layers))
       {
         const auto owned_width = owned[d];
-        auto lower_owned = tensor.narrow(d, halo, ghost_layers);
-        tensor.narrow(d, halo - ghost_layers, ghost_layers).copy_(lower_owned);
-        auto upper_owned =
-            tensor.narrow(d, halo + owned_width - ghost_layers, ghost_layers);
-        tensor.narrow(d, halo + owned_width, ghost_layers).copy_(upper_owned);
+        auto wrap_upper = tensor.narrow(d, halo, ghost_layers);
+        auto wrap_lower = tensor.narrow(d, halo + owned_width - ghost_layers, ghost_layers);
+        tensor.narrow(d, halo - ghost_layers, ghost_layers).copy_(wrap_lower);
+        tensor.narrow(d, halo + owned_width, ghost_layers).copy_(wrap_upper);
       }
       continue;
     }
@@ -658,49 +656,119 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
     const bool has_lower = index[d] > 0;
     const bool has_upper = (index[d] + 1) < part;
 
-    auto exchange_with_neighbor = [&](bool lower) {
-      if (lower && !has_lower)
-        return;
-      if (!lower && !has_upper)
-        return;
+    struct NeighborExchange
+    {
+      int neighbor_rank;
+      bool lower;
+      torch::Tensor send_buf;
+      torch::Tensor recv_buf;
+      torch::Tensor recv_view;
+      int send_tag;
+      int recv_tag;
+    };
 
+    std::vector<NeighborExchange> exchanges;
+    exchanges.reserve(2);
+
+    auto prepare_neighbor = [&](bool lower)
+    {
       std::array<unsigned int, 3> neighbor = index;
-      neighbor[d] = lower ? index[d] - 1 : index[d] + 1;
-      const int neighbor_rank = toRank(neighbor[0], neighbor[1], neighbor[2]);
+      if (lower)
+      {
+        if (has_lower)
+          neighbor[d] = index[d] - 1;
+        else if (periodic[d])
+          neighbor[d] = part - 1;
+        else
+          return;
+      }
+      else
+      {
+        if (has_upper)
+          neighbor[d] = index[d] + 1;
+        else if (periodic[d])
+          neighbor[d] = 0;
+        else
+          return;
+      }
 
+      const int neighbor_rank = toRank(neighbor[0], neighbor[1], neighbor[2]);
       const int64_t send_start =
           lower ? halo : halo + owned[d] - static_cast<int64_t>(ghost_layers);
       const int64_t recv_start =
           lower ? halo - static_cast<int64_t>(ghost_layers) : halo + owned[d];
 
       auto send_slice = tensor.narrow(d, send_start, ghost_layers).contiguous();
+      auto recv_view = tensor.narrow(d, recv_start, ghost_layers);
+
+      if (neighbor_rank == static_cast<int>(_domain.comm().rank()))
+      {
+        // self-wrap: copy directly, no MPI
+        recv_view.copy_(send_slice);
+        return;
+      }
+
       auto send_buf = use_gpu ? send_slice : send_slice.to(cpu_options);
-      auto recv_buf =
-          torch::empty_like(send_buf, use_gpu ? device_options : cpu_options);
+      auto recv_buf = torch::empty_like(send_buf, use_gpu ? device_options : cpu_options);
 
       const int send_tag = 200 + d * 2 + (lower ? 0 : 1);
       const int recv_tag = 200 + d * 2 + (lower ? 1 : 0);
 
-      MPI_Sendrecv(send_buf.data_ptr(),
-                   send_buf.numel(),
-                   mpi_type,
-                   neighbor_rank,
-                   send_tag,
-                   recv_buf.data_ptr(),
-                   recv_buf.numel(),
-                   mpi_type,
-                   neighbor_rank,
-                   recv_tag,
-                   _domain.getMPIComm(),
-                   MPI_STATUS_IGNORE);
+      exchanges.push_back(
+          {neighbor_rank, lower, send_buf, recv_buf, recv_view, send_tag, recv_tag});
 
-      if (!use_gpu)
-        recv_buf = recv_buf.to(device_options);
-      tensor.narrow(d, recv_start, ghost_layers).copy_(recv_buf);
+      if (_domain.debug())
+        mooseInfoRepeated("Ghost exchange d=",
+                          d,
+                          " lower=",
+                          lower,
+                          " me=",
+                          _domain.comm().rank(),
+                          " <-> ",
+                          neighbor_rank,
+                          " send_start=",
+                          send_start,
+                          " recv_start=",
+                          recv_start,
+                          " count=",
+                          send_buf.numel());
     };
 
-    exchange_with_neighbor(true);
-    exchange_with_neighbor(false);
+    prepare_neighbor(true);
+    prepare_neighbor(false);
+
+    if (!exchanges.empty())
+    {
+      std::vector<MPI_Request> reqs(2 * exchanges.size(), MPI_REQUEST_NULL);
+      std::size_t idx = 0;
+      // post all receives
+      for (const auto & ex : exchanges)
+        MPI_Irecv(ex.recv_buf.data_ptr(),
+                  ex.recv_buf.numel(),
+                  mpi_type,
+                  ex.neighbor_rank,
+                  ex.recv_tag,
+                  _domain.getMPIComm(),
+                  &reqs[idx++]);
+      // post all sends
+      for (const auto & ex : exchanges)
+        MPI_Isend(ex.send_buf.data_ptr(),
+                  ex.send_buf.numel(),
+                  mpi_type,
+                  ex.neighbor_rank,
+                  ex.send_tag,
+                  _domain.getMPIComm(),
+                  &reqs[idx++]);
+
+      MPI_Waitall(static_cast<int>(reqs.size()), reqs.data(), MPI_STATUSES_IGNORE);
+
+      for (auto & ex : exchanges)
+      {
+        if (!use_gpu)
+          ex.recv_buf = ex.recv_buf.to(device_options);
+        ex.recv_view.copy_(ex.recv_buf);
+      }
+    }
   }
 }
 
@@ -734,8 +802,7 @@ TensorProblem::getBufferBase(const std::string & buffer_name)
 }
 
 void
-TensorProblem::registerGhostLayerRequest(const std::string & buffer_name,
-                                         unsigned int ghost_layers)
+TensorProblem::registerGhostLayerRequest(const std::string & buffer_name, unsigned int ghost_layers)
 {
   auto & current = _buffer_ghost_layers[buffer_name];
   if (ghost_layers > current)

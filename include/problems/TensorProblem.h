@@ -184,8 +184,7 @@ protected:
 
   /// helper to get the TensorBuffer wrapper object that holds the actual tensor data
   template <typename T = torch::Tensor>
-  TensorBuffer<T> & getBufferHelper(const std::string & buffer_name,
-                                    unsigned int ghost_layers = 0);
+  TensorBuffer<T> & getBufferHelper(const std::string & buffer_name, unsigned int ghost_layers = 0);
 
   /// tensor options
   const torch::TensorOptions _options;

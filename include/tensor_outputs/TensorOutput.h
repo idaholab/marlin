@@ -9,6 +9,7 @@
 #pragma once
 
 #include "MooseObject.h"
+#include "TensorBufferBase.h"
 #include <thread>
 #include <torch/torch.h>
 
@@ -48,7 +49,7 @@ protected:
   std::thread _output_thread;
 
   /// The buffer this output object is outputting
-  std::map<std::string, const torch::Tensor *> _out_buffers;
+  std::map<std::string, const TensorBufferBase *> _out_buffers;
 
   const ExecFlagEnum _execute_on;
 };

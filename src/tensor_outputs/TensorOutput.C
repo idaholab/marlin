@@ -52,10 +52,8 @@ TensorOutput::TensorOutput(const InputParameters & parameters)
                                          : _app.getOutputFileBase(true)),
     _execute_on(getParam<ExecFlagEnum>("execute_on"))
 {
-  const TensorBufferBase & getBufferBase(const std::string & buffer_name);
-
   for (const auto & name : getParam<std::vector<TensorInputBufferName>>("buffer"))
-    _out_buffers[name] = &_tensor_problem.getBufferBase(name).getRawCPUTensor();
+    _out_buffers[name] = &_tensor_problem.getBufferBase(name);
 }
 
 bool

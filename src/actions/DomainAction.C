@@ -97,17 +97,19 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _device_weights(getParam<std::vector<unsigned int>>("device_weights")),
     _floating_precision(getParam<MooseEnum>("floating_precision").getEnum<FloatingPrecision>()),
     _parallel_mode(getParam<MooseEnum>("parallel_mode").getEnum<ParallelMode>()),
-    _periodic([&]() {
-      std::array<bool, 3> p{{false, false, false}};
-      const auto & periodic_dirs = getParam<MultiMooseEnum>("periodic_directions");
-      for (unsigned int i = 0; i < periodic_dirs.size(); ++i)
-      {
-        const auto id = periodic_dirs.get(i);
-        if (id < 3)
-          p[id] = true;
-      }
-      return p;
-    }()),
+    _periodic(
+        [&]()
+        {
+          std::array<bool, 3> p{{false, false, false}};
+          const auto & periodic_dirs = getParam<MultiMooseEnum>("periodic_directions");
+          for (unsigned int i = 0; i < periodic_dirs.size(); ++i)
+          {
+            const auto id = periodic_dirs.get(i);
+            if (id < 3)
+              p[id] = true;
+          }
+          return p;
+        }()),
     _dim(getParam<MooseEnum>("dim")),
     _n_global(
         {getParam<unsigned int>("nx"), getParam<unsigned int>("ny"), getParam<unsigned int>("nz")}),
@@ -132,14 +134,11 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _n_local_all[d].assign(_n_rank, 0);
   }
 
-  if (_parallel_mode == ParallelMode::NONE && comm().size() > 1)
+  if (_parallel_mode == ParallelMode::NONE && _n_rank > 1)
     paramError("parallel_mode", "NONE requires the application to run in serial.");
 
-  if (_device_names.empty())
+  if (_n_rank == 1)
   {
-    if (comm().size() > 1)
-      mooseError("Specify Domain/device_names for parallel operation.");
-
     // set local weights and ranks for serial
     _local_ranks = {0};
     _local_weights = {1};
@@ -148,10 +147,7 @@ DomainAction::DomainAction(const InputParameters & parameters)
   {
     // process weights
     if (_device_weights.empty())
-      _device_weights.assign(_device_names.size(), 1);
-
-    if (_device_weights.size() != _device_names.size())
-      mooseError("Specify one weight per device or none at all");
+      _device_weights.assign(_n_rank, 1);
 
     // determine the processor name
     char name[MPI_MAX_PROCESSOR_NAME + 1];
@@ -188,7 +184,8 @@ DomainAction::DomainAction(const InputParameters & parameters)
     auto marlin_app = dynamic_cast<MarlinApp *>(&_app);
     if (!marlin_app)
       mooseError("This action requires a MarlinApp object to be present.");
-    marlin_app->setTorchDevice(_device_names[_local_ranks[_rank] % _device_names.size()], {});
+    if (_device_names.size())
+      marlin_app->setTorchDevice(_device_names[_local_ranks[_rank] % _device_names.size()], {});
 
     switch (_floating_precision)
     {
@@ -356,12 +353,14 @@ DomainAction::partitionRealSpace()
   const double ly = (_dim > 1) ? length(1) : 1.0;
   const double lz = (_dim > 2) ? length(2) : 1.0;
 
-  auto cost2d = [&](unsigned int nx, unsigned int ny) {
+  auto cost2d = [&](unsigned int nx, unsigned int ny)
+  {
     const double hx = lx / nx;
     const double hy = ly / ny;
     return 2.0 * (hx + hy);
   };
-  auto cost3d = [&](unsigned int nx, unsigned int ny, unsigned int nz) {
+  auto cost3d = [&](unsigned int nx, unsigned int ny, unsigned int nz)
+  {
     const double hx = lx / nx;
     const double hy = ly / ny;
     const double hz = lz / nz;
@@ -422,7 +421,8 @@ DomainAction::partitionRealSpace()
 
   _real_space_partitions = best;
 
-  auto buildOffsets = [](const std::vector<int64_t> & counts) {
+  auto buildOffsets = [](const std::vector<int64_t> & counts)
+  {
     std::vector<int64_t> offsets(counts.size(), 0);
     int64_t cursor = 0;
     for (const auto i : index_range(counts))
@@ -436,12 +436,12 @@ DomainAction::partitionRealSpace()
   std::array<std::vector<int64_t>, 3> counts;
   std::array<std::vector<int64_t>, 3> offsets;
 
-  counts[0] = partitionHepler<int64_t>(_n_global[0],
-                                       std::vector<int64_t>(_real_space_partitions[0], 1));
-  counts[1] = partitionHepler<int64_t>(_n_global[1],
-                                       std::vector<int64_t>(_real_space_partitions[1], 1));
-  counts[2] = partitionHepler<int64_t>(_n_global[2],
-                                       std::vector<int64_t>(_real_space_partitions[2], 1));
+  counts[0] =
+      partitionHepler<int64_t>(_n_global[0], std::vector<int64_t>(_real_space_partitions[0], 1));
+  counts[1] =
+      partitionHepler<int64_t>(_n_global[1], std::vector<int64_t>(_real_space_partitions[1], 1));
+  counts[2] =
+      partitionHepler<int64_t>(_n_global[2], std::vector<int64_t>(_real_space_partitions[2], 1));
 
   offsets[0] = buildOffsets(counts[0]);
   offsets[1] = buildOffsets(counts[1]);
@@ -469,12 +469,10 @@ DomainAction::partitionRealSpace()
     _n_local_all[2][r] = counts[2][iz];
   }
 
-  _real_space_index = {static_cast<unsigned int>(_rank % _real_space_partitions[0]),
-                       static_cast<unsigned int>((_rank / _real_space_partitions[0]) %
-                                                 _real_space_partitions[1]),
-                       static_cast<unsigned int>(_rank /
-                                                 (_real_space_partitions[0] *
-                                                  _real_space_partitions[1]))};
+  _real_space_index = {
+      static_cast<unsigned int>(_rank % _real_space_partitions[0]),
+      static_cast<unsigned int>((_rank / _real_space_partitions[0]) % _real_space_partitions[1]),
+      static_cast<unsigned int>(_rank / (_real_space_partitions[0] * _real_space_partitions[1]))};
 
   _n_local[0] = counts[0][_real_space_index[0]];
   _n_local[1] = counts[1][_real_space_index[1]];
