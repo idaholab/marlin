@@ -34,7 +34,7 @@ public:
   /// clear old states
   virtual void clearStates() = 0;
 
-  /// create a contiguous CPU copy of the current tensor
+  /// create a contiguous CPU copy of the current tensor (owned cells)
   virtual void makeCPUCopy() = 0;
 
   /// initialize the tensor

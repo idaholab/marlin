@@ -252,8 +252,7 @@ XDMFTensorOutput::writeLocalData()
 {
   for (const auto & [buffer_name, original_buffer] : _out_buffers)
   {
-    auto owned = original_buffer->ownedView();
-    if (!owned.defined())
+    if (!original_buffer->defined())
       continue;
 
     const auto output_mode = _output_mode[buffer_name];
@@ -263,7 +262,7 @@ XDMFTensorOutput::writeLocalData()
     {
       case OutputMode::NODE:
       {
-        auto extended = extendTensor(owned);
+        auto extended = extendTensor(*original_buffer);
         buffer = _transpose ? (_dim == 2 ? torch::transpose(extended, 0, 1).contiguous()
                                          : torch::transpose(extended, 0, 2).contiguous())
                             : extended;
@@ -273,9 +272,9 @@ XDMFTensorOutput::writeLocalData()
       case OutputMode::OVERSIZED_NODAL:
       case OutputMode::CELL:
       {
-        buffer = _transpose ? (_dim == 2 ? torch::transpose(owned, 0, 1).contiguous()
-                                         : torch::transpose(owned, 0, 2).contiguous())
-                            : owned;
+        buffer = _transpose ? (_dim == 2 ? torch::transpose(*original_buffer, 0, 1).contiguous()
+                                         : torch::transpose(*original_buffer, 0, 2).contiguous())
+                            : *original_buffer;
         break;
       }
     }
@@ -355,14 +354,13 @@ XDMFTensorOutput::writeSerialXMF()
 
   for (const auto & [buffer_name, original_buffer] : _out_buffers)
   {
-    auto owned = original_buffer->ownedView();
-    if (!owned.defined())
+    if (!original_buffer->defined())
       continue;
 
     const auto output_mode = _output_mode[buffer_name];
     const bool is_cell = output_mode == OutputMode::CELL;
 
-    const auto sizes = owned.sizes();
+    const auto sizes = original_buffer->sizes();
     if (sizes.size() < _dim)
       mooseError("Tensor has fewer dimensions than specified spatial dimension.");
 
@@ -373,7 +371,7 @@ XDMFTensorOutput::writeSerialXMF()
     const auto component_names = buildAttributeNames(buffer_name, num_scalar_fields);
     const char * center = is_cell ? "Cell" : "Node";
     const auto data_dims = _data_grid[is_cell ? 0 : 1];
-    const auto dtype = owned.dtype();
+    const auto dtype = original_buffer->dtype();
 
     const char * dtype_str = (dtype == torch::kInt32 || dtype == torch::kInt64) ? "Int" : "Float";
     const std::string precision = (dtype == torch::kFloat64 || dtype == torch::kInt64)   ? "8"
@@ -455,11 +453,10 @@ XDMFTensorOutput::writeParallelXMF()
 
     for (const auto & [buffer_name, original_buffer] : _out_buffers)
     {
-      auto owned = original_buffer->ownedView();
-      if (!owned.defined())
+      if (!original_buffer->defined())
         continue;
 
-      const auto sizes = owned.sizes();
+      const auto sizes = original_buffer->sizes();
       if (sizes.size() < _dim)
         mooseError("Tensor has fewer dimensions than specified spatial dimension.");
 
@@ -469,11 +466,17 @@ XDMFTensorOutput::writeParallelXMF()
 
       const auto attr_names = buildAttributeNames(buffer_name, num_scalar_fields);
       const std::string dims_str = dimsToString(cells);
-      const auto dtype = owned.dtype();
-      const char * dtype_str = (dtype == torch::kInt32 || dtype == torch::kInt64) ? "Int" : "Float";
-      const std::string precision = (dtype == torch::kFloat64 || dtype == torch::kInt64)   ? "8"
-                                    : (dtype == torch::kFloat32 || dtype == torch::kInt32) ? "4"
-                                                                                           : "1";
+      const char * dtype_str =
+          (original_buffer->dtype() == torch::kInt32 || original_buffer->dtype() == torch::kInt64)
+              ? "Int"
+              : "Float";
+      const std::string precision =
+          (original_buffer->dtype() == torch::kFloat64 || original_buffer->dtype() == torch::kInt64)
+              ? "8"
+          : (original_buffer->dtype() == torch::kFloat32 ||
+             original_buffer->dtype() == torch::kInt32)
+              ? "4"
+              : "1";
 
       for (const auto & attr_name : attr_names)
       {

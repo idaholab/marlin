@@ -45,8 +45,8 @@ PlainTensorBuffer::makeCPUCopy()
   if (_cpu_copy_requested)
   {
     if (_u.is_cpu())
-      _u_cpu = _u.clone().contiguous();
+      _u_cpu = ownedView().clone().contiguous();
     else
-      _u_cpu = _u.cpu().contiguous();
+      _u_cpu = ownedView().cpu().contiguous();
   }
 }
