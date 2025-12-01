@@ -23,6 +23,7 @@ public:
   virtual void computeBuffer() override;
 
 protected:
+  const unsigned int _radius;
   /// input buffer
   const torch::Tensor & _u_in;
 };
