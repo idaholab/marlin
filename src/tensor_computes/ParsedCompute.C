@@ -203,8 +203,8 @@ ParsedCompute::computeBuffer()
       using torch::indexing::Slice;
       std::vector<torch::indexing::TensorIndex> lower_idx(axis.dim(), Slice());
       std::vector<torch::indexing::TensorIndex> upper_idx(axis.dim(), Slice());
-      lower_idx[d] = Slice(axis.size(d) - g, axis.size(d));
-      upper_idx[d] = Slice(0, g);
+      lower_idx[d] = Slice(0, g);
+      upper_idx[d] = Slice(axis.size(d) - g, axis.size(d));
       auto lower = axis.index(lower_idx);
       auto upper = axis.index(upper_idx);
       _axis_padded[d] = torch::cat({lower, axis, upper}, d);

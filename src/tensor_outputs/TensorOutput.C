@@ -67,6 +67,8 @@ TensorOutput::shouldRun(const ExecFlagType & execute_flag) const
 void
 TensorOutput::startOutput()
 {
+  // allow derived classes to snapshot lightweight metadata before async output
+  prepareForOutput();
   if (_output_thread.joinable())
     mooseError("Output thread is already running. Must call waitForCompletion() first. This is a "
                "code error.");

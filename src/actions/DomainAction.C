@@ -389,7 +389,7 @@ DomainAction::partitionRealSpace()
         }
       }
   }
-  else
+  else if (_dim == 3)
   {
     for (unsigned int nx = 1; nx <= _n_rank; ++nx)
       if (_n_rank % nx == 0)
@@ -415,6 +415,8 @@ DomainAction::partitionRealSpace()
           }
       }
   }
+  else
+    mooseError("Unsupported dimension.");
 
   if (best_cost == std::numeric_limits<double>::max())
     mooseError("Unable to factor ", _n_rank, " ranks into a near-cubic real-space grid that fits.");

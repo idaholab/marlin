@@ -32,6 +32,8 @@ public:
 
   void startOutput();
   void waitForCompletion();
+  /// Synchronous pre-start hook (called in main thread before async output starts)
+  virtual void prepareForOutput() {}
 
 protected:
   virtual void output() = 0;

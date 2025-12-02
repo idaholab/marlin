@@ -34,6 +34,15 @@ TensorExtremeValuePostprocessor::execute()
                                          : torch::max(owned).cpu().item<double>();
 }
 
+void
+TensorExtremeValuePostprocessor::finalize()
+{
+  if (_value_type == ValueType::MIN)
+    gatherMin(_value);
+  else
+    gatherMax(_value);
+}
+
 PostprocessorValue
 TensorExtremeValuePostprocessor::getValue() const
 {

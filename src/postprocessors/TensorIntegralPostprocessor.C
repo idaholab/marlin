@@ -28,13 +28,20 @@ TensorIntegralPostprocessor::TensorIntegralPostprocessor(const InputParameters &
 void
 TensorIntegralPostprocessor::execute()
 {
-  _integral = _u.sum().cpu().item<double>();
+  const auto owned = _buffer_base.ownedView();
+  _integral = owned.sum().cpu().item<double>();
 
   const auto s = _domain.getDomainMax() - _domain.getDomainMin();
   for (const auto dim : make_range(_domain.getDim()))
     _integral *= s(dim);
 
-  _integral /= _u.numel();
+  _integral /= owned.numel();
+}
+
+void
+TensorIntegralPostprocessor::finalize()
+{
+  gatherSum(_integral);
 }
 
 PostprocessorValue
