@@ -40,6 +40,16 @@ public:
   const RealVectorValue & getGridSpacing() const { return _grid_spacing; }
   const torch::Tensor & getAxis(std::size_t component) const;
   const torch::Tensor & getReciprocalAxis(std::size_t component) const;
+  bool isRealSpaceMode() const { return _parallel_mode == ParallelMode::REAL_SPACE; }
+  MPI_Datatype getMPIType(torch::ScalarType scalar) const { return mpiTypeFromScalar(scalar); }
+  const std::array<unsigned int, 3> & getRealSpacePartitions() const
+  {
+    return _real_space_partitions;
+  }
+  const std::array<unsigned int, 3> & getRealSpaceIndex() const { return _real_space_index; }
+  const std::array<bool, 3> & getPeriodicDirections() const { return _periodic; }
+  bool gpuAwareMPI() const { return _gpu_aware_mpi; }
+  MPI_Comm getMPIComm() const { return mpiComm(); }
 
   int64_t getNumberOfCells() const;
 
@@ -66,7 +76,10 @@ public:
   torch::Tensor ifft(const torch::Tensor & t) const;
 
   /// Check if FFT operations require MPI communication (parallel slab/pencil decomposition)
-  bool isParallelFFT() const { return _parallel_mode != ParallelMode::NONE; }
+  bool isParallelFFT() const
+  {
+    return _parallel_mode == ParallelMode::FFT_SLAB || _parallel_mode == ParallelMode::FFT_PENCIL;
+  }
 
   /// compute the sum of a tensor, reduced over the spatial dimensions
   torch::Tensor sum(const torch::Tensor & t) const;
@@ -89,6 +102,7 @@ protected:
 
   void partitionSerial();
   void partitionSlabs();
+  void partitionRealSpace();
   void partitionPencils();
 
   torch::Tensor fftSerial(const torch::Tensor & t) const;
@@ -122,7 +136,8 @@ protected:
   } _floating_precision;
 
   /// parallelization mode
-  const enum class ParallelMode { NONE, FFT_SLAB, FFT_PENCIL } _parallel_mode;
+  const enum class ParallelMode { NONE, REAL_SPACE, FFT_SLAB, FFT_PENCIL } _parallel_mode;
+  const std::array<bool, 3> _periodic;
 
   /// host local ranks of all procs
   std::vector<unsigned int> _local_ranks;
@@ -215,6 +230,10 @@ protected:
 
   /// enable GPU-aware MPI
   const bool _gpu_aware_mpi;
+  /// real-space partitions (defaults to 1x1x1)
+  std::array<unsigned int, 3> _real_space_partitions{{1, 1, 1}};
+  /// index of this rank within the real-space partitioning
+  std::array<unsigned int, 3> _real_space_index{{0, 0, 0}};
 
   /// helper utilities
   MPI_Comm mpiComm() const;

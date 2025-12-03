@@ -222,6 +222,21 @@ XDMFTensorOutput::init()
 }
 
 void
+XDMFTensorOutput::prepareForOutput()
+{
+  // snapshot bounds so async output doesn't read mutated state
+  _cached_local_bounds.clear();
+  _cached_local_bounds.resize(_n_rank);
+  for (unsigned int r = 0; r < _n_rank; ++r)
+  {
+    std::array<int64_t, 3> begin = {0, 0, 0};
+    std::array<int64_t, 3> end = {0, 0, 0};
+    _domain.getLocalBounds(r, begin, end);
+    _cached_local_bounds[r] = {begin, end};
+  }
+}
+
+void
 XDMFTensorOutput::output()
 {
   writeLocalData();
@@ -663,7 +678,13 @@ XDMFTensorOutput::localCellCounts(unsigned int rank) const
 {
   std::array<int64_t, 3> begin = {0, 0, 0};
   std::array<int64_t, 3> end = {0, 0, 0};
-  _domain.getLocalBounds(rank, begin, end);
+  if (_cached_local_bounds.size() > rank && !_cached_local_bounds.empty())
+  {
+    begin = _cached_local_bounds[rank].first;
+    end = _cached_local_bounds[rank].second;
+  }
+  else
+    _domain.getLocalBounds(rank, begin, end);
 
   std::vector<int64_t> counts(_dim, 1);
   for (const auto i : make_range(_dim))

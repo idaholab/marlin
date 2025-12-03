@@ -11,6 +11,7 @@
 #include "GeneralPostprocessor.h"
 #include "GeneralVectorPostprocessor.h"
 #include "DomainInterface.h"
+#include "TensorBufferBase.h"
 #include <torch/torch.h>
 
 class TensorProblem;
@@ -28,6 +29,7 @@ public:
 
 protected:
   TensorProblem & _tensor_problem;
+  TensorBufferBase & _buffer_base;
 
   /// The buffer this postprocessor is operating on
   const torch::Tensor & _u;

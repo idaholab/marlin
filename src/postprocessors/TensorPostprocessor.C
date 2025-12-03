@@ -24,7 +24,9 @@ TensorPostprocessorTempl<T>::TensorPostprocessorTempl(const InputParameters & pa
   : T(parameters),
     DomainInterface(this),
     _tensor_problem(TensorProblem::cast(this, this->_fe_problem)),
-    _u(_tensor_problem.getBuffer(this->template getParam<TensorInputBufferName>("buffer")))
+    _buffer_base(
+        _tensor_problem.getBufferBase(this->template getParam<TensorInputBufferName>("buffer"))),
+    _u(_buffer_base.getRawTensor())
 {
 }
 

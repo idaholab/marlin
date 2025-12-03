@@ -8,25 +8,22 @@
 
 #pragma once
 
-#include "TensorPostprocessor.h"
+#include "TensorOperator.h"
 
 /**
- * Compute the average of a Tensor buffer
+ * Computes the Laplacian using finite differences with ghost layer support.
  */
-class TensorAveragePostprocessor : public TensorPostprocessor
+class FiniteDifferenceLaplacian : public TensorOperator<torch::Tensor>
 {
 public:
   static InputParameters validParams();
 
-  TensorAveragePostprocessor(const InputParameters & parameters);
+  FiniteDifferenceLaplacian(const InputParameters & parameters);
 
-  virtual void initialize() override {}
-  virtual void execute() override;
-  virtual void finalize() override;
-  virtual PostprocessorValue getValue() const override;
+  virtual void computeBuffer() override;
 
 protected:
-  Real _sum;
-  int64_t _numel;
-  Real _average;
+  const unsigned int _radius;
+  /// input buffer
+  const torch::Tensor & _u_in;
 };
