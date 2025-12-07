@@ -83,8 +83,12 @@ AdamsBashforthMoultonCoupled::AdamsBashforthMoultonCoupled(const InputParameters
 }
 
 void
-AdamsBashforthMoultonCoupled::computeBuffer()
+AdamsBashforthMoultonCoupled::substep()
 {
+  // re-evaluate the solve compute
+  _compute->computeBuffer();
+  forwardBuffers();
+
   // Adams–Bashforth coefficients (zero-padded)
   constexpr std::array<std::array<double, max_order>, max_order> beta = {{
       {1.0, 0.0, 0.0, 0.0, 0.0},                                                        // AB1
@@ -104,7 +108,6 @@ AdamsBashforthMoultonCoupled::computeBuffer()
   }};
 
   const bool dt_changed = (_dt != _dt_old);
-  _sub_dt = _dt / _substeps;
 
   const auto N = _variables.size();
   if (N == 0)
@@ -118,165 +121,153 @@ AdamsBashforthMoultonCoupled::computeBuffer()
   // Pre-construct a zeros tensor for missing L entries
   const auto zeros_like_grid = torch::zeros_like(base_ubar);
 
-  // subcycles
-  for (const auto substep : make_range(_substeps))
+  // Predictor: build rhs per variable (ABm)
+  std::vector<torch::Tensor> rhs_list(N);
+  for (const auto i : make_range(N))
   {
-    // re-evaluate the solve compute
-    _compute->computeBuffer();
-    forwardBuffers();
+    const auto & reciprocal_buffer = _variables[i]._reciprocal_buffer;
+    const auto & nonlinear_reciprocal = _variables[i]._nonlinear_reciprocal;
+    const auto & old_nonlinear_reciprocal = _variables[i]._old_nonlinear_reciprocal;
 
-    // Predictor: build rhs per variable (ABm)
-    std::vector<torch::Tensor> rhs_list(N);
+    const auto n_old = old_nonlinear_reciprocal.size();
+    const auto order =
+        std::min(_substep < _predictor_order && dt_changed ? 0 : n_old, _predictor_order);
+
+    auto rhs = reciprocal_buffer + (_sub_dt * beta[order][0]) * nonlinear_reciprocal;
+    for (const auto j : make_range(order))
+      rhs += (_sub_dt * beta[order][j + 1]) * old_nonlinear_reciprocal[j];
+
+    rhs_list[i] = rhs;
+  }
+
+  // Assemble L as dense [grid..., N, N] by stacking rows
+  // map off-diagonal entries into a table of pointers for quick access
+  std::vector<const torch::Tensor *> Lptr(N * N, &zeros_like_grid);
+
+  // diagonal from linear_reciprocal (may be null meaning zero)
+  for (const auto i : make_range(N))
+    Lptr[i * N + i] = _variables[i]._linear_reciprocal; // may remain null
+
+  // off-diagonals
+  for (const auto k : index_range(_L_offdiag_buffer))
+  {
+    const auto & [i, j] = _L_offdiag_indices[k];
+    Lptr[i * N + j] = _L_offdiag_buffer[k];
+    if (_assume_symmetric && i != j && Lptr[j * N + i] == &zeros_like_grid)
+      Lptr[j * N + i] = _L_offdiag_buffer[k];
+  }
+
+  using torch::stack;
+  std::vector<torch::Tensor> rows;
+  rows.reserve(N);
+  for (const auto i : make_range(N))
+  {
+    std::vector<torch::Tensor> cols;
+    cols.reserve(N);
+    for (const auto j : make_range(N))
+      cols.push_back(*Lptr[i * N + j]);
+    // [grid..., N]
+    rows.push_back(stack(cols, -1));
+  }
+
+  // L [grid..., N, N]
+  auto L = stack(rows, -1);
+  // A = I - dt * L (cast to match rhs dtype)
+  auto I = torch::eye(N, base_opts);
+  auto A = I - _sub_dt * L.to(base_dtype);
+  // rhs [grid..., N]
+  auto b = stack(rhs_list, -1).to(base_dtype);
+
+  // Solve A * ubar = b (batched over grid points)
+  // Broadcast I to grid dims is automatic in linalg_solve since A has those dims
+  const auto ubar_all = at::linalg_solve(A, b, true);
+
+  // Update physical-space variables via inverse FFT
+  auto ubar_solutions = torch::unbind(ubar_all, -1);
+  for (const auto i : make_range(N))
+    _variables[i]._buffer = _domain.ifft(ubar_solutions[i]);
+
+  // advance time
+  _sub_time += _sub_dt;
+
+  // Corrector (optional)
+  if (_corrector_steps)
+  {
+    // snapshot ubar at t_n
+    std::vector<torch::Tensor> ubar_n(N);
     for (const auto i : make_range(N))
-    {
-      const auto & reciprocal_buffer = _variables[i]._reciprocal_buffer;
-      const auto & nonlinear_reciprocal = _variables[i]._nonlinear_reciprocal;
-      const auto & old_nonlinear_reciprocal = _variables[i]._old_nonlinear_reciprocal;
+      ubar_n[i] = _variables[i]._reciprocal_buffer;
 
-      const auto n_old = old_nonlinear_reciprocal.size();
-      const auto order =
-          std::min(substep < _predictor_order && dt_changed ? 0 : n_old, _predictor_order);
-
-      auto rhs = reciprocal_buffer + (_sub_dt * beta[order][0]) * nonlinear_reciprocal;
-      for (const auto j : make_range(order))
-        rhs += (_sub_dt * beta[order][j + 1]) * old_nonlinear_reciprocal[j];
-
-      rhs_list[i] = rhs;
-    }
-
-    // Assemble L as dense [grid..., N, N] by stacking rows
-    // map off-diagonal entries into a table of pointers for quick access
-    std::vector<const torch::Tensor *> Lptr(N * N, &zeros_like_grid);
-
-    // diagonal from linear_reciprocal (may be null meaning zero)
-    for (const auto i : make_range(N))
-      Lptr[i * N + i] = _variables[i]._linear_reciprocal; // may remain null
-
-    // off-diagonals
-    for (const auto k : index_range(_L_offdiag_buffer))
-    {
-      const auto & [i, j] = _L_offdiag_indices[k];
-      Lptr[i * N + j] = _L_offdiag_buffer[k];
-      if (_assume_symmetric && i != j && Lptr[j * N + i] == &zeros_like_grid)
-        Lptr[j * N + i] = _L_offdiag_buffer[k];
-    }
-
-    using torch::stack;
-    std::vector<torch::Tensor> rows;
-    rows.reserve(N);
-    for (const auto i : make_range(N))
-    {
-      std::vector<torch::Tensor> cols;
-      cols.reserve(N);
-      for (const auto j : make_range(N))
-        cols.push_back(*Lptr[i * N + j]);
-      // [grid..., N]
-      rows.push_back(stack(cols, -1));
-    }
-
-    // L [grid..., N, N]
-    auto L = stack(rows, -1);
-    // A = I - dt * L (cast to match rhs dtype)
-    auto I = torch::eye(N, base_opts);
-    auto A = I - _sub_dt * L.to(base_dtype);
-    // rhs [grid..., N]
-    auto b = stack(rhs_list, -1).to(base_dtype);
-
-    // Solve A * ubar = b (batched over grid points)
-    // Broadcast I to grid dims is automatic in linalg_solve since A has those dims
-    const auto ubar_all = at::linalg_solve(A, b, true);
-
-    // Update physical-space variables via inverse FFT
-    auto ubar_solutions = torch::unbind(ubar_all, -1);
-    for (const auto i : make_range(N))
-      _variables[i]._buffer = _domain.ifft(ubar_solutions[i]);
-
-    // advance time
-    _sub_time += _sub_dt;
-
-    // Corrector (optional)
-    if (_corrector_steps)
-    {
-      // snapshot ubar at t_n
-      std::vector<torch::Tensor> ubar_n(N);
+    // N at time n (from AB predictor call above)
+    std::vector<torch::Tensor> N_n(N);
+    if (_corrector_order > 0)
       for (const auto i : make_range(N))
-        ubar_n[i] = _variables[i]._reciprocal_buffer;
+        N_n[i] = _variables[i]._nonlinear_reciprocal;
 
-      // N at time n (from AB predictor call above)
-      std::vector<torch::Tensor> N_n(N);
-      if (_corrector_order > 0)
-        for (const auto i : make_range(N))
-          N_n[i] = _variables[i]._nonlinear_reciprocal;
+    for (std::size_t j_corr = 0; j_corr < _corrector_steps; ++j_corr)
+    {
+      // recompute nonlinearity with current predicted values
+      _compute->computeBuffer();
+      forwardBuffers();
 
-      for (std::size_t j_corr = 0; j_corr < _corrector_steps; ++j_corr)
+      // Build corrector RHS
+      std::vector<torch::Tensor> rhs_corr(N);
+      for (const auto i : make_range(N))
       {
-        // recompute nonlinearity with current predicted values
-        _compute->computeBuffer();
-        forwardBuffers();
+        const auto & nonlinear_pred = _variables[i]._nonlinear_reciprocal;
+        const auto & old_nonlinear = _variables[i]._old_nonlinear_reciprocal;
+        const auto n_old = old_nonlinear.size();
 
-        // Build corrector RHS
-        std::vector<torch::Tensor> rhs_corr(N);
-        for (const auto i : make_range(N))
+        const auto order =
+            std::min(_substep < _corrector_order && dt_changed ? 1 : n_old + 1, _corrector_order);
+        if (order == 0)
         {
-          const auto & nonlinear_pred = _variables[i]._nonlinear_reciprocal;
-          const auto & old_nonlinear = _variables[i]._old_nonlinear_reciprocal;
-          const auto n_old = old_nonlinear.size();
-
-          const auto order =
-              std::min(substep < _corrector_order && dt_changed ? 1 : n_old + 1, _corrector_order);
-          if (order == 0)
-          {
-            rhs_corr[i] = ubar_n[i];
-            continue;
-          }
-
-          auto rhs = ubar_n[i] + (_sub_dt * alpha[order][0]) * nonlinear_pred;
-          if (order > 0)
-          {
-            rhs += (_sub_dt * alpha[order][1]) * N_n[i];
-            for (const auto jj : make_range(order - 1))
-              rhs += (_sub_dt * alpha[order][jj + 2]) * old_nonlinear[jj];
-          }
-          rhs_corr[i] = rhs;
+          rhs_corr[i] = ubar_n[i];
+          continue;
         }
 
-        // Re-assemble L (allowing time dependence)
-        std::vector<const torch::Tensor *> Lptr_c(N * N, &zeros_like_grid);
-        for (const auto i : make_range(N))
-          Lptr_c[i * N + i] = _variables[i]._linear_reciprocal;
-        for (const auto k : index_range(_L_offdiag_names))
+        auto rhs = ubar_n[i] + (_sub_dt * alpha[order][0]) * nonlinear_pred;
+        if (order > 0)
         {
-          const auto & [i, j] = _L_offdiag_indices[k];
-          Lptr_c[i * N + j] = _L_offdiag_buffer[k];
-          if (_assume_symmetric && i != j && Lptr_c[j * N + i] == &zeros_like_grid)
-            Lptr_c[j * N + i] = _L_offdiag_buffer[k];
+          rhs += (_sub_dt * alpha[order][1]) * N_n[i];
+          for (const auto jj : make_range(order - 1))
+            rhs += (_sub_dt * alpha[order][jj + 2]) * old_nonlinear[jj];
         }
-
-        std::vector<torch::Tensor> rows_c;
-        rows_c.reserve(N);
-        for (const auto i : make_range(N))
-        {
-          std::vector<torch::Tensor> cols;
-          cols.reserve(N);
-          for (const auto j : make_range(N))
-            cols.push_back(*Lptr_c[i * N + j]);
-          rows_c.push_back(stack(cols, -1));
-        }
-
-        auto Lc = stack(rows_c, -1);
-        auto Ic = torch::eye(N, base_opts);
-        auto Ac = Ic - _sub_dt * Lc.to(base_dtype);
-        auto bc = stack(rhs_corr, -1).to(base_dtype);
-
-        const auto ubar_all_corr = at::linalg_solve(Ac, bc, true);
-        auto ubar_corr_list = torch::unbind(ubar_all_corr, -1);
-        for (const auto i : make_range(N))
-          _variables[i]._buffer = _domain.ifft(ubar_corr_list[i]);
+        rhs_corr[i] = rhs;
       }
-    }
 
-    // skip final advance (MOOSE will do it)
-    if (substep < _substeps - 1)
-      _tensor_problem.advanceState();
+      // Re-assemble L (allowing time dependence)
+      std::vector<const torch::Tensor *> Lptr_c(N * N, &zeros_like_grid);
+      for (const auto i : make_range(N))
+        Lptr_c[i * N + i] = _variables[i]._linear_reciprocal;
+      for (const auto k : index_range(_L_offdiag_names))
+      {
+        const auto & [i, j] = _L_offdiag_indices[k];
+        Lptr_c[i * N + j] = _L_offdiag_buffer[k];
+        if (_assume_symmetric && i != j && Lptr_c[j * N + i] == &zeros_like_grid)
+          Lptr_c[j * N + i] = _L_offdiag_buffer[k];
+      }
+
+      std::vector<torch::Tensor> rows_c;
+      rows_c.reserve(N);
+      for (const auto i : make_range(N))
+      {
+        std::vector<torch::Tensor> cols;
+        cols.reserve(N);
+        for (const auto j : make_range(N))
+          cols.push_back(*Lptr_c[i * N + j]);
+        rows_c.push_back(stack(cols, -1));
+      }
+
+      auto Lc = stack(rows_c, -1);
+      auto Ic = torch::eye(N, base_opts);
+      auto Ac = Ic - _sub_dt * Lc.to(base_dtype);
+      auto bc = stack(rhs_corr, -1).to(base_dtype);
+
+      const auto ubar_all_corr = at::linalg_solve(Ac, bc, true);
+      auto ubar_corr_list = torch::unbind(ubar_all_corr, -1);
+      for (const auto i : make_range(N))
+        _variables[i]._buffer = _domain.ifft(ubar_corr_list[i]);
+    }
   }
 }

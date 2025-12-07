@@ -20,11 +20,11 @@ public:
 
   AdamsBashforthMoulton(const InputParameters & parameters);
 
-  virtual void computeBuffer() override;
-
 protected:
   // Max order supported (up to ABM5)
   static constexpr std::size_t max_order = 5;
+
+  virtual void substep() override;
 
   unsigned int _substeps;
   std::size_t _predictor_order;

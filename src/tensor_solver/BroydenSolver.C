@@ -65,16 +65,12 @@ BroydenSolver::BroydenSolver(const InputParameters & parameters)
 }
 
 void
-BroydenSolver::computeBuffer()
+BroydenSolver::substep()
 {
-  for (_substep = 0; _substep < _substeps; ++_substep)
-    broydenSolve();
-}
+  // initial residual
+  _compute->computeBuffer();
+  forwardBuffers();
 
-void
-BroydenSolver::broydenSolve()
-{
-  const auto dt = _dt / _substeps;
   const auto n = _variables.size();
 
   // stack u_old
@@ -101,13 +97,9 @@ BroydenSolver::broydenSolve()
     return std::make_tuple(torch::stack(u, -1), torch::stack(N, -1), torch::stack(L, -1));
   };
 
-  // initial residual
-  _compute->computeBuffer();
-  forwardBuffers();
-
   const auto [u0, N, L] = stackVariables();
   torch::Tensor u = u0;
-  torch::Tensor R = (N + L * u) * dt;
+  torch::Tensor R = (N + L * u) * _sub_dt;
 
   // initial residual norm
   const auto R0norm = torch::norm(R).item<double>();
@@ -154,7 +146,7 @@ BroydenSolver::broydenSolve()
 
     const auto [u0, N, L] = stackVariables();
     u = u0;
-    const auto Rnew = (N + L * u) * dt + u_old - u;
+    const auto Rnew = (N + L * u) * _sub_dt + u_old - u;
 
     // residual change
     const auto yk = (Rnew - R).unsqueeze(-1);

@@ -29,6 +29,8 @@ protected:
   LatticeBoltzmannProblem & _lb_problem;
   const LatticeBoltzmannStencilBase & _stencil;
 
+  virtual void substep() override {};
+
   struct Variable
   {
     torch::Tensor & _u;

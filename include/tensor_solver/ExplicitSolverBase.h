@@ -10,7 +10,7 @@
 #include "TensorSolver.h"
 
 /**
- * TensorTimeIntegrator object (this is mostly a compute object)
+ * Base class for _reciprocal_ space explicit solvers
  */
 class ExplicitSolverBase : public TensorSolver
 {

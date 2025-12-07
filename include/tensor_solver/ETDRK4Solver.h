@@ -20,13 +20,6 @@ public:
 
   ETDRK4Solver(const InputParameters & parameters);
 
-  virtual void computeBuffer() override;
-
 protected:
-  /// Number of substeps per time step
-  const unsigned int _substeps;
-
-  /// references to the substep dt/time managed by the TensorProblem
-  Real & _sub_dt;
-  Real & _sub_time;
+  virtual void substep() override;
 };

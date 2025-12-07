@@ -21,10 +21,8 @@ public:
 
   BroydenSolver(const InputParameters & parameters);
 
-  virtual void computeBuffer() override;
-
 protected:
-  void broydenSolve();
+  void substep();
 
   unsigned int _substep;
   unsigned int _substeps;

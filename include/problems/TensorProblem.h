@@ -195,8 +195,9 @@ protected:
   /// solver substeps
   const unsigned int _substeps;
 
-  /// substepping timestep
+  /// substepping timestep (the solver updates this!)
   Real _sub_dt;
+  /// current substep time (the solver updates this). Computes should use this trather than the MOOSE _time!
   Real _sub_time;
 
   /// simulation time for the currently running output thread

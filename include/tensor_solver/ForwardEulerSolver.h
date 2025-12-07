@@ -21,10 +21,6 @@ public:
 
   ForwardEulerSolver(const InputParameters & parameters);
 
-  virtual void computeBuffer() override;
-
 protected:
-  unsigned int _substeps;
-  Real & _sub_dt;
-  Real & _sub_time;
+  virtual void substep() override;
 };
