@@ -3,7 +3,7 @@
   nx = 80
   ny = 60
   parallel_mode = REAL_SPACE
-  # periodic_directions = 'X Y'
+  periodic_directions = 'X Y'
   xmin = -1
   ymin = -1
   xmax = 1

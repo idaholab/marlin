@@ -776,7 +776,6 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
 void
 TensorProblem::runComputeWithGhosts(TensorOperatorBase & compute)
 {
-  mooseInfoRepeated(compute.name());
   const auto & requirements = compute.getInputGhostLayers();
   for (const auto & [buffer_name, ghost] : requirements)
     if (ghost > 0)

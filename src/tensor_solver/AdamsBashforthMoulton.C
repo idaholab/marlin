@@ -173,6 +173,6 @@ AdamsBashforthMoulton::substep()
 
     // decrement substep time (because we aleady incremented and the parent class will increment
     // again)
-    _sub_time += _sub_dt;
+    _sub_time -= _sub_dt;
   }
 }

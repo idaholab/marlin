@@ -29,7 +29,11 @@ void
 TensorIntegralPostprocessor::finalize()
 {
   TensorAveragePostprocessor::finalize();
-  const auto volume = RealVectorValue(1, 1, 1) * (_domain.getDomainMax() - _domain.getDomainMin());
+  const auto size = _domain.getDomainMax() - _domain.getDomainMin();
+  Real volume = 1.0;
+  for (const auto dim : make_range(_domain.getDim()))
+    volume *= size(dim);
+
   _integral = _average * volume;
 }
 

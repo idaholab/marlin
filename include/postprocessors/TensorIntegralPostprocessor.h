@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "TensorPostprocessor.h"
+#include "TensorAveragePostprocessor.h"
 
 /**
  * Compute the integral of a Tensor buffer

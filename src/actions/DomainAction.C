@@ -137,6 +137,13 @@ DomainAction::DomainAction(const InputParameters & parameters)
   if (_parallel_mode == ParallelMode::NONE && _n_rank > 1)
     paramError("parallel_mode", "NONE requires the application to run in serial.");
 
+  // TODO: Implement non-periodic BCs
+  if (_parallel_mode == ParallelMode::REAL_SPACE)
+    for (const auto i : make_range(_dim))
+      if (!_periodic[i])
+        paramError("periodic_directions",
+                   "Domain must be periodic in all directions with `parallel_mode = REAL_SPACE`.");
+
   if (_n_rank == 1)
   {
     // set local weights and ranks for serial
