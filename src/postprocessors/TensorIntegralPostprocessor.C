@@ -21,27 +21,16 @@ TensorIntegralPostprocessor::validParams()
 }
 
 TensorIntegralPostprocessor::TensorIntegralPostprocessor(const InputParameters & parameters)
-  : TensorPostprocessor(parameters)
+  : TensorAveragePostprocessor(parameters)
 {
-}
-
-void
-TensorIntegralPostprocessor::execute()
-{
-  const auto owned = _buffer_base.ownedView();
-  _integral = owned.sum().cpu().item<double>();
-
-  const auto s = _domain.getDomainMax() - _domain.getDomainMin();
-  for (const auto dim : make_range(_domain.getDim()))
-    _integral *= s(dim);
-
-  _integral /= owned.numel();
 }
 
 void
 TensorIntegralPostprocessor::finalize()
 {
-  gatherSum(_integral);
+  TensorAveragePostprocessor::finalize();
+  const auto volume = RealVectorValue(1,1,1) * (_domain.getDomainMax() - _domain.getDomainMin());
+  _integral = _average * volume;
 }
 
 PostprocessorValue

@@ -20,10 +20,14 @@ public:
 
   FiniteDifferenceLaplacian(const InputParameters & parameters);
 
+  virtual void realSpaceComputeBuffer() override;
+
   virtual void computeBuffer() override;
 
 protected:
   const unsigned int _radius;
   /// input buffer
   const torch::Tensor & _u_in;
+  /// prefactor
+  const Real _factor;
 };

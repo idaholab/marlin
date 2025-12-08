@@ -27,6 +27,7 @@ public:
   virtual void init() override;
 
   virtual void computeBuffer() override;
+  virtual void realSpaceComputeBuffer() override;
 
   virtual void updateDependencies() override;
 
@@ -36,6 +37,8 @@ public:
   std::size_t getComputeCount() const { return _compute_count; }
 
 protected:
+  void computeBufferInternal(bool ghost_exchange);
+
   /// nested tensor computes
   std::vector<std::shared_ptr<TensorOperatorBase>> _computes;
 

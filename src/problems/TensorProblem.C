@@ -180,7 +180,8 @@ TensorProblem::execute(const ExecFlagType & exec_type)
 
     // run solver
     if (_solver)
-      runComputeWithGhosts(*_solver);
+      // real space solvers should do runComputeWithGhosts internally
+      _solver->computeBuffer();
     else
       for (auto & cmp : _computes)
         runComputeWithGhosts(*cmp);
@@ -775,10 +776,12 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
 void
 TensorProblem::runComputeWithGhosts(TensorOperatorBase & compute)
 {
+  mooseInfoRepeated(compute.name());
   const auto & requirements = compute.getInputGhostLayers();
   for (const auto & [buffer_name, ghost] : requirements)
     if (ghost > 0)
       exchangeGhostLayers(buffer_name, ghost);
+
   compute.computeBuffer();
 }
 

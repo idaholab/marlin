@@ -42,6 +42,9 @@ public:
   /// perform the computation
   virtual void computeBuffer() = 0;
 
+  /// perform the computation in real space
+  virtual void realSpaceComputeBuffer();
+
   /// called  after all objects have been constructed (before dependency resolution)
   virtual void init() {}
 

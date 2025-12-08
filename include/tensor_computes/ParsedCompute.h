@@ -28,6 +28,7 @@ public:
   ParsedCompute(const InputParameters & parameters);
 
   void computeBuffer() override;
+  void realSpaceComputeBuffer() override;
 
   /// Block this for now, because time is not properly updated
   virtual bool supportsJIT() const override { return false; }

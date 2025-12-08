@@ -16,6 +16,7 @@ FiniteDifferenceLaplacian::validParams()
 {
   InputParameters params = TensorOperator<torch::Tensor>::validParams();
   params.addRequiredParam<TensorInputBufferName>("input", "The input buffer");
+  params.addParam<Real>("factor", 1, "Pre-factor for the Laplacian");
   MooseEnum stencil("3=3 5=5", "3");
   params.addParam<MooseEnum>(
       "stencil_width", stencil, "Stencil width for the Laplacian (3 => 3-point, 5 => 5-point)");
@@ -26,8 +27,15 @@ FiniteDifferenceLaplacian::validParams()
 FiniteDifferenceLaplacian::FiniteDifferenceLaplacian(const InputParameters & parameters)
   : TensorOperator<torch::Tensor>(parameters),
     _radius(getParam<MooseEnum>("stencil_width") == 5 ? 2u : 1u),
-    _u_in(getInputBuffer("input", _radius))
+    _u_in(getInputBuffer("input", _radius)),
+    _factor(getParam<Real>("factor"))
 {
+}
+
+void
+FiniteDifferenceLaplacian::realSpaceComputeBuffer()
+{
+  _tensor_problem.runComputeWithGhosts(*this);
 }
 
 void
@@ -160,4 +168,7 @@ FiniteDifferenceLaplacian::computeBuffer()
         input, kernel, torch::nn::functional::Conv3dFuncOptions().padding(_radius));
     _u.copy_(result.view(_u.sizes()));
   }
+
+  if (_factor != 1.0)
+    _u *= _factor;
 }

@@ -158,6 +158,8 @@ public:
 
   static TensorProblem & cast(MooseObject * moose_object, Problem & problem);
 
+  void runComputeWithGhosts(TensorOperatorBase & compute);
+
 protected:
   void updateDOFMap();
   void updateLocalTensorShape();
@@ -174,7 +176,6 @@ protected:
                                 TensorComputeList & list);
 
   void exchangeGhostLayers(const std::string & buffer_name, unsigned int ghost_layers);
-  void runComputeWithGhosts(TensorOperatorBase & compute);
 
   /// execute initial conditionobjects
   void executeTensorInitialConditions();

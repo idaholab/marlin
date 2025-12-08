@@ -13,15 +13,13 @@
 /**
  * Compute the integral of a Tensor buffer
  */
-class TensorIntegralPostprocessor : public TensorPostprocessor
+class TensorIntegralPostprocessor : public TensorAveragePostprocessor
 {
 public:
   static InputParameters validParams();
 
   TensorIntegralPostprocessor(const InputParameters & parameters);
 
-  virtual void initialize() override {}
-  virtual void execute() override;
   virtual void finalize() override;
   virtual PostprocessorValue getValue() const override;
 

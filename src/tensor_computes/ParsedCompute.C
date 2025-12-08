@@ -263,3 +263,9 @@ ParsedCompute::computeBuffer()
       _u = torch::constant_pad_nd(_u, pad, 0.0);
   }
 }
+
+void
+ParsedCompute::realSpaceComputeBuffer()
+{
+  computeBuffer();
+}

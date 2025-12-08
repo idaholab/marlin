@@ -24,6 +24,13 @@ TensorAveragePostprocessor::TensorAveragePostprocessor(const InputParameters & p
 }
 
 void
+TensorAveragePostprocessor::initialize()
+{
+  _sum = 0.0;
+  _numel = 0;
+}
+
+void
 TensorAveragePostprocessor::execute()
 {
   const auto owned = _buffer_base.ownedView();

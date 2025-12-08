@@ -34,4 +34,17 @@
       detail = 'using a 3x3x3 stencil.'
     []
   []
+
+  [diffusion]
+    issues = '#122'
+    design = FiniteDifferenceLaplacian.md
+    requirement = 'The system shall be able to solve a transient diffusion problem in real space '
+    [2d_3x3]
+      type = CSVDiff
+      input = diffusion.i
+      csvdiff = diffusion_out.csv
+      compute_devices = 'cpu cuda mps'
+      detail = 'using a 3x3 stencil.'
+    []
+  []
 []
