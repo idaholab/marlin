@@ -41,15 +41,15 @@ RandomTensor::computeBuffer()
   if (isParamValid("seed"))
     torch::manual_seed(getParam<int>("seed"));
 
+  const auto shape = _tensor_problem.getLocalTensorShape({});
+
   if (_generate_on_cpu)
   {
-    _u = torch::rand(_tensor_problem.getShape(),
-                     MooseTensor::floatTensorOptions().device(torch::kCPU))
+    _u = torch::rand(shape, MooseTensor::floatTensorOptions().device(torch::kCPU))
                  .to(MooseTensor::floatTensorOptions()) *
              (max - min) +
          min;
   }
   else
-    _u = torch::rand(_tensor_problem.getShape(), MooseTensor::floatTensorOptions()) * (max - min) +
-         min;
+    _u = torch::rand(shape, MooseTensor::floatTensorOptions()) * (max - min) + min;
 }
