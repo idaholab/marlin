@@ -24,9 +24,26 @@ TensorAveragePostprocessor::TensorAveragePostprocessor(const InputParameters & p
 }
 
 void
+TensorAveragePostprocessor::initialize()
+{
+  _sum = 0.0;
+  _numel = 0;
+}
+
+void
 TensorAveragePostprocessor::execute()
 {
-  _average = _u.sum().cpu().item<double>() / torch::numel(_u);
+  const auto owned = _buffer_base.ownedView();
+  _sum = owned.sum().cpu().item<double>();
+  _numel = torch::numel(owned);
+}
+
+void
+TensorAveragePostprocessor::finalize()
+{
+  gatherSum(_sum);
+  gatherSum(_numel);
+  _average = _sum / _numel;
 }
 
 PostprocessorValue

@@ -10,6 +10,7 @@
 
 #include "TensorOperator.h"
 #include "ParsedJITTensor.h"
+#include <array>
 
 /**
  * ParsedCompute - JIT-compiled mathematical expression evaluator
@@ -27,6 +28,7 @@ public:
   ParsedCompute(const InputParameters & parameters);
 
   void computeBuffer() override;
+  void realSpaceComputeBuffer() override;
 
   /// Block this for now, because time is not properly updated
   virtual bool supportsJIT() const override { return false; }
@@ -38,6 +40,8 @@ protected:
 
   torch::Tensor _time_tensor;
   std::vector<const torch::Tensor *> _params;
+  std::array<const torch::Tensor *, 3> _axis_params;
+  std::array<torch::Tensor, 3> _axis_padded;
   enum class ExpandEnum
   {
     REAL,

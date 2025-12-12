@@ -8,19 +8,26 @@
 
 #pragma once
 
-#include "ExplicitSolverBase.h"
-#include "SplitOperatorBase.h"
+#include "TensorOperator.h"
 
 /**
- * ForwardEulerSolver object
+ * Computes the Laplacian using finite differences with ghost layer support.
  */
-class ForwardEulerSolver : public ExplicitSolverBase
+class FiniteDifferenceLaplacian : public TensorOperator<torch::Tensor>
 {
 public:
   static InputParameters validParams();
 
-  ForwardEulerSolver(const InputParameters & parameters);
+  FiniteDifferenceLaplacian(const InputParameters & parameters);
+
+  virtual void realSpaceComputeBuffer() override;
+
+  virtual void computeBuffer() override;
 
 protected:
-  virtual void substep() override;
+  const unsigned int _radius;
+  /// input buffer
+  const torch::Tensor & _u_in;
+  /// prefactor
+  const Real _factor;
 };

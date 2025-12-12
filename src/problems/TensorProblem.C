@@ -51,7 +51,8 @@ TensorProblem::TensorProblem(const InputParameters & parameters)
     _n((_domain.getGridSize())),
     _shape(_domain.getShape()),
     _solver(nullptr),
-    _can_fetch_constants(true)
+    _can_fetch_constants(true),
+    _local_tensor_shape(_domain.getLocalGridSize())
 {
   // get constants (for scalar constants we provide a shortcut in the problem block)
   for (const auto & [name, value] :
@@ -79,6 +80,8 @@ TensorProblem::init()
     mooseInfo("Setting libTorch to use ", n_threads, " threads on the CPU.");
     torch::set_num_threads(n_threads);
   }
+
+  updateLocalTensorShape();
 
   // initialize tensors
   for (auto pair : _tensor_buffer)
@@ -177,10 +180,11 @@ TensorProblem::execute(const ExecFlagType & exec_type)
 
     // run solver
     if (_solver)
+      // real space solvers should do runComputeWithGhosts internally
       _solver->computeBuffer();
     else
       for (auto & cmp : _computes)
-        cmp->computeBuffer();
+        runComputeWithGhosts(*cmp);
   }
 
   if (exec_type == EXEC_TIMESTEP_END)
@@ -197,7 +201,7 @@ TensorProblem::executeTensorInitialConditions()
 {
   // run ICs
   for (auto & ic : _ics)
-    ic->computeBuffer();
+    runComputeWithGhosts(*ic);
 
   // compile ist of compute output tensors
   std::set<std::string> _is_output;
@@ -216,7 +220,7 @@ TensorProblem::executeTensorOutputs(const ExecFlagType & exec_flag)
 {
   // run postprocessing before output
   for (auto & pp : _pps)
-    pp->computeBuffer();
+    runComputeWithGhosts(*pp);
 
   // wait for prior asynchronous activity on CPU buffers to complete
   // (this is a synchronization barrier for the threaded CPU activity)
@@ -468,8 +472,17 @@ TensorProblem::advanceState()
 }
 
 void
+TensorProblem::updateLocalTensorShape()
+{
+  const auto & owned = _domain.getLocalGridSize();
+  for (const auto d : {0u, 1u, 2u})
+    _local_tensor_shape[d] = owned[d] + 2 * static_cast<int64_t>(_max_ghost_layers);
+}
+
+void
 TensorProblem::gridChanged()
 {
+  updateLocalTensorShape();
   // _domain.gridChanged();
 }
 
@@ -478,6 +491,9 @@ TensorProblem::addTensorBuffer(const std::string & buffer_type,
                                const std::string & buffer_name,
                                InputParameters & parameters)
 {
+  if (_domain.isRealSpaceMode() && parameters.get<bool>("reciprocal"))
+    mooseError("Reciprocal space tensors are not supported in REAL_SPACE parallel mode.");
+
   // add buffer
   if (_tensor_buffer.find(buffer_name) != _tensor_buffer.end())
     mooseError("TensorBuffer '", buffer_name, "' already exists in the system");
@@ -576,6 +592,199 @@ TensorProblem::addTensorOutput(const std::string & output_type,
 }
 
 void
+TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int ghost_layers)
+{
+  if (ghost_layers == 0)
+    return;
+
+  if (!_domain.isRealSpaceMode())
+    mooseError("Ghost exchange is only supported in REAL_SPACE parallel mode.");
+
+  if (ghost_layers > _max_ghost_layers)
+    mooseError("Requested ghost layers (",
+               ghost_layers,
+               ") exceed allocated halo width (",
+               _max_ghost_layers,
+               ").");
+
+  auto & base = getBufferBase(buffer_name);
+  auto * tensor_buffer = dynamic_cast<TensorBuffer<torch::Tensor> *>(&base);
+  if (!tensor_buffer)
+    mooseError("Ghost exchange supports torch::Tensor buffers only (buffer '", buffer_name, "').");
+
+  auto & tensor = tensor_buffer->getTensor();
+  const auto mpi_type = _domain.getMPIType(tensor.scalar_type());
+  const auto partitions = _domain.getRealSpacePartitions();
+  const auto index = _domain.getRealSpaceIndex();
+  const auto periodic = _domain.getPeriodicDirections();
+  const auto owned = _domain.getLocalGridSize();
+
+  for (unsigned int d = 0; d < _dim; ++d)
+    if (ghost_layers > static_cast<unsigned int>(owned[d]))
+      mooseError("Requested ghost layers (",
+                 ghost_layers,
+                 ") exceed owned extent (",
+                 owned[d],
+                 ") in direction ",
+                 d,
+                 ".");
+
+  const bool use_gpu = _domain.gpuAwareMPI() && tensor.is_cuda();
+  const auto device_options = tensor.options();
+  const auto cpu_options = tensor.options().device(torch::kCPU);
+
+  const auto toRank = [&](unsigned int ix, unsigned int iy, unsigned int iz)
+  { return static_cast<int>(ix + partitions[0] * (iy + partitions[1] * iz)); };
+
+  const int64_t halo = static_cast<int64_t>(_max_ghost_layers);
+
+  for (unsigned int d = 0; d < _dim; ++d)
+  {
+    const unsigned int part = partitions[d];
+    if (part == 1)
+    {
+      if (periodic[d] && halo >= static_cast<int64_t>(ghost_layers))
+      {
+        const auto owned_width = owned[d];
+        auto wrap_upper = tensor.narrow(d, halo, ghost_layers);
+        auto wrap_lower = tensor.narrow(d, halo + owned_width - ghost_layers, ghost_layers);
+        tensor.narrow(d, halo - ghost_layers, ghost_layers).copy_(wrap_lower);
+        tensor.narrow(d, halo + owned_width, ghost_layers).copy_(wrap_upper);
+      }
+      continue;
+    }
+
+    const bool has_lower = index[d] > 0;
+    const bool has_upper = (index[d] + 1) < part;
+
+    struct NeighborExchange
+    {
+      int neighbor_rank;
+      bool lower;
+      torch::Tensor send_buf;
+      torch::Tensor recv_buf;
+      torch::Tensor recv_view;
+      int send_tag;
+      int recv_tag;
+    };
+
+    std::vector<NeighborExchange> exchanges;
+    exchanges.reserve(2);
+
+    auto prepare_neighbor = [&](bool lower)
+    {
+      std::array<unsigned int, 3> neighbor = index;
+      if (lower)
+      {
+        if (has_lower)
+          neighbor[d] = index[d] - 1;
+        else if (periodic[d])
+          neighbor[d] = part - 1;
+        else
+          return;
+      }
+      else
+      {
+        if (has_upper)
+          neighbor[d] = index[d] + 1;
+        else if (periodic[d])
+          neighbor[d] = 0;
+        else
+          return;
+      }
+
+      const int neighbor_rank = toRank(neighbor[0], neighbor[1], neighbor[2]);
+      const int64_t send_start =
+          lower ? halo : halo + owned[d] - static_cast<int64_t>(ghost_layers);
+      const int64_t recv_start =
+          lower ? halo - static_cast<int64_t>(ghost_layers) : halo + owned[d];
+
+      auto send_slice = tensor.narrow(d, send_start, ghost_layers).contiguous();
+      auto recv_view = tensor.narrow(d, recv_start, ghost_layers);
+
+      if (neighbor_rank == static_cast<int>(_domain.comm().rank()))
+      {
+        // self-wrap: copy directly, no MPI
+        recv_view.copy_(send_slice);
+        return;
+      }
+
+      auto send_buf = use_gpu ? send_slice : send_slice.to(cpu_options);
+      auto recv_buf = torch::empty_like(send_buf, use_gpu ? device_options : cpu_options);
+
+      const int send_tag = 200 + d * 2 + (lower ? 0 : 1);
+      const int recv_tag = 200 + d * 2 + (lower ? 1 : 0);
+
+      exchanges.push_back(
+          {neighbor_rank, lower, send_buf, recv_buf, recv_view, send_tag, recv_tag});
+
+      if (_domain.debug())
+        mooseInfoRepeated("Ghost exchange d=",
+                          d,
+                          " lower=",
+                          lower,
+                          " me=",
+                          _domain.comm().rank(),
+                          " <-> ",
+                          neighbor_rank,
+                          " send_start=",
+                          send_start,
+                          " recv_start=",
+                          recv_start,
+                          " count=",
+                          send_buf.numel());
+    };
+
+    prepare_neighbor(true);
+    prepare_neighbor(false);
+
+    if (!exchanges.empty())
+    {
+      std::vector<MPI_Request> reqs(2 * exchanges.size(), MPI_REQUEST_NULL);
+      std::size_t idx = 0;
+      // post all receives
+      for (const auto & ex : exchanges)
+        MPI_Irecv(ex.recv_buf.data_ptr(),
+                  ex.recv_buf.numel(),
+                  mpi_type,
+                  ex.neighbor_rank,
+                  ex.recv_tag,
+                  _domain.getMPIComm(),
+                  &reqs[idx++]);
+      // post all sends
+      for (const auto & ex : exchanges)
+        MPI_Isend(ex.send_buf.data_ptr(),
+                  ex.send_buf.numel(),
+                  mpi_type,
+                  ex.neighbor_rank,
+                  ex.send_tag,
+                  _domain.getMPIComm(),
+                  &reqs[idx++]);
+
+      MPI_Waitall(static_cast<int>(reqs.size()), reqs.data(), MPI_STATUSES_IGNORE);
+
+      for (auto & ex : exchanges)
+      {
+        if (!use_gpu)
+          ex.recv_buf = ex.recv_buf.to(device_options);
+        ex.recv_view.copy_(ex.recv_buf);
+      }
+    }
+  }
+}
+
+void
+TensorProblem::runComputeWithGhosts(TensorOperatorBase & compute)
+{
+  const auto & requirements = compute.getInputGhostLayers();
+  for (const auto & [buffer_name, ghost] : requirements)
+    if (ghost > 0)
+      exchangeGhostLayers(buffer_name, ghost);
+
+  compute.computeBuffer();
+}
+
+void
 TensorProblem::setSolver(std::shared_ptr<TensorSolver> solver,
                          const MooseTensor::Key<CreateTensorSolverAction> &)
 {
@@ -594,6 +803,21 @@ TensorProblem::getBufferBase(const std::string & buffer_name)
   return *it->second.get();
 }
 
+void
+TensorProblem::registerGhostLayerRequest(const std::string & buffer_name, unsigned int ghost_layers)
+{
+  auto & current = _buffer_ghost_layers[buffer_name];
+  if (ghost_layers > current)
+  {
+    current = ghost_layers;
+    if (ghost_layers > _max_ghost_layers)
+    {
+      _max_ghost_layers = ghost_layers;
+      updateLocalTensorShape();
+    }
+  }
+}
+
 const torch::Tensor &
 TensorProblem::getRawBuffer(const std::string & buffer_name)
 {
@@ -604,6 +828,16 @@ const torch::Tensor &
 TensorProblem::getRawCPUBuffer(const std::string & buffer_name)
 {
   return getBufferBase(buffer_name).getRawCPUTensor();
+}
+
+std::vector<int64_t>
+TensorProblem::getLocalTensorShape(const std::vector<int64_t> & extra_dims) const
+{
+  std::vector<int64_t> dims(_dim);
+  for (const auto d : make_range(_dim))
+    dims[d] = _local_tensor_shape[d];
+  dims.insert(dims.end(), extra_dims.begin(), extra_dims.end());
+  return dims;
 }
 
 TensorProblem &

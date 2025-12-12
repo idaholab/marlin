@@ -150,7 +150,9 @@ ParsedCompute::ParsedCompute(const InputParameters & parameters)
     // Add tensor variable parameters
     for (const auto dim : make_range(3u))
     {
-      _params.push_back(&_domain.getAxis(dim));
+      auto & axis = _domain.getAxis(dim);
+      _axis_params[dim] = &axis;
+      _params.push_back(_axis_params[dim]);
       _params.push_back(&_domain.getReciprocalAxis(dim));
     }
     _params.push_back(&_domain.getKSquare());
@@ -184,6 +186,32 @@ ParsedCompute::computeBuffer()
   if (_extra_symbols)
     _time_tensor = torch::tensor(_time, MooseTensor::floatTensorOptions());
 
+  // Pad coordinate tensors with ghosts in real-space mode so expressions involving x,y,z
+  // produce fully padded outputs.
+  if (_extra_symbols && _domain.isRealSpaceMode())
+  {
+    const auto g = _tensor_problem.getMaxGhostLayer();
+    for (const auto d : make_range(_dim))
+    {
+      if (g == 0)
+      {
+        _params[2 * d] = _axis_params[d];
+        continue;
+      }
+
+      const auto & axis = *_axis_params[d];
+      using torch::indexing::Slice;
+      std::vector<torch::indexing::TensorIndex> lower_idx(axis.dim(), Slice());
+      std::vector<torch::indexing::TensorIndex> upper_idx(axis.dim(), Slice());
+      lower_idx[d] = Slice(0, g);
+      upper_idx[d] = Slice(axis.size(d) - g, axis.size(d));
+      auto lower = axis.index(lower_idx);
+      auto upper = axis.index(upper_idx);
+      _axis_padded[d] = torch::cat({lower, axis, upper}, d);
+      _params[2 * d] = &_axis_padded[d];
+    }
+  }
+
   // Evaluate using JIT-compiled graph
   _u = _parser.eval(_params);
 
@@ -191,17 +219,53 @@ ParsedCompute::computeBuffer()
     _u = _u.to(MooseTensor::intTensorOptions());
 
   // optionally expand the tensor
-  switch (_expand)
+  if (!_domain.isRealSpaceMode())
   {
-    case ExpandEnum::REAL:
-      _u = _u.expand(_domain.getShape());
-      break;
+    switch (_expand)
+    {
+      case ExpandEnum::REAL:
+        _u = _u.expand(_domain.getShape());
+        break;
 
-    case ExpandEnum::RECIPROCAL:
-      _u = _u.expand(_domain.getReciprocalShape());
-      break;
+      case ExpandEnum::RECIPROCAL:
+        _u = _u.expand(_domain.getReciprocalShape());
+        break;
 
-    case ExpandEnum::NONE:
-      break;
+      case ExpandEnum::NONE:
+        break;
+    }
   }
+
+  // In real-space mode, pad tensors with ghost layers so all buffers share the same shape
+  if (_domain.isRealSpaceMode())
+  {
+    const auto desired = _tensor_problem.getLocalTensorShape({});
+    const auto cur_sizes = _u.sizes();
+    if (static_cast<std::size_t>(_dim) > cur_sizes.size())
+      mooseError("ParsedCompute produced fewer spatial dims than expected.");
+
+    std::vector<int64_t> pad;
+    pad.reserve(_dim * 2);
+    bool needs_pad = false;
+    for (int d = static_cast<int>(_dim) - 1; d >= 0; --d)
+    {
+      const auto cur = cur_sizes[d];
+      const auto target = desired[d];
+      if (target < cur)
+        mooseError("ParsedCompute output larger than target shape along dim ", d);
+      const auto p = (target - cur) / 2;
+      if (p > 0)
+        needs_pad = true;
+      pad.push_back(p);
+      pad.push_back(p);
+    }
+    if (needs_pad)
+      _u = torch::constant_pad_nd(_u, pad, 0.0);
+  }
+}
+
+void
+ParsedCompute::realSpaceComputeBuffer()
+{
+  computeBuffer();
 }
