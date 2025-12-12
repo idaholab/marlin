@@ -21,20 +21,20 @@ TensorIntegralPostprocessor::validParams()
 }
 
 TensorIntegralPostprocessor::TensorIntegralPostprocessor(const InputParameters & parameters)
-  : TensorPostprocessor(parameters)
+  : TensorAveragePostprocessor(parameters)
 {
 }
 
 void
-TensorIntegralPostprocessor::execute()
+TensorIntegralPostprocessor::finalize()
 {
-  _integral = _u.sum().cpu().item<double>();
-
-  const auto s = _domain.getDomainMax() - _domain.getDomainMin();
+  TensorAveragePostprocessor::finalize();
+  const auto size = _domain.getDomainMax() - _domain.getDomainMin();
+  Real volume = 1.0;
   for (const auto dim : make_range(_domain.getDim()))
-    _integral *= s(dim);
+    volume *= size(dim);
 
-  _integral /= _u.numel();
+  _integral = _average * volume;
 }
 
 PostprocessorValue

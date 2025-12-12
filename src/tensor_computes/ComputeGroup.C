@@ -47,7 +47,7 @@ ComputeGroup::init()
 }
 
 void
-ComputeGroup::computeBuffer()
+ComputeGroup::computeBufferInternal(bool ghost_exchange)
 {
   // Use JIT executor if enabled and available
   if (_jit_enabled && _jit_executor)
@@ -61,8 +61,6 @@ ComputeGroup::computeBuffer()
   for (const auto i : index_range(_computes))
   {
     if (_domain.debug())
-    {
-      mooseInfoRepeated("check tensors");
       for (const auto & [tensor, buffer_name, compute_name] : _checked_tensors[i])
         if (!tensor->defined())
           mooseError("The tensor '",
@@ -70,12 +68,14 @@ ComputeGroup::computeBuffer()
                      "' requested by '",
                      compute_name,
                      "' is not defined yet. Initialize it first.");
-    }
 
     const auto & cmp = _computes[i];
     try
     {
-      cmp->computeBuffer();
+      if (ghost_exchange)
+        cmp->realSpaceComputeBuffer();
+      else
+        cmp->computeBuffer();
     }
     catch (const std::exception & e)
     {
@@ -84,6 +84,18 @@ ComputeGroup::computeBuffer()
   }
 
   _compute_count++;
+}
+
+void
+ComputeGroup::computeBuffer()
+{
+  computeBufferInternal(/* ghost_exchange = */ false);
+}
+
+void
+ComputeGroup::realSpaceComputeBuffer()
+{
+  computeBufferInternal(/* ghost_exchange = */ true);
 }
 
 void

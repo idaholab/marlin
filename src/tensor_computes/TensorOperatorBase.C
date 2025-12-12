@@ -57,3 +57,9 @@ TensorOperatorBase::usesParallelFFT() const
 {
   return _domain.isParallelFFT();
 }
+
+void
+TensorOperatorBase::realSpaceComputeBuffer()
+{
+  mooseError("This compute does not support real space operations.");
+}

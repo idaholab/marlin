@@ -32,7 +32,6 @@ SecantSolver::validParams()
 SecantSolver::SecantSolver(const InputParameters & parameters)
   : SplitOperatorBase(parameters),
     IterativeTensorSolverInterface(),
-    _substeps(getParam<unsigned int>("substeps")),
     _max_iterations(getParam<unsigned int>("max_iterations")),
     _relative_tolerance(getParam<Real>("relative_tolerance")),
     _absolute_tolerance(getParam<Real>("absolute_tolerance")),
@@ -50,17 +49,9 @@ SecantSolver::SecantSolver(const InputParameters & parameters)
 }
 
 void
-SecantSolver::computeBuffer()
-{
-  for (_substep = 0; _substep < _substeps; ++_substep)
-    secantSolve();
-}
-
-void
-SecantSolver::secantSolve()
+SecantSolver::substep()
 {
   const auto n = _variables.size();
-  const auto dt = _dt / _substeps;
   std::vector<torch::Tensor> u_old(n);
   std::vector<torch::Tensor> Rprev(n);
   std::vector<torch::Tensor> uprev(n);
@@ -81,9 +72,9 @@ SecantSolver::secantSolve()
     const auto * L = _variables[i]._linear_reciprocal;
 
     if (L)
-      Rprev[i] = (N + *L * u) * dt; // u = u_old at this point!
+      Rprev[i] = (N + *L * u) * _sub_dt; // u = u_old at this point!
     else
-      Rprev[i] = N * dt; // u = u_old at this point!
+      Rprev[i] = N * _sub_dt; // u = u_old at this point!
     uprev[i] = u;
 
     R0norm[i] = torch::norm(Rprev[i]).item<double>();
@@ -133,9 +124,9 @@ SecantSolver::secantSolve()
 
       // residual in reciprocal space
       if (L)
-        R = (N + *L * u) * dt + u_old[i] - u;
+        R = (N + *L * u) * _sub_dt + u_old[i] - u;
       else
-        R = N * dt + u_old[i] - u;
+        R = N * _sub_dt + u_old[i] - u;
 
       // avoid NaN
       const auto dx = u - uprev[i];

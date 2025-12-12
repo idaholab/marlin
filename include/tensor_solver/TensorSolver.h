@@ -21,6 +21,8 @@ public:
 
   TensorSolver(const InputParameters & parameters);
 
+  virtual void computeBuffer() override;
+
   virtual void updateDependencies() override final;
 
   /// Solvers have iterative algorithms with data-dependent control flow
@@ -35,6 +37,20 @@ protected:
   void gatherDependencies();
   void forwardBuffers();
 
+  /// perform the actual solver substep
+  virtual void substep() = 0;
+
+  /// Number of substeps per time step
+  const unsigned int _substeps;
+
+  /// current substep number
+  unsigned int _substep;
+
+  /// references to the substep dt/time managed by the TensorProblem
+  Real & _sub_dt;
+  Real & _sub_time;
+
+  /// MOOSE timestep
   const Real & _dt;
   const Real & _dt_old;
 

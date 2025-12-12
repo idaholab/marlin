@@ -29,8 +29,18 @@ TensorExtremeValuePostprocessor::TensorExtremeValuePostprocessor(const InputPara
 void
 TensorExtremeValuePostprocessor::execute()
 {
-  _value = _value_type == ValueType::MIN ? torch::min(_u).cpu().item<double>()
-                                         : torch::max(_u).cpu().item<double>();
+  const auto owned = _buffer_base.ownedView();
+  _value = _value_type == ValueType::MIN ? torch::min(owned).cpu().item<double>()
+                                         : torch::max(owned).cpu().item<double>();
+}
+
+void
+TensorExtremeValuePostprocessor::finalize()
+{
+  if (_value_type == ValueType::MIN)
+    gatherMin(_value);
+  else
+    gatherMax(_value);
 }
 
 PostprocessorValue

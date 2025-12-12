@@ -15,9 +15,11 @@
 #include "MarlinConstantInterface.h"
 #include "TraceableUtils.h"
 
+#include <map>
 #include <torch/torch.h>
 
 class DomainAction;
+class TensorBufferBase;
 
 /**
  * TensorOperatorBase object
@@ -40,6 +42,9 @@ public:
   /// perform the computation
   virtual void computeBuffer() = 0;
 
+  /// perform the computation in real space
+  virtual void realSpaceComputeBuffer();
+
   /// called  after all objects have been constructed (before dependency resolution)
   virtual void init() {}
 
@@ -57,7 +62,7 @@ public:
   /// - Use FFT operations in parallel mode (MPI communication is not traceable)
   virtual bool supportsJIT() const { return true; }
 
-protected:
+public:
   /// Helper for computes that use FFT: returns true if FFT requires MPI (not JIT-traceable)
   bool usesParallelFFT() const;
 
@@ -81,10 +86,11 @@ protected:
     return TraceableUtils::extractTraceableSizes(tensor, ndim);
   }
   template <typename T = torch::Tensor>
-  const T & getInputBuffer(const std::string & param);
+  const T & getInputBuffer(const std::string & param, unsigned int ghost_layers = 0);
 
   template <typename T = torch::Tensor>
-  const T & getInputBufferByName(const TensorInputBufferName & buffer_name);
+  const T & getInputBufferByName(const TensorInputBufferName & buffer_name,
+                                 unsigned int ghost_layers = 0);
 
   template <typename T = torch::Tensor>
   T & getOutputBuffer(const std::string & param);
@@ -93,9 +99,16 @@ protected:
   T & getOutputBufferByName(const TensorOutputBufferName & buffer_name);
 
   TensorOperatorBase & getCompute(const std::string & param_name);
+  TensorBufferBase & getBufferBase(const TensorInputBufferName & buffer_name);
+
+  const std::map<std::string, unsigned int> & getInputGhostLayers() const
+  {
+    return _input_buffer_ghost_layers;
+  }
 
   std::set<std::string> _requested_buffers;
   std::set<std::string> _supplied_buffers;
+  std::map<std::string, unsigned int> _input_buffer_ghost_layers;
 
   TensorProblem & _tensor_problem;
   const DomainAction & _domain;
@@ -118,17 +131,21 @@ protected:
 
 template <typename T>
 const T &
-TensorOperatorBase::getInputBuffer(const std::string & param)
+TensorOperatorBase::getInputBuffer(const std::string & param, unsigned int ghost_layers)
 {
-  return getInputBufferByName<T>(getParam<TensorInputBufferName>(param));
+  return getInputBufferByName<T>(getParam<TensorInputBufferName>(param), ghost_layers);
 }
 
 template <typename T>
 const T &
-TensorOperatorBase::getInputBufferByName(const TensorInputBufferName & buffer_name)
+TensorOperatorBase::getInputBufferByName(const TensorInputBufferName & buffer_name,
+                                         unsigned int ghost_layers)
 {
   _requested_buffers.insert(buffer_name);
-  return _tensor_problem.getBuffer<T>(buffer_name);
+  _input_buffer_ghost_layers[buffer_name] =
+      std::max(_input_buffer_ghost_layers[buffer_name], ghost_layers);
+  _tensor_problem.registerGhostLayerRequest(buffer_name, ghost_layers);
+  return _tensor_problem.getBuffer<T>(buffer_name, ghost_layers);
 }
 
 template <typename T>
@@ -144,4 +161,11 @@ TensorOperatorBase::getOutputBufferByName(const TensorOutputBufferName & buffer_
 {
   _supplied_buffers.insert(buffer_name);
   return _tensor_problem.getBuffer<T>(buffer_name);
+}
+
+inline TensorBufferBase &
+TensorOperatorBase::getBufferBase(const TensorInputBufferName & buffer_name)
+{
+  _requested_buffers.insert(buffer_name);
+  return _tensor_problem.getBufferBase(buffer_name);
 }

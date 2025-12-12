@@ -1,0 +1,50 @@
+[Tests]
+  [laplacian]
+    issues = '#122'
+    design = FiniteDifferenceLaplacian.md
+    requirement = 'The system shall be able to compute a Laplacian in real space '
+    [2d_3x3]
+      type = CSVDiff
+      input = laplacian.i
+      csvdiff = laplacian_out.csv
+      compute_devices = 'cpu cuda mps'
+      detail = 'using a 3x3 stencil.'
+    []
+    [2d_5x5]
+      type = CSVDiff
+      input = laplacian.i
+      csvdiff = laplacian_5pt_out.csv
+      cli_args = 'TensorComputes/Solve/lap_compute/stencil_width=5 Outputs/file_base=laplacian_5pt_out'
+      compute_devices = 'cpu cuda mps'
+      detail = 'using a 5x5 stencil.'
+    []
+    [3d_3x3]
+      type = CSVDiff
+      input = laplacian3d.i
+      csvdiff = laplacian3d_out.csv
+      compute_devices = 'cpu cuda mps'
+      detail = 'using a 3x3x3 stencil.'
+    []
+    [3d_5x5]
+      type = CSVDiff
+      input = laplacian3d.i
+      csvdiff = laplacian3d_5pt_out.csv
+      cli_args = 'TensorComputes/Solve/lap_compute/stencil_width=5 Outputs/file_base=laplacian3d_5pt_out'
+      compute_devices = 'cpu cuda mps'
+      detail = 'using a 3x3x3 stencil.'
+    []
+  []
+
+  [diffusion]
+    issues = '#122'
+    design = FiniteDifferenceLaplacian.md
+    requirement = 'The system shall be able to solve a transient diffusion problem in real space '
+    [2d_3x3]
+      type = CSVDiff
+      input = diffusion.i
+      csvdiff = diffusion_out.csv
+      compute_devices = 'cpu cuda mps'
+      detail = 'using a 3x3 stencil.'
+    []
+  []
+[]

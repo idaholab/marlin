@@ -14,13 +14,16 @@ InputParameters
 TensorSolver::validParams()
 {
   InputParameters params = TensorOperatorBase::validParams();
+  params.addClassDescription("TensorSolver object.");
   params.registerBase("TensorSolver");
+
   params.addParam<TensorComputeName>(
       "root_compute",
       "Primary compute object that updates the buffers. This is usually a "
       "ComputeGroup object. A ComputeGroup encompassing all computes will be generated "
       "automatically if the user does not provide this parameter.");
-  params.addClassDescription("TensorSolver object.");
+
+  params.addParam<unsigned int>("substeps", 1, "Solver substeps per time step.");
 
   params.addParam<std::vector<TensorOutputBufferName>>(
       "forward_buffer",
@@ -34,7 +37,15 @@ TensorSolver::validParams()
 }
 
 TensorSolver::TensorSolver(const InputParameters & parameters)
-  : TensorOperatorBase(parameters), _dt(_tensor_problem.dt()), _dt_old(_tensor_problem.dtOld())
+  : TensorOperatorBase(parameters),
+    _substeps(getParam<unsigned int>("substeps")),
+    // it is the derived solver's responsibility to update the _sub_dt and _sub_time (we can
+    // probably come up with a better design here)
+    // TODO: LBM doesn't need those :-/ - need a base class :-D
+    _sub_dt(_tensor_problem.subDt()),
+    _sub_time(_tensor_problem.subTime()),
+    _dt(_tensor_problem.dt()),
+    _dt_old(_tensor_problem.dtOld())
 {
   const auto & forward_buffer_names = getParam<TensorOutputBufferName, TensorOutputBufferName>(
       "forward_buffer", "forward_buffer_new");
@@ -76,4 +87,24 @@ TensorSolver::forwardBuffers()
 {
   for (const auto & [forward_buffer, forward_buffer_new] : _forwarded_buffers)
     forward_buffer = forward_buffer_new;
+}
+
+void
+TensorSolver::computeBuffer()
+{
+  _sub_time = _time;
+  _sub_dt = _dt / _substeps;
+
+  for (_substep = 0; _substep < _substeps; _substep++)
+  {
+    // perform the actual sub timestep
+    substep();
+
+    // we skip the advanceState on the last substep because MOOSE will call that automatically
+    if (_substep < _substeps - 1)
+      _tensor_problem.advanceState();
+
+    // increment substep time
+    _sub_time += _sub_dt;
+  }
 }

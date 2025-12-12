@@ -20,11 +20,13 @@ public:
 
   TensorAveragePostprocessor(const InputParameters & parameters);
 
-  virtual void initialize() override {}
+  virtual void initialize() override;
   virtual void execute() override;
-  virtual void finalize() override {}
+  virtual void finalize() override;
   virtual PostprocessorValue getValue() const override;
 
 protected:
+  Real _sum;
+  int64_t _numel;
   Real _average;
 };

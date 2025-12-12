@@ -23,15 +23,24 @@ TensorIntegralChangePostprocessor::validParams()
   return params;
 }
 
-TensorIntegralChangePostprocessor::TensorIntegralChangePostprocessor(const InputParameters & parameters)
-  : TensorPostprocessor(parameters), _u_old(_tensor_problem.getBufferOld(getParam<TensorInputBufferName>("buffer"), 1))
+TensorIntegralChangePostprocessor::TensorIntegralChangePostprocessor(
+    const InputParameters & parameters)
+  : TensorPostprocessor(parameters),
+    _u_old(_tensor_problem.getBufferOld(getParam<TensorInputBufferName>("buffer"), 1))
 {
+}
+
+void
+TensorIntegralChangePostprocessor::initialSetup()
+{
+  if (_communicator.size() > 1 && _tensor_problem.getMaxGhostLayer() > 0)
+    mooseError("TensorIntegralChangePostprocessor does not yet work with ghost layer exhanges. "
+               "(need to implement ownedView() for old tensors)");
 }
 
 void
 TensorIntegralChangePostprocessor::execute()
 {
-  {
   if (!_u_old.empty())
     _integral = torch::abs(_u - _u_old[0]).sum().cpu().item<double>();
   else
@@ -39,7 +48,6 @@ TensorIntegralChangePostprocessor::execute()
 
   for (const auto dim : make_range(_domain.getDim()))
     _integral *= _domain.getGridSpacing()(dim);
-  }
 }
 
 PostprocessorValue

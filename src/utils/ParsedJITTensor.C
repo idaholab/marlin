@@ -9,6 +9,8 @@
 #include "ParsedJITTensor.h"
 #include "MarlinUtils.h"
 
+#include <torch/csrc/jit/passes/peephole.h>
+#include <torch/csrc/jit/passes/canonicalize.h>
 #include <torch/csrc/jit/passes/constant_propagation.h>
 #include <torch/csrc/jit/passes/dead_code_elimination.h>
 #include <torch/csrc/jit/passes/common_subexpression_elimination.h>
@@ -97,9 +99,11 @@ ParsedJITTensor::compile()
   _graph->lint();
 
   // Apply torch optimizations
-  torch::jit::EliminateDeadCode(_graph);
   torch::jit::ConstantPropagation(_graph);
+  torch::jit::PeepholeOptimize(_graph);
+  torch::jit::EliminateDeadCode(_graph);
   torch::jit::EliminateCommonSubexpression(_graph);
+  torch::jit::Canonicalize(_graph);
   torch::jit::FuseGraph(_graph, true);
 
   // Create executor

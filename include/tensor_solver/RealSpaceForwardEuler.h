@@ -1,4 +1,3 @@
-/**********************************************************************/
 /*                     DO NOT MODIFY THIS HEADER                      */
 /*            Marlin, a Fourier spectral solver for MOOSE             */
 /*                                                                    */
@@ -8,19 +7,26 @@
 
 #pragma once
 
-#include "ExplicitSolverBase.h"
-#include "SplitOperatorBase.h"
+#include "TensorSolver.h"
 
 /**
- * ForwardEulerSolver object
+ * Simple forward Euler integrator for real space finite difference solves
  */
-class ForwardEulerSolver : public ExplicitSolverBase
+class RealSpaceForwardEuler : public TensorSolver
 {
 public:
   static InputParameters validParams();
 
-  ForwardEulerSolver(const InputParameters & parameters);
+  RealSpaceForwardEuler(const InputParameters & parameters);
 
 protected:
-  virtual void substep() override;
+  struct Variable
+  {
+    torch::Tensor & _buffer;
+    const torch::Tensor & _time_derivative;
+  };
+
+  virtual void substep();
+
+  std::vector<Variable> _variables;
 };

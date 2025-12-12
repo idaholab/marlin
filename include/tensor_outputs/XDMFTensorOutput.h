@@ -28,6 +28,7 @@ public:
   ~XDMFTensorOutput();
 
   virtual void init() override;
+  virtual void prepareForOutput() override;
 
 protected:
   virtual void output() override;
@@ -81,6 +82,7 @@ private:
   std::vector<std::size_t> _nnode;
   std::string _node_grid;
   std::string _geometry_type;
+  std::vector<std::pair<std::array<int64_t, 3>, std::array<int64_t, 3>>> _cached_local_bounds;
 
   /// xml document references (root rank only in parallel)
   pugi::xml_document _doc;
