@@ -22,6 +22,7 @@ namespace
 {
 
 using torch::indexing::Slice;
+using torch::indexing::TensorIndex;
 
 std::vector<std::array<int, 3>> neighborOffsets(int spatial_dim, int connectivity)
 {
@@ -37,7 +38,7 @@ std::vector<std::array<int, 3>> neighborOffsets(int spatial_dim, int connectivit
           continue;
         if (connectivity == 4 && std::abs(dx) + std::abs(dy) != 1)
           continue;
-        offsets.push_back({0, dy, dx});
+        offsets.push_back({dy, dx, 0});
       }
     return offsets;
   }
@@ -92,13 +93,16 @@ void applyNeighborMin(torch::Tensor & dest,
     }
   }
 
-  const auto center_prev = src.index(dst_idx);
-  const auto neighbor_prev = src.index(src_idx);
+  std::vector<TensorIndex> dst_ti(dst_idx.begin(), dst_idx.end());
+  std::vector<TensorIndex> src_ti(src_idx.begin(), src_idx.end());
+
+  const auto center_prev = src.index(dst_ti);
+  const auto neighbor_prev = src.index(src_ti);
   const auto better = torch::where((neighbor_prev > 0) & (neighbor_prev < center_prev),
                                    neighbor_prev,
                                    center_prev);
-  auto dest_slice = dest.index(dst_idx);
-  dest.index_put_(dst_idx, torch::min(dest_slice, better));
+  auto dest_slice = dest.index(dst_ti);
+  dest.index_put_(dst_ti, torch::min(dest_slice, better));
 }
 
 std::array<int64_t, 3> clampBBoxMin(const std::array<int64_t, 3> & bbox, int halo, int spatial_dim)
@@ -181,7 +185,7 @@ computeColorMasks(const torch::Tensor & eta, double threshold)
 
   const int64_t n_colors = eta.size(-1);
   // trailing color dimension, spatial dimensions leading
-  const auto max_result = eta.max(-1, true);
+  const auto max_result = eta.max(-1);
   const torch::Tensor max_vals = std::get<0>(max_result);
   const torch::Tensor argmax = std::get<1>(max_result);
 
@@ -189,14 +193,14 @@ computeColorMasks(const torch::Tensor & eta, double threshold)
   masks.reserve(n_colors);
   for (int64_t c = 0; c < n_colors; ++c)
   {
-    auto mask = (argmax == c) & (eta.select(-1, c) > threshold) & (max_vals.squeeze(-1) > threshold);
+    auto mask = (argmax == c) & (eta.select(-1, c) > threshold) & (max_vals > threshold);
     masks.push_back(mask);
   }
   return masks;
 }
 
-torch::Tensor
-labelConnectedComponents(const torch::Tensor & mask, const GrainRemapOptions & options)
+std::pair<torch::Tensor, torch::Tensor>
+labelConnectedComponentsWithRaw(const torch::Tensor & mask, const GrainRemapOptions & options)
 {
   if (!mask.defined())
     mooseError("Mask tensor is undefined.");
@@ -220,19 +224,25 @@ labelConnectedComponents(const torch::Tensor & mask, const GrainRemapOptions & o
   }
 
   if (labels.numel() == 0)
-    return labels;
+    return {labels, labels};
 
   const auto max_label = labels.max().item<int64_t>();
   if (max_label == 0)
-    return torch::full_like(labels, -1);
+    return {labels, torch::full_like(labels, -1)};
 
-  auto unique = torch::unique(labels.view({-1}));
+  const bool device_needs_cpu_unique = labels.is_mps();
+  auto labels_flat = labels.view({-1});
+  auto unique_tuple = torch::_unique(
+      device_needs_cpu_unique ? labels_flat.to(torch::Device(torch::kCPU)) : labels_flat,
+      /*sorted=*/true,
+      /*return_inverse=*/false);
+  auto unique = std::get<0>(unique_tuple);
   unique = unique.masked_select(unique > 0);
   if (unique.numel() == 0)
-    return torch::full_like(labels, -1);
+    return {labels, torch::full_like(labels, -1)};
 
   auto map_cpu = torch::full({max_label + 1}, -1, labels.options().device(torch::kCPU));
-  const auto unique_cpu = unique.to(torch::kCPU());
+  const auto unique_cpu = unique.to(torch::Device(torch::kCPU));
   auto map_acc = map_cpu.accessor<int64_t, 1>();
   const auto * unique_ptr = unique_cpu.data_ptr<int64_t>();
   for (int64_t i = 0; i < unique_cpu.numel(); ++i)
@@ -241,7 +251,147 @@ labelConnectedComponents(const torch::Tensor & mask, const GrainRemapOptions & o
 
   auto mapped =
       torch::where(labels > 0, map_device.index({labels}), torch::full_like(labels, -1, labels.options()));
-  return mapped;
+  return {labels, mapped};
+}
+
+torch::Tensor
+labelConnectedComponents(const torch::Tensor & mask, const GrainRemapOptions & options)
+{
+  return labelConnectedComponentsWithRaw(mask, options).second;
+}
+
+torch::Tensor
+combineRawLabelsAcrossColors(const std::vector<torch::Tensor> & raw_labels)
+{
+  if (raw_labels.empty())
+    return torch::Tensor();
+
+  const auto & ref = raw_labels.front();
+  if (!ref.defined())
+    mooseError("First raw label tensor is undefined.");
+  const auto shape = ref.sizes();
+
+  torch::Tensor result = torch::zeros(shape, ref.options().dtype(torch::kInt64));
+  int64_t offset = 0;
+  for (const auto & lbl : raw_labels)
+  {
+    if (!lbl.defined())
+      continue;
+    if (!lbl.sizes().equals(shape))
+      mooseError("All raw label tensors must have identical shapes.");
+
+    auto lbl_i64 = lbl.to(result.options());
+    const int64_t max_lbl = lbl_i64.numel() ? lbl_i64.max().item<int64_t>() : 0;
+    if (max_lbl <= 0)
+      continue;
+    result = torch::where(lbl_i64 > 0, lbl_i64 + offset, result);
+    offset += max_lbl;
+  }
+  return result;
+}
+
+torch::Tensor
+dilateMask(const torch::Tensor & mask, int halo_width)
+{
+  if (!mask.defined())
+    mooseError("Mask tensor is undefined.");
+  if (halo_width <= 0)
+    return mask.to(torch::kBool);
+
+  const int spatial_dim = static_cast<int>(mask.dim());
+  if (spatial_dim != 2 && spatial_dim != 3)
+    mooseError("Mask must be 2D or 3D for dilation.");
+
+  auto base = mask.to(torch::kBool);
+  auto result = base.clone();
+
+  if (spatial_dim == 2)
+  {
+    for (int dy = -halo_width; dy <= halo_width; ++dy)
+      for (int dx = -halo_width; dx <= halo_width; ++dx)
+      {
+        if (dy == 0 && dx == 0)
+          continue;
+
+        std::vector<Slice> dst_idx;
+        std::vector<Slice> src_idx;
+        dst_idx.reserve(2);
+        src_idx.reserve(2);
+
+        const int shifts[2] = {dy, dx};
+        for (int d = 0; d < 2; ++d)
+        {
+          const int shift = shifts[d];
+          const int64_t size = base.size(d);
+          if (shift < 0)
+          {
+            dst_idx.emplace_back(-shift, size);
+            src_idx.emplace_back(0, size + shift);
+          }
+          else if (shift > 0)
+          {
+            dst_idx.emplace_back(0, size - shift);
+            src_idx.emplace_back(shift, size);
+          }
+          else
+          {
+            dst_idx.emplace_back();
+            src_idx.emplace_back();
+          }
+        }
+
+        std::vector<TensorIndex> dst_ti(dst_idx.begin(), dst_idx.end());
+        std::vector<TensorIndex> src_ti(src_idx.begin(), src_idx.end());
+        auto dst_view = result.index(dst_ti);
+        auto src_view = base.index(src_ti);
+        result.index_put_(dst_ti, dst_view | src_view);
+      }
+  }
+  else
+  {
+    for (int dz = -halo_width; dz <= halo_width; ++dz)
+      for (int dy = -halo_width; dy <= halo_width; ++dy)
+        for (int dx = -halo_width; dx <= halo_width; ++dx)
+        {
+          if (dz == 0 && dy == 0 && dx == 0)
+            continue;
+
+          std::vector<Slice> dst_idx;
+          std::vector<Slice> src_idx;
+          dst_idx.reserve(3);
+          src_idx.reserve(3);
+
+          const int shifts[3] = {dz, dy, dx};
+          for (int d = 0; d < 3; ++d)
+          {
+            const int shift = shifts[d];
+            const int64_t size = base.size(d);
+            if (shift < 0)
+            {
+              dst_idx.emplace_back(-shift, size);
+              src_idx.emplace_back(0, size + shift);
+            }
+            else if (shift > 0)
+            {
+              dst_idx.emplace_back(0, size - shift);
+              src_idx.emplace_back(shift, size);
+            }
+            else
+            {
+              dst_idx.emplace_back();
+              src_idx.emplace_back();
+            }
+          }
+
+          std::vector<TensorIndex> dst_ti(dst_idx.begin(), dst_idx.end());
+          std::vector<TensorIndex> src_ti(src_idx.begin(), src_idx.end());
+          auto dst_view = result.index(dst_ti);
+          auto src_view = base.index(src_ti);
+          result.index_put_(dst_ti, dst_view | src_view);
+        }
+  }
+
+  return result;
 }
 
 std::vector<ComponentMeta>
@@ -253,7 +403,7 @@ computeComponentMetadata(const torch::Tensor & labels, int color, int halo_width
   if (spatial_dim != 2 && spatial_dim != 3)
     mooseError("Labels tensor must be 2D or 3D.");
 
-  const auto labels_cpu = labels.to(torch::kCPU());
+  const auto labels_cpu = labels.to(torch::Device(torch::kCPU));
   const auto shape = labels_cpu.sizes();
   const int64_t nx = spatial_dim == 3 ? shape[2] : shape[1];
   const int64_t ny = spatial_dim == 3 ? shape[1] : shape[0];
@@ -621,8 +771,8 @@ remapOrderParameters(torch::Tensor & eta,
     return;
 
   auto gid_rows = gid_flat.index({rows});
-  auto co = old_colors.index({gid_rows});
-  auto cn = new_colors.index({gid_rows});
+  auto co = old_colors.to(gid_flat.device()).index({gid_rows});
+  auto cn = new_colors.to(gid_flat.device()).index({gid_rows});
   auto valid =
       (co >= 0) & (cn >= 0) & (co < n_colors) & (cn < n_colors);
   rows = rows.index({valid});
