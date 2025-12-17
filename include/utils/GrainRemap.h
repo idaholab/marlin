@@ -95,8 +95,20 @@ private:
 std::vector<torch::Tensor> computeColorMasks(const torch::Tensor & eta, double threshold);
 
 /// Label connected components on GPU using iterative neighbor minima.
+/// Returns compressed labels (-1 background) by default.
 torch::Tensor labelConnectedComponents(const torch::Tensor & mask,
                                        const GrainRemapOptions & options);
+
+/// Variant that also returns the raw (non-contiguous) labels after propagation.
+/// Pair: (raw_labels_with_zero_background, compressed_labels_with_minus_one_background).
+std::pair<torch::Tensor, torch::Tensor>
+labelConnectedComponentsWithRaw(const torch::Tensor & mask, const GrainRemapOptions & options);
+
+/// Combine raw per-color labels into a single tensor with globally unique ids (background zero).
+torch::Tensor combineRawLabelsAcrossColors(const std::vector<torch::Tensor> & raw_labels);
+
+/// Dilate a binary mask by halo_width cells (2D or 3D). Keeps domain size (no wrap).
+torch::Tensor dilateMask(const torch::Tensor & mask, int halo_width);
 
 /// Compute per-component metadata (volume, bbox, centroid, halos) on host.
 std::vector<ComponentMeta> computeComponentMetadata(const torch::Tensor & labels,
