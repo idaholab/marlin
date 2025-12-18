@@ -144,11 +144,15 @@ DomainAction::DomainAction(const InputParameters & parameters)
         paramError("periodic_directions",
                    "Domain must be periodic in all directions with `parallel_mode = REAL_SPACE`.");
 
+  auto marlin_app = dynamic_cast<MarlinApp *>(&_app);
   if (_n_rank == 1)
   {
     // set local weights and ranks for serial
     _local_ranks = {0};
     _local_weights = {1};
+
+    if (_device_names.size() || !marlin_app->parameters().isParamSetByUser("compute_device"))
+      marlin_app->setTorchDevice(_device_names[0], {});
   }
   else
   {
@@ -188,33 +192,32 @@ DomainAction::DomainAction(const InputParameters & parameters)
     //   std::cout << host_names[i] << '\t' << _local_ranks[i] << '\n';
 
     // pick a compute device for a list of available devices
-    auto marlin_app = dynamic_cast<MarlinApp *>(&_app);
     if (!marlin_app)
       mooseError("This action requires a MarlinApp object to be present.");
     if (_device_names.size())
       marlin_app->setTorchDevice(_device_names[_local_ranks[_rank] % _device_names.size()], {});
-
-    switch (_floating_precision)
-    {
-      case FloatingPrecision::DEVICE_DEFAULT:
-      {
-        marlin_app->setTorchPrecision("DEVICE_DEFAULT", {});
-        break;
-      }
-      case FloatingPrecision::DOUBLE:
-      {
-        marlin_app->setTorchPrecision("DOUBLE", {});
-        break;
-      }
-      case FloatingPrecision::SINGLE:
-      {
-        marlin_app->setTorchPrecision("SINGLE", {});
-        break;
-      }
-      default:
-        mooseError("Invalid floating precision.");
-    };
   }
+
+  switch (_floating_precision)
+  {
+    case FloatingPrecision::DEVICE_DEFAULT:
+    {
+      marlin_app->setTorchPrecision("DEVICE_DEFAULT", {});
+      break;
+    }
+    case FloatingPrecision::DOUBLE:
+    {
+      marlin_app->setTorchPrecision("DOUBLE", {});
+      break;
+    }
+    case FloatingPrecision::SINGLE:
+    {
+      marlin_app->setTorchPrecision("SINGLE", {});
+      break;
+    }
+    default:
+      mooseError("Invalid floating precision.");
+  };
 
   // domain partitioning
   gridChanged();
