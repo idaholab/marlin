@@ -13,6 +13,6 @@ MarlinInit::MarlinInit(int argc, char * argv[], MPI_Comm COMM_WORLD_IN)
   : MooseInit(argc, argv, COMM_WORLD_IN)
 {
   for (const auto i : make_range(argc - 1))
-    if (std::string(argv[i]) == "--libtorch-device")
+    if (std::string(argv[i]) == "--compute-device")
       MarlinApp::setTorchDeviceStatic(argv[i + 1], {});
 }
