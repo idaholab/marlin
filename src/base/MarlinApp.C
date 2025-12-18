@@ -65,8 +65,9 @@ MarlinApp::validParams()
 MarlinApp::MarlinApp(const InputParameters & parameters) : MooseApp(parameters)
 {
   MarlinApp::registerAll(_factory, _action_factory, _syntax);
-  MooseTensor::marlin_global_settings._torch_device =
-      std::string(parameters.get<MooseEnum>("compute_device"));
+  if (isParamSetByUser("compute_device"))
+    MooseTensor::marlin_global_settings._torch_device =
+        std::string(parameters.get<MooseEnum>("compute_device"));
 }
 
 MarlinApp::~MarlinApp() {}
