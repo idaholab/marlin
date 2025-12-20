@@ -225,6 +225,48 @@ TEST(GrainRemap, largeLabelDump2D)
   }
   std::cout << '\n';
 
+  // Build old/new color arrays sized to max label for remap
+  std::vector<int64_t> old_color_full(max_lbl + 1, -1);
+  std::vector<int64_t> new_color_full(max_lbl + 1, -1);
+  // Map original labels to their source color using per-color labels and offsets
+  for (size_t c = 0; c < compact_labels_vec.size(); ++c)
+  {
+    const auto & lbl = compact_labels_vec[c];
+    const int64_t offset = offsets[c];
+    auto uniq_local =
+        torch::_unique(lbl.masked_select(lbl >= 0), /*sorted=*/true, /*return_inverse=*/false);
+    auto uniq_local_vals = std::get<0>(uniq_local).to(torch::kCPU);
+    const auto * lp = uniq_local_vals.data_ptr<int64_t>();
+    for (int64_t i = 0; i < uniq_local_vals.numel(); ++i)
+      old_color_full[offset + lp[i]] = static_cast<int64_t>(c);
+  }
+  for (int64_t i = 0; i < n_lbl; ++i)
+    new_color_full[uniq_ptr[i]] = static_cast<int64_t>(colors_vec[i]);
+
+  auto old_colors_t =
+      torch::from_blob(old_color_full.data(), {max_lbl + 1}, torch::TensorOptions().dtype(torch::kInt64)).clone();
+  auto new_colors_t =
+      torch::from_blob(new_color_full.data(), {max_lbl + 1}, torch::TensorOptions().dtype(torch::kInt64)).clone();
+
+  // Construct a toy eta field: one-hot in the original color for each grain cell.
+  auto eta_before = torch::zeros({ny, nx, n_colors}, MooseTensor::floatTensorOptions());
+  auto eta_view = eta_before.view({-1, n_colors});
+  auto combined_flat = combined.view({-1});
+  auto old_color_flat = old_colors_t.index({combined_flat.clamp_min(0)});
+  auto valid = combined_flat >= 0;
+  auto rows = torch::arange(combined_flat.numel(), eta_view.options().dtype(torch::kInt64)).index({valid});
+  auto cols = old_color_flat.index({valid});
+  auto ones = torch::ones(rows.sizes(), eta_view.options());
+  eta_view.index_put_({rows, cols}, ones);
+
+  auto eta_after = eta_before.clone();
+  GrainRemap::remapOrderParameters(eta_after, combined, old_colors_t, new_colors_t);
+
+  auto sum_before = eta_before.to(torch::kCPU).sum(0).sum(0);
+  auto sum_after = eta_after.to(torch::kCPU).sum(0).sum(0);
+  std::cout << "eta_before per-color sums: " << sum_before << '\n';
+  std::cout << "eta_after  per-color sums: " << sum_after << '\n';
+
   const char * env_path = std::getenv("GRAIN_LABEL_DUMP_2D");
   const std::string out_path = env_path ? env_path : "grain_labels_raw_2d.pt";
   const std::string out_combined = env_path ? (out_path + ".combined.pt") : "grain_labels_combined_2d.pt";
@@ -233,6 +275,10 @@ TEST(GrainRemap, largeLabelDump2D)
   const std::string out_colors = env_path ? (out_path + ".colors.pt") : "grain_colors_2d.pt";
   const std::string out_color_grid =
       env_path ? (out_path + ".colors_grid.pt") : "grain_colors_grid_2d.pt";
+  const std::string out_eta_before =
+      env_path ? (out_path + ".eta_before.pt") : "grain_eta_before_2d.pt";
+  const std::string out_eta_after =
+      env_path ? (out_path + ".eta_after.pt") : "grain_eta_after_2d.pt";
   try
   {
     torch::save(stacked, out_path);
@@ -247,6 +293,10 @@ TEST(GrainRemap, largeLabelDump2D)
     std::cout << "Wrote PETSc-colored grain->op assignments to " << out_colors << '\n';
     torch::save(color_grid, out_color_grid);
     std::cout << "Wrote grain color grid to " << out_color_grid << '\n';
+    torch::save(eta_before.to(torch::kCPU), out_eta_before);
+    std::cout << "Wrote eta_before (original per-color fields) to " << out_eta_before << '\n';
+    torch::save(eta_after.to(torch::kCPU), out_eta_after);
+    std::cout << "Wrote eta_after  (remapped per-color fields) to " << out_eta_after << '\n';
   }
   catch (const std::exception & e)
   {
