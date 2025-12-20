@@ -113,6 +113,31 @@ torch::Tensor dilateMask(const torch::Tensor & mask, int halo_width);
 /// Expand integer labels outward by halo_width cells (one-cell steps). Background must be zero.
 torch::Tensor expandLabelsWithHalo(const torch::Tensor & labels, int halo_width);
 
+/// Result of building an adjacency matrix from halo-expanded labels.
+struct AdjacencyBuildResult
+{
+  torch::Tensor adjacency;     ///< CPU tensor [n_lbl, n_lbl], int64, zero diagonal
+  torch::Tensor unique_labels; ///< CPU tensor [n_lbl], int64, mapping rows/cols to label ids
+};
+
+/// Build a dense adjacency matrix from halo-expanded labels (background -1).
+/// connectivity: 4/8 for 2D, 6/26 for 3D; returns empty adjacency if no labels.
+AdjacencyBuildResult buildHaloAdjacency(const torch::Tensor & halo_labels, int connectivity);
+
+/// Build a label->color lookup table for old colors using per-color compact labels and offsets.
+torch::Tensor buildOldColorTable(const std::vector<torch::Tensor> & per_color_labels,
+                                 const std::vector<int64_t> & offsets,
+                                 int n_colors);
+
+/// Build a label->color lookup table for new colors using unique_labels and PETSc coloring output.
+torch::Tensor buildNewColorTable(const torch::Tensor & unique_labels,
+                                 const std::vector<unsigned int> & colors);
+
+/// Project label colors back to a grid: returns same shape as labels, int64, background -1.
+torch::Tensor buildLabelColorGrid(const torch::Tensor & labels,
+                                  const torch::Tensor & unique_labels,
+                                  const std::vector<unsigned int> & colors);
+
 /// Build globally unique, contiguous labels across colors from per-color compact labels.
 /// Inputs: per-color labels with background -1 and component ids 0..Nc-1.
 /// Returns combined labels (background -1) and fills offsets (same length as input) such that
