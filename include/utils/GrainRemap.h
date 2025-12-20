@@ -160,6 +160,12 @@ void remapOrderParameters(torch::Tensor & eta,
                           const torch::Tensor & old_colors,
                           const torch::Tensor & new_colors);
 
+/// Color a grain adjacency matrix using PETSc MatColoring (adjacency must be square CPU tensor).
+std::vector<unsigned int>
+colorAdjacencyWithPetsc(const torch::Tensor & adjacency,
+                        unsigned int n_colors,
+                        const std::string & algorithm);
+
 /// Convenience wrapper that runs the whole remap: masks -> labels -> metadata -> recolor.
 struct RemapResult
 {

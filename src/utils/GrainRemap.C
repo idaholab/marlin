@@ -9,9 +9,11 @@
 #include "GrainRemap.h"
 
 #include "MooseError.h"
+#include "PetscSupport.h"
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <limits>
 #include <numeric>
 #include <random>
@@ -468,6 +470,42 @@ expandLabelsWithHalo(const torch::Tensor & labels, int halo_width)
   // Undo the shift: background -> -1, labels -> label-1.
   auto out = torch::where(current > 0, current - 1, torch::full_like(current, -1));
   return out;
+}
+
+std::vector<unsigned int>
+colorAdjacencyWithPetsc(const torch::Tensor & adjacency,
+                        unsigned int n_colors,
+                        const std::string & algorithm)
+{
+  if (!adjacency.defined())
+    mooseError("Adjacency tensor is undefined.");
+  if (adjacency.dim() != 2 || adjacency.size(0) != adjacency.size(1))
+    mooseError("Adjacency tensor must be square.");
+  if (n_colors == 0)
+    mooseError("Number of colors must be positive.");
+
+  auto adj_cpu = adjacency.to(torch::kCPU).contiguous();
+  const int64_t n = adj_cpu.size(0);
+  std::vector<unsigned int> colors(static_cast<size_t>(n),
+                                   std::numeric_limits<unsigned int>::max());
+  if (n == 0)
+    return colors;
+
+  // Force double for PETSc; zero out diagonal.
+  auto adj_double = adj_cpu.to(torch::kDouble);
+  auto eye = torch::eye(n, adj_double.options());
+  adj_double = torch::where(eye > 0, torch::zeros_like(adj_double), adj_double);
+
+  // Copy to a contiguous std::vector<PetscScalar> (PETSc expects column-major dense,
+  // but MatSeqDenseSetPreallocation copies the buffer; we follow the same layout used
+  // by PolycrystalICTools::AdjacencyMatrix (row-major) which PETSc accepts for dense).
+  const auto numel = static_cast<size_t>(adj_double.numel());
+  std::vector<PetscScalar> dense(numel);
+  std::memcpy(dense.data(), adj_double.data_ptr<double>(), numel * sizeof(double));
+
+  Moose::PetscSupport::colorAdjacencyMatrix(
+      dense.data(), static_cast<unsigned int>(n), n_colors, colors, algorithm.c_str());
+  return colors;
 }
 
 std::vector<ComponentMeta>
