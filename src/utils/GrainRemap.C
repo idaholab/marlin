@@ -472,6 +472,272 @@ expandLabelsWithHalo(const torch::Tensor & labels, int halo_width)
   return out;
 }
 
+AdjacencyBuildResult
+buildHaloAdjacency(const torch::Tensor & halo_labels, int connectivity)
+{
+  if (!halo_labels.defined())
+    mooseError("Halo labels tensor is undefined.");
+
+  const int spatial_dim = static_cast<int>(halo_labels.dim());
+  if (spatial_dim != 2 && spatial_dim != 3)
+    mooseError("Halo labels tensor must be 2D or 3D.");
+
+  if ((spatial_dim == 2 && connectivity != 4 && connectivity != 8) ||
+      (spatial_dim == 3 && connectivity != 6 && connectivity != 26))
+    mooseError("Unsupported connectivity for halo adjacency.");
+
+  AdjacencyBuildResult result;
+  const bool on_device = !halo_labels.device().is_cpu();
+
+  if (!on_device)
+  {
+    auto labels_cpu = halo_labels.to(torch::kCPU).to(torch::kInt64);
+    auto valid = labels_cpu >= 0;
+    auto uniq = torch::_unique(labels_cpu.masked_select(valid), /*sorted=*/true, /*return_inverse=*/false);
+    result.unique_labels = std::get<0>(uniq);
+    const int64_t n_lbl = result.unique_labels.numel();
+    if (n_lbl == 0)
+    {
+      result.adjacency =
+          torch::zeros({0, 0}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+      return result;
+    }
+
+    const int64_t max_lbl = labels_cpu.max().item<int64_t>();
+    std::vector<int64_t> map(static_cast<size_t>(max_lbl + 1), -1);
+    const auto * uniq_ptr = result.unique_labels.data_ptr<int64_t>();
+    for (int64_t i = 0; i < n_lbl; ++i)
+      map[uniq_ptr[i]] = i;
+
+    result.adjacency =
+        torch::zeros({n_lbl, n_lbl}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    const auto adj_stride = static_cast<int64_t>(result.adjacency.stride(0));
+    auto * adj_ptr = result.adjacency.data_ptr<int64_t>();
+
+    const auto sizes = labels_cpu.sizes();
+    const int64_t D0 = sizes[0];
+    const int64_t D1 = sizes[1];
+    const int64_t D2 = (spatial_dim == 3) ? sizes[2] : 1;
+    const auto * data = labels_cpu.data_ptr<int64_t>();
+
+    auto offsets_raw = neighborOffsets(spatial_dim, connectivity);
+    std::vector<std::array<int, 3>> offsets;
+    offsets.reserve(offsets_raw.size());
+    if (spatial_dim == 2)
+      for (const auto & o : offsets_raw)
+        offsets.push_back({0, o[0], o[1]}); // map (dy,dx) -> (z=0,y,x)
+    else
+      offsets = std::move(offsets_raw);
+    for (int64_t z = 0; z < D2; ++z)
+      for (int64_t y = 0; y < D0; ++y)
+        for (int64_t x = 0; x < D1; ++x)
+        {
+          const int64_t lbl = (spatial_dim == 3) ? data[(z * D0 + y) * D1 + x] : data[y * D1 + x];
+          if (lbl < 0)
+            continue;
+          const int64_t mi = map[lbl];
+          for (const auto & off : offsets)
+          {
+            const int64_t zz = z + off[0];
+            const int64_t yy = y + off[1];
+            const int64_t xx = x + off[2];
+            if (zz < 0 || zz >= D2 || yy < 0 || yy >= D0 || xx < 0 || xx >= D1)
+              continue;
+            const int64_t lbl2 =
+                (spatial_dim == 3) ? data[(zz * D0 + yy) * D1 + xx] : data[yy * D1 + xx];
+            if (lbl2 >= 0 && lbl2 != lbl)
+            {
+              const int64_t mj = map[lbl2];
+              adj_ptr[mi * adj_stride + mj] = 1;
+              adj_ptr[mj * adj_stride + mi] = 1;
+            }
+          }
+        }
+    return result;
+  }
+
+  // Device path: generate neighbor pairs on device, then build adjacency on CPU from pairs.
+  auto labels = halo_labels.to(torch::kInt64);
+  const auto offsets = neighborOffsets(spatial_dim, connectivity);
+  std::vector<torch::Tensor> edge_pairs;
+  edge_pairs.reserve(offsets.size());
+
+  for (const auto & off : offsets)
+  {
+    std::vector<TensorIndex> src_idx;
+    std::vector<TensorIndex> dst_idx;
+    src_idx.reserve(spatial_dim);
+    dst_idx.reserve(spatial_dim);
+    for (int dim = 0; dim < spatial_dim; ++dim)
+    {
+      const int shift = off[dim];
+      const int64_t size = labels.size(dim);
+      if (shift > 0)
+      {
+        src_idx.emplace_back(Slice(shift, size));
+        dst_idx.emplace_back(Slice(0, size - shift));
+      }
+      else if (shift < 0)
+      {
+        src_idx.emplace_back(Slice(0, size + shift));
+        dst_idx.emplace_back(Slice(-shift, size));
+      }
+      else
+      {
+        src_idx.emplace_back(Slice());
+        dst_idx.emplace_back(Slice());
+      }
+    }
+
+    auto src = labels.index(src_idx);
+    auto dst = labels.index(dst_idx);
+    auto mask = (src >= 0) & (dst >= 0) & (src != dst);
+    if (!mask.any().item<bool>())
+      continue;
+    auto a = src.masked_select(mask);
+    auto b = dst.masked_select(mask);
+    edge_pairs.push_back(torch::stack({a, b}, 1));
+  }
+
+  if (edge_pairs.empty())
+  {
+    result.unique_labels =
+        torch::zeros({0}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    result.adjacency =
+        torch::zeros({0, 0}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    return result;
+  }
+
+  auto pairs = torch::cat(edge_pairs, 0).to(torch::kCPU).to(torch::kInt64);
+  auto uniq = torch::_unique(pairs.view({-1}), /*sorted=*/true, /*return_inverse=*/false);
+  result.unique_labels = std::get<0>(uniq);
+  const int64_t n_lbl = result.unique_labels.numel();
+  if (n_lbl == 0)
+  {
+    result.adjacency =
+        torch::zeros({0, 0}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+    return result;
+  }
+
+  const int64_t max_lbl = result.unique_labels.max().item<int64_t>();
+  std::vector<int64_t> map(static_cast<size_t>(max_lbl + 1), -1);
+  const auto * uniq_ptr = result.unique_labels.data_ptr<int64_t>();
+  for (int64_t i = 0; i < n_lbl; ++i)
+    map[uniq_ptr[i]] = i;
+
+  result.adjacency =
+      torch::zeros({n_lbl, n_lbl}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+  const auto stride0 = static_cast<int64_t>(result.adjacency.stride(0));
+  auto * adj_ptr = result.adjacency.data_ptr<int64_t>();
+
+  const auto * pair_ptr = pairs.data_ptr<int64_t>();
+  const int64_t n_pairs = pairs.size(0);
+  for (int64_t i = 0; i < n_pairs; ++i)
+  {
+    const int64_t a = pair_ptr[2 * i];
+    const int64_t b = pair_ptr[2 * i + 1];
+    if (a == b || a < 0 || b < 0)
+      continue;
+    const int64_t ia = map[a];
+    const int64_t ib = map[b];
+    adj_ptr[ia * stride0 + ib] = 1;
+    adj_ptr[ib * stride0 + ia] = 1;
+  }
+
+  return result;
+}
+
+torch::Tensor
+buildOldColorTable(const std::vector<torch::Tensor> & per_color_labels,
+                   const std::vector<int64_t> & offsets,
+                   int n_colors)
+{
+  if (per_color_labels.size() != offsets.size())
+    mooseError("per_color_labels and offsets must have the same length.");
+  if (n_colors <= 0)
+    mooseError("Number of colors must be positive.");
+
+  int64_t max_label = -1;
+  for (size_t c = 0; c < per_color_labels.size(); ++c)
+  {
+    auto lbl_cpu = per_color_labels[c].to(torch::kCPU).to(torch::kInt64);
+    auto valid = lbl_cpu >= 0;
+    if (valid.any().item<bool>())
+    {
+      const auto max_local = lbl_cpu.masked_select(valid).max().item<int64_t>();
+      max_label = std::max(max_label, offsets[c] + max_local);
+    }
+  }
+  if (max_label < 0)
+    return torch::zeros({0}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+
+  std::vector<int64_t> table(static_cast<size_t>(max_label + 1), -1);
+  for (size_t c = 0; c < per_color_labels.size(); ++c)
+  {
+    auto lbl_cpu = per_color_labels[c].to(torch::kCPU).to(torch::kInt64);
+    auto uniq = torch::_unique(lbl_cpu.masked_select(lbl_cpu >= 0), /*sorted=*/true, /*return_inverse=*/false);
+    auto uniq_vals = std::get<0>(uniq);
+    const auto * ptr = uniq_vals.data_ptr<int64_t>();
+    for (int64_t i = 0; i < uniq_vals.numel(); ++i)
+      table[offsets[c] + ptr[i]] = static_cast<int64_t>(c);
+  }
+
+  return torch::from_blob(table.data(),
+                          {static_cast<long>(table.size())},
+                          torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
+      .clone();
+}
+
+torch::Tensor
+buildNewColorTable(const torch::Tensor & unique_labels, const std::vector<unsigned int> & colors)
+{
+  if (!unique_labels.defined())
+    mooseError("unique_labels tensor is undefined.");
+  auto uniq_cpu = unique_labels.to(torch::kCPU).to(torch::kInt64);
+  if (static_cast<size_t>(uniq_cpu.numel()) != colors.size())
+    mooseError("unique_labels and colors size mismatch.");
+
+  if (uniq_cpu.numel() == 0)
+    return torch::zeros({0}, torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU));
+
+  const int64_t max_lbl = uniq_cpu.max().item<int64_t>();
+  std::vector<int64_t> table(static_cast<size_t>(max_lbl + 1), -1);
+  const auto * ptr = uniq_cpu.data_ptr<int64_t>();
+  for (int64_t i = 0; i < uniq_cpu.numel(); ++i)
+    table[ptr[i]] = static_cast<int64_t>(colors[i]);
+
+  return torch::from_blob(table.data(),
+                          {static_cast<long>(table.size())},
+                          torch::TensorOptions().dtype(torch::kInt64).device(torch::kCPU))
+      .clone();
+}
+
+torch::Tensor
+buildLabelColorGrid(const torch::Tensor & labels,
+                    const torch::Tensor & unique_labels,
+                    const std::vector<unsigned int> & colors)
+{
+  if (!labels.defined())
+    mooseError("labels tensor is undefined.");
+
+  auto color_table = buildNewColorTable(unique_labels, colors);
+  auto grid_cpu = torch::full_like(labels.to(torch::kCPU).to(torch::kInt64), -1);
+  if (color_table.numel() == 0)
+    return grid_cpu.to(labels.device());
+
+  auto flat = grid_cpu.view({-1});
+  auto labels_cpu = labels.to(torch::kCPU).to(torch::kInt64).view({-1});
+  auto mask = labels_cpu >= 0;
+  if (mask.any().item<bool>())
+  {
+    auto idx = labels_cpu.masked_select(mask);
+    auto mapped = color_table.index({idx});
+    flat.index_put_({mask}, mapped);
+  }
+
+  return grid_cpu.view(labels.sizes()).to(labels.device());
+}
+
 std::vector<unsigned int>
 colorAdjacencyWithPetsc(const torch::Tensor & adjacency,
                         unsigned int n_colors,

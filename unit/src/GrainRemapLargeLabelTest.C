@@ -158,49 +158,12 @@ TEST(GrainRemap, largeLabelDump2D)
   auto halo_labels = GrainRemap::expandLabelsWithHalo(combined, halo);
   EXPECT_GT(halo_labels.max().item<int64_t>(), 0);
 
-  // Build adjacency from halo overlap: compact to Ngrain x Ngrain using unique labels.
-  const auto halo_cpu = halo_labels.to(torch::Device(torch::kCPU));
-  auto uniq_tuple =
-      torch::_unique(halo_cpu.masked_select(halo_cpu >= 0), /*sorted=*/true, /*return_inverse=*/false);
-  auto uniq_vals = std::get<0>(uniq_tuple);
+  auto adj_res = GrainRemap::buildHaloAdjacency(halo_labels, opt.connectivity);
+  auto adjacency = adj_res.adjacency;
+  auto uniq_vals = adj_res.unique_labels;
   const int64_t n_lbl = uniq_vals.numel();
   ASSERT_GT(n_lbl, 0);
-
-  const int64_t max_lbl = halo_cpu.max().item<int64_t>();
-  std::vector<int64_t> map(max_lbl + 1, -1);
   const auto * uniq_ptr = uniq_vals.data_ptr<int64_t>();
-  for (int64_t i = 0; i < n_lbl; ++i)
-    map[uniq_ptr[i]] = i;
-
-  auto adjacency = torch::zeros({n_lbl, n_lbl}, torch::TensorOptions().dtype(torch::kInt64));
-  const auto shape = halo_cpu.sizes();
-  const int64_t H = shape[0];
-  const int64_t W = shape[1];
-  const std::array<std::array<int, 2>, 8> nb{{{{1, 0}}, {{-1, 0}}, {{0, 1}}, {{0, -1}},
-                                              {{1, 1}}, {{1, -1}}, {{-1, 1}}, {{-1, -1}}}};
-  const auto * data = halo_cpu.data_ptr<int64_t>();
-  for (int64_t y = 0; y < H; ++y)
-    for (int64_t x = 0; x < W; ++x)
-    {
-      const int64_t lbl = data[y * W + x];
-      if (lbl < 0)
-        continue;
-      const int64_t mi = map[lbl];
-      for (const auto & off : nb)
-      {
-        const int64_t yy = y + off[0];
-        const int64_t xx = x + off[1];
-        if (yy < 0 || yy >= H || xx < 0 || xx >= W)
-          continue;
-        const int64_t lbl2 = data[yy * W + xx];
-        if (lbl2 > 0 && lbl2 != lbl)
-        {
-          const int64_t mj = map[lbl2];
-          adjacency.index_put_({mi, mj}, 1);
-          adjacency.index_put_({mj, mi}, 1);
-        }
-      }
-    }
 
   // Color using PETSc MatColoring on the CPU adjacency.
   auto colors_vec = GrainRemap::colorAdjacencyWithPetsc(adjacency, /*n_colors=*/n_colors, "power");
@@ -210,12 +173,6 @@ TEST(GrainRemap, largeLabelDump2D)
                                         {static_cast<long>(colors_i64.size())},
                                         torch::TensorOptions().dtype(torch::kInt64))
                            .clone();
-  // Build a mapping from global label id -> color (background -1).
-  auto label_to_color = torch::full({max_lbl + 1}, -1, torch::TensorOptions().dtype(torch::kInt64));
-  for (int64_t i = 0; i < n_lbl; ++i)
-    label_to_color.index_put_({uniq_ptr[i]}, static_cast<int64_t>(colors_vec[i]));
-  auto color_grid = torch::full_like(combined, -1);
-  color_grid = torch::where(combined >= 0, label_to_color.index({combined}), color_grid);
   std::cout << "PETSc grain->op assignments (global_label -> color): ";
   for (int64_t i = 0; i < n_lbl; ++i)
   {
@@ -225,28 +182,9 @@ TEST(GrainRemap, largeLabelDump2D)
   }
   std::cout << '\n';
 
-  // Build old/new color arrays sized to max label for remap
-  std::vector<int64_t> old_color_full(max_lbl + 1, -1);
-  std::vector<int64_t> new_color_full(max_lbl + 1, -1);
-  // Map original labels to their source color using per-color labels and offsets
-  for (size_t c = 0; c < compact_labels_vec.size(); ++c)
-  {
-    const auto & lbl = compact_labels_vec[c];
-    const int64_t offset = offsets[c];
-    auto uniq_local =
-        torch::_unique(lbl.masked_select(lbl >= 0), /*sorted=*/true, /*return_inverse=*/false);
-    auto uniq_local_vals = std::get<0>(uniq_local).to(torch::kCPU);
-    const auto * lp = uniq_local_vals.data_ptr<int64_t>();
-    for (int64_t i = 0; i < uniq_local_vals.numel(); ++i)
-      old_color_full[offset + lp[i]] = static_cast<int64_t>(c);
-  }
-  for (int64_t i = 0; i < n_lbl; ++i)
-    new_color_full[uniq_ptr[i]] = static_cast<int64_t>(colors_vec[i]);
-
-  auto old_colors_t =
-      torch::from_blob(old_color_full.data(), {max_lbl + 1}, torch::TensorOptions().dtype(torch::kInt64)).clone();
-  auto new_colors_t =
-      torch::from_blob(new_color_full.data(), {max_lbl + 1}, torch::TensorOptions().dtype(torch::kInt64)).clone();
+  // Build old/new color lookup tables for remap.
+  auto old_colors_t = GrainRemap::buildOldColorTable(compact_labels_vec, offsets, n_colors);
+  auto new_colors_t = GrainRemap::buildNewColorTable(uniq_vals, colors_vec);
 
   // Construct a toy eta field: one-hot in the original color for each grain cell.
   auto eta_before = torch::zeros({ny, nx, n_colors}, MooseTensor::floatTensorOptions());
@@ -260,12 +198,15 @@ TEST(GrainRemap, largeLabelDump2D)
   eta_view.index_put_({rows, cols}, ones);
 
   auto eta_after = eta_before.clone();
-  GrainRemap::remapOrderParameters(eta_after, combined, old_colors_t, new_colors_t);
+  auto combined_device = combined.to(eta_after.device());
+  GrainRemap::remapOrderParameters(eta_after, combined_device, old_colors_t, new_colors_t);
 
   auto sum_before = eta_before.to(torch::kCPU).sum(0).sum(0);
   auto sum_after = eta_after.to(torch::kCPU).sum(0).sum(0);
   std::cout << "eta_before per-color sums: " << sum_before << '\n';
   std::cout << "eta_after  per-color sums: " << sum_after << '\n';
+
+  auto color_grid = GrainRemap::buildLabelColorGrid(combined, uniq_vals, colors_vec);
 
   const char * env_path = std::getenv("GRAIN_LABEL_DUMP_2D");
   const std::string out_path = env_path ? env_path : "grain_labels_raw_2d.pt";
