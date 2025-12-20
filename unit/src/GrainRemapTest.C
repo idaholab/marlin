@@ -101,3 +101,17 @@ TEST(GrainRemap, remapOrderParameters)
   EXPECT_NEAR(eta.index({0, 0, 0}).item<float>(), 0.0f, 1e-6);
   EXPECT_NEAR(eta.index({1, 0, 1}).item<float>(), 0.0f, 1e-6);
 }
+
+TEST(GrainRemap, colorAdjacencyWithPetsc)
+{
+  auto adj = torch::zeros({3, 3}, torch::TensorOptions().dtype(torch::kInt64));
+  adj.index_put_({0, 1}, 1);
+  adj.index_put_({1, 0}, 1);
+  adj.index_put_({1, 2}, 1);
+  adj.index_put_({2, 1}, 1);
+
+  auto colors = GrainRemap::colorAdjacencyWithPetsc(adj, /*n_colors=*/3, "power");
+  ASSERT_EQ(colors.size(), 3u);
+  EXPECT_NE(colors[0], colors[1]);
+  EXPECT_NE(colors[1], colors[2]);
+}

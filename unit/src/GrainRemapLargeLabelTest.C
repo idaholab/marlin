@@ -202,11 +202,37 @@ TEST(GrainRemap, largeLabelDump2D)
       }
     }
 
+  // Color using PETSc MatColoring on the CPU adjacency.
+  auto colors_vec = GrainRemap::colorAdjacencyWithPetsc(adjacency, /*n_colors=*/n_colors, "power");
+  ASSERT_EQ(colors_vec.size(), static_cast<size_t>(n_lbl));
+  std::vector<int64_t> colors_i64(colors_vec.begin(), colors_vec.end());
+  auto colors_tensor = torch::from_blob(colors_i64.data(),
+                                        {static_cast<long>(colors_i64.size())},
+                                        torch::TensorOptions().dtype(torch::kInt64))
+                           .clone();
+  // Build a mapping from global label id -> color (background -1).
+  auto label_to_color = torch::full({max_lbl + 1}, -1, torch::TensorOptions().dtype(torch::kInt64));
+  for (int64_t i = 0; i < n_lbl; ++i)
+    label_to_color.index_put_({uniq_ptr[i]}, static_cast<int64_t>(colors_vec[i]));
+  auto color_grid = torch::full_like(combined, -1);
+  color_grid = torch::where(combined >= 0, label_to_color.index({combined}), color_grid);
+  std::cout << "PETSc grain->op assignments (global_label -> color): ";
+  for (int64_t i = 0; i < n_lbl; ++i)
+  {
+    std::cout << uniq_ptr[i] << "->" << colors_vec[i];
+    if (i + 1 < n_lbl)
+      std::cout << ", ";
+  }
+  std::cout << '\n';
+
   const char * env_path = std::getenv("GRAIN_LABEL_DUMP_2D");
   const std::string out_path = env_path ? env_path : "grain_labels_raw_2d.pt";
   const std::string out_combined = env_path ? (out_path + ".combined.pt") : "grain_labels_combined_2d.pt";
   const std::string out_halo = env_path ? (out_path + ".halo.pt") : "grain_labels_halo_2d.pt";
   const std::string out_adj = env_path ? (out_path + ".adjacency.pt") : "grain_labels_adjacency_2d.pt";
+  const std::string out_colors = env_path ? (out_path + ".colors.pt") : "grain_colors_2d.pt";
+  const std::string out_color_grid =
+      env_path ? (out_path + ".colors_grid.pt") : "grain_colors_grid_2d.pt";
   try
   {
     torch::save(stacked, out_path);
@@ -217,6 +243,10 @@ TEST(GrainRemap, largeLabelDump2D)
     std::cout << "Wrote halo-expanded labels to " << out_halo << '\n';
     torch::save(adjacency, out_adj);
     std::cout << "Wrote halo-based adjacency matrix to " << out_adj << '\n';
+    torch::save(colors_tensor, out_colors);
+    std::cout << "Wrote PETSc-colored grain->op assignments to " << out_colors << '\n';
+    torch::save(color_grid, out_color_grid);
+    std::cout << "Wrote grain color grid to " << out_color_grid << '\n';
   }
   catch (const std::exception & e)
   {
