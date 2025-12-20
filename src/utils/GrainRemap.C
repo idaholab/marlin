@@ -291,6 +291,44 @@ combineRawLabelsAcrossColors(const std::vector<torch::Tensor> & raw_labels)
 }
 
 torch::Tensor
+buildGlobalContiguousLabels(const std::vector<torch::Tensor> & per_color_labels,
+                            std::vector<int64_t> & offsets)
+{
+  if (per_color_labels.empty())
+    return torch::Tensor();
+
+  const auto & ref = per_color_labels.front();
+  if (!ref.defined())
+    mooseError("First per-color label tensor is undefined.");
+  const auto shape = ref.sizes();
+  offsets.assign(per_color_labels.size(), 0);
+
+  torch::Tensor combined = torch::full(shape, -1, ref.options().dtype(torch::kInt64));
+  int64_t running_offset = 0;
+  for (size_t i = 0; i < per_color_labels.size(); ++i)
+  {
+    const auto & lbl = per_color_labels[i];
+    if (!lbl.defined())
+      continue;
+    if (!lbl.sizes().equals(shape))
+      mooseError("All per-color label tensors must have identical shapes.");
+
+    // Expect background -1 and foreground 0..Nc-1
+    auto lbl_i64 = lbl.to(combined.options());
+    const int64_t max_lbl = lbl_i64.numel() ? lbl_i64.max().item<int64_t>() : -1;
+    if (max_lbl >= 0)
+    {
+      combined = torch::where(lbl_i64 >= 0, lbl_i64 + running_offset, combined);
+      offsets[i] = running_offset;
+      running_offset += max_lbl + 1;
+    }
+    else
+      offsets[i] = running_offset;
+  }
+  return combined;
+}
+
+torch::Tensor
 dilateMask(const torch::Tensor & mask, int halo_width)
 {
   if (!mask.defined())
@@ -392,6 +430,44 @@ dilateMask(const torch::Tensor & mask, int halo_width)
   }
 
   return result;
+}
+
+torch::Tensor
+expandLabelsWithHalo(const torch::Tensor & labels, int halo_width)
+{
+  if (!labels.defined())
+    mooseError("Labels tensor is undefined.");
+  if (halo_width <= 0)
+    return labels;
+
+  const int spatial_dim = static_cast<int>(labels.dim());
+  if (spatial_dim != 2 && spatial_dim != 3)
+    mooseError("Labels tensor must be 2D or 3D.");
+
+  // Shift valid labels by +1 so label 0 is preserved through pooling; background stays 0.
+  auto shifted =
+      torch::where(labels >= 0, labels.to(torch::kInt64) + 1, torch::zeros_like(labels, torch::kInt64));
+  auto current = shifted;
+  for (int step = 0; step < halo_width; ++step)
+  {
+    if (spatial_dim == 2)
+    {
+      auto input = current.unsqueeze(0).unsqueeze(0); // NCHW
+      auto pooled = torch::nn::functional::max_pool2d(
+          input, torch::nn::functional::MaxPool2dFuncOptions(3).stride(1).padding(1));
+      current = pooled.squeeze();
+    }
+    else
+    {
+      auto input = current.unsqueeze(0).unsqueeze(0); // NCDHW
+      auto pooled = torch::nn::functional::max_pool3d(
+          input, torch::nn::functional::MaxPool3dFuncOptions(3).stride(1).padding(1));
+      current = pooled.squeeze();
+    }
+  }
+  // Undo the shift: background -> -1, labels -> label-1.
+  auto out = torch::where(current > 0, current - 1, torch::full_like(current, -1));
+  return out;
 }
 
 std::vector<ComponentMeta>

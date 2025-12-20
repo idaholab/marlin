@@ -110,6 +110,16 @@ torch::Tensor combineRawLabelsAcrossColors(const std::vector<torch::Tensor> & ra
 /// Dilate a binary mask by halo_width cells (2D or 3D). Keeps domain size (no wrap).
 torch::Tensor dilateMask(const torch::Tensor & mask, int halo_width);
 
+/// Expand integer labels outward by halo_width cells (one-cell steps). Background must be zero.
+torch::Tensor expandLabelsWithHalo(const torch::Tensor & labels, int halo_width);
+
+/// Build globally unique, contiguous labels across colors from per-color compact labels.
+/// Inputs: per-color labels with background -1 and component ids 0..Nc-1.
+/// Returns combined labels (background -1) and fills offsets (same length as input) such that
+/// global_id = offset[color] + local_id.
+torch::Tensor buildGlobalContiguousLabels(const std::vector<torch::Tensor> & per_color_labels,
+                                          std::vector<int64_t> & offsets);
+
 /// Compute per-component metadata (volume, bbox, centroid, halos) on host.
 std::vector<ComponentMeta> computeComponentMetadata(const torch::Tensor & labels,
                                                     int color,
