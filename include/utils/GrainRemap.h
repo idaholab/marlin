@@ -40,12 +40,7 @@ struct ComponentMeta
   int rank = 0;
   int color = 0;
   int64_t local_label = -1;
-  int64_t global_grain = -1;
   int64_t volume = 0;
-  std::array<int64_t, 3> bbox_min{{INT64_MAX, INT64_MAX, INT64_MAX}};
-  std::array<int64_t, 3> bbox_max{{INT64_MIN, INT64_MIN, INT64_MIN}};
-  std::array<int64_t, 3> halo_min{{INT64_MAX, INT64_MAX, INT64_MAX}};
-  std::array<int64_t, 3> halo_max{{INT64_MIN, INT64_MIN, INT64_MIN}};
   std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
 };
 
@@ -57,8 +52,6 @@ struct GrainMeta
   int old_color = -1;        ///< color before recoloring
   int new_color = -1;        ///< color after recoloring
   int64_t volume = 0;
-  std::array<int64_t, 3> bbox_min{{INT64_MAX, INT64_MAX, INT64_MAX}};
-  std::array<int64_t, 3> bbox_max{{INT64_MIN, INT64_MIN, INT64_MIN}};
   std::array<double, 3> centroid{{0.0, 0.0, 0.0}};
 };
 
@@ -145,7 +138,7 @@ torch::Tensor buildLabelColorGrid(const torch::Tensor & labels,
 torch::Tensor buildGlobalContiguousLabels(const std::vector<torch::Tensor> & per_color_labels,
                                           std::vector<int64_t> & offsets);
 
-/// Compute per-component metadata (volume, bbox, centroid, halos) on host.
+/// Compute per-component metadata (volume, centroid) with GPU reductions (labels stay on device).
 std::vector<ComponentMeta> computeComponentMetadata(const torch::Tensor & labels,
                                                     int color,
                                                     int halo_width,
@@ -168,10 +161,6 @@ labelsToGlobalIds(const torch::Tensor & labels,
 std::vector<int64_t> matchPersistentGrains(const std::vector<GrainMeta> & previous,
                                            std::vector<GrainMeta> & current,
                                            double tolerance);
-
-/// Build adjacency list for grains of the same color (bounding-box and halo coarse tests).
-std::vector<std::vector<int64_t>>
-buildAdjacency(const std::vector<GrainMeta> & grains, int halo_width);
 
 /// Greedy graph coloring that prefers to keep existing colors.
 std::vector<int> greedyRecolor(const std::vector<std::vector<int64_t>> & adjacency,

@@ -8,8 +8,8 @@ Marlin runs fixed-grid phase-field simulations using libtorch tensors with spati
 Core Data Structures
 --------------------
 - GrainRemapOptions: spatial_dim (2 or 3), n_colors, threshold, halo_width, connectivity (4/8 or 6/26), tracking_tolerance.
-- ComponentMeta: per-rank component info (rank, color, local_label, volume, bbox, halo bbox, centroid).
-- GrainMeta: global grain info (grain_id, persistent_id, old_color, new_color, volume, bbox, centroid).
+- ComponentMeta: per-rank component info (rank, color, local_label, volume, centroid).
+- GrainMeta: global grain info (grain_id, persistent_id, old_color, new_color, volume, centroid).
 - ComponentRef + UnionFind: host-side stitching of cross-rank component equivalences.
 - grain_id_local: device int tensor matching spatial shape, stores global grain id per cell (-1 background).
 
@@ -17,11 +17,11 @@ Algorithm Stages
 ----------------
 1) Per-color masks (GPU): compute `max` over trailing color dim; mask_c = (argmax == c) & (eta[..., c] > thresh) & (max_val > thresh).
 2) Connected components (GPU): initialize labels with unique id per foreground cell (+1) and 0 for background. Iterate Bellman–Ford style neighbor-min propagation until convergence (connectivity controlled by options). Compress labels to contiguous ids (0..n_local_c-1). MPS fallback uses CPU `_unique`.
-3) Local metadata (host): for each local label, accumulate volume, bbox, centroid, halo bbox (bbox expanded by halo_width but clamped to domain). Implemented on CPU for simplicity and determinism.
+3) Local metadata (host): per-label volume and centroid accumulated from device reductions; no bbox to minimize host transfers.
 4) Halo exchange (MPI): use `HaloCommunication::exchangeGhostTensor` to exchange label fields across ghost layers; caller supplies the callback so existing ghost exchange infrastructure is reused.
-5) Cross-rank stitching: caller provides equivalence pairs between touching components across ranks; UnionFind merges them into global grain ids. Merge component metadata into GrainMeta (volume sum, bbox union, volume-weighted centroid).
+5) Cross-rank stitching: caller provides equivalence pairs between touching components across ranks; UnionFind merges them into global grain ids. Merge component metadata into GrainMeta (volume sum, volume-weighted centroid).
 6) Persistence tracking: compare current grains vs. previous GrainMeta list on a coordinator (e.g., rank 0) by centroid distance; if mutual nearest within tolerance, keep persistent_id and color; otherwise assign new persistent_id and default color.
-7) Adjacency and recoloring: build adjacency between grains of the same color using expanded bbox overlap (halo_width). Greedy recoloring prefers keeping current color; assigns smallest free color not used by neighbors (up to n_colors). For debug/visualization a dense adjacency can be built directly from halo-expanded label grids with `buildHaloAdjacency`; this feeds PETSc coloring via `colorAdjacencyWithPetsc`.
+7) Adjacency and recoloring: build adjacency between grains of the same color using halo overlaps (preferred) or an explicit dense adjacency from `buildHaloAdjacency` on halo-expanded labels. Greedy recoloring prefers keeping current color; assigns smallest free color not used by neighbors (up to n_colors). PETSc coloring can consume the dense adjacency.
 8) Remap fields (GPU): build device tensors old_color[new_color] indexed by grain id. Flatten spatial dims, launch remap kernel: for each cell idx, read grain_id_local[idx], map old->new color, copy eta_old(idx, old_color) into eta(idx, new_color). Background stays zero; no write conflicts (one-to-one mapping).
 
 Key Functions (namespace GrainRemap)
@@ -34,7 +34,7 @@ Key Functions (namespace GrainRemap)
 - dilateMask(mask, halo_width) -> boolean dilation (no wrap); expandLabelsWithHalo(labels, halo_width) -> integer dilation preserving label ids in the halo.
 - buildHaloAdjacency(halo_labels, connectivity) -> dense CPU adjacency and unique label list from a halo-expanded label grid (background -1); useful for dumps or feeding PETSc coloring.
 - buildOldColorTable(per_color_labels, offsets, n_colors) / buildNewColorTable(unique_labels, colors) -> 1D CPU tensors mapping label id -> color; buildLabelColorGrid(labels, unique_labels, colors) -> grid of per-cell colors for visualization.
-- computeComponentMetadata(labels, color, halo_width, rank) -> vector<ComponentMeta>
+- computeComponentMetadata(labels, color, halo_width, rank) -> vector<ComponentMeta> (volume, centroid only)
 - mergeComponents(components, equivalences, n_colors, component_to_grain)
 - labelsToGlobalIds(labels, label_to_global, options) -> torch::Tensor (int32)
 - matchPersistentGrains(previous, current, tolerance) -> vector<persistent_id>
@@ -75,12 +75,12 @@ Dimensional and Layout Assumptions
 - Labels and grain_id tensors mirror spatial dims only.
 - Connectivity: 4/8 in 2D, 6/26 in 3D; halos sized by halo_width.
 
-Performance Notes
------------------
+- Performance Notes
+-------------------
 - GPU vs CPU:
-  - GPU: per-color masks, connected-component propagation (iterative neighbor minima), halo expansion (`expandLabelsWithHalo` via max-pool), device-side adjacency pair extraction (`buildHaloAdjacency` when the halo labels are on device), and the final remap kernel. Complexity: masks O(Ncells), propagation O(Ncells * Niter * nneigh) with small neighbor count (4/8/6/26) and typically few iterations, halo expansion O(Ncells * halo_width), remap O(Ncells).
-  - CPU: unique-label compression (always; MPS forces `_unique` CPU fallback), host metadata (volume/bbox/centroid), union-find stitching, persistence matching, greedy recolor, and dense adjacency assembly after the device has produced neighbor pairs. Complexity: metadata O(Ncells_local) on CPU; union-find O(Ncomp α(Ncomp)); greedy recolor O(E * Npasses) with small E from bbox/halo coarse tests; PETSc coloring cost depends on chosen algorithm.
-  - Memory: halo-expanded labels are reused to avoid extra copies; device adjacency build only transfers a compact list of neighboring label pairs to host.
+  - GPU: per-color masks, connected-component propagation (iterative neighbor minima), halo expansion (`expandLabelsWithHalo` via max-pool), device-side adjacency pair extraction (`buildHaloAdjacency` when the halo labels are on device), component volumes/centroids (device reductions), and the final remap kernel. Complexity: masks O(Ncells), propagation O(Ncells * Niter * nneigh) with small neighbor count (4/8/6/26) and typically few iterations, halo expansion O(Ncells * halo_width), remap O(Ncells).
+  - CPU: unique-label compression (always; MPS forces `_unique` CPU fallback), small per-label stats after reduction (volume/centroid), union-find stitching, persistence matching, greedy recolor, and dense adjacency assembly after the device has produced neighbor pairs. Complexity: metadata transfer is O(G); union-find O(Ncomp α(Ncomp)); greedy recolor O(E * Npasses); PETSc coloring cost depends on algorithm.
+  - Memory: halo-expanded labels are reused to avoid extra copies; device adjacency build only transfers a compact list of neighboring label pairs to host; no bbox arrays are kept.
 - No atomics are needed in remap kernel (one source->one destination).
 - Greedy coloring is O(E) per pass; adjacency is built from bounding boxes or halo overlap, not full per-cell scans on CPU. The optional dense adjacency from halo grids is only used for debugging/PETSc coloring and is constructed from device-generated pairs.
 

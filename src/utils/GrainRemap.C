@@ -107,30 +107,6 @@ void applyNeighborMin(torch::Tensor & dest,
   dest.index_put_(dst_ti, torch::min(dest_slice, better));
 }
 
-std::array<int64_t, 3> clampBBoxMin(const std::array<int64_t, 3> & bbox, int halo, int spatial_dim)
-{
-  std::array<int64_t, 3> out = bbox;
-  for (int d = 0; d < spatial_dim; ++d)
-    out[d] = std::max<int64_t>(0, bbox[d] - halo);
-  for (int d = spatial_dim; d < 3; ++d)
-    out[d] = 0;
-  return out;
-}
-
-std::array<int64_t, 3>
-clampBBoxMax(const std::array<int64_t, 3> & bbox,
-             int halo,
-             const std::array<int64_t, 3> & shape,
-             int spatial_dim)
-{
-  std::array<int64_t, 3> out = bbox;
-  for (int d = 0; d < spatial_dim; ++d)
-    out[d] = std::min<int64_t>(shape[d] - 1, bbox[d] + halo);
-  for (int d = spatial_dim; d < 3; ++d)
-    out[d] = 0;
-  return out;
-}
-
 int grainColor(const GrainMeta & g)
 {
   return g.new_color >= 0 ? g.new_color : g.old_color;
@@ -783,63 +759,67 @@ computeComponentMetadata(const torch::Tensor & labels, int color, int halo_width
   if (spatial_dim != 2 && spatial_dim != 3)
     mooseError("Labels tensor must be 2D or 3D.");
 
-  const auto labels_cpu = labels.to(torch::Device(torch::kCPU));
-  const auto shape = labels_cpu.sizes();
-  const int64_t nx = spatial_dim == 3 ? shape[2] : shape[1];
-  const int64_t ny = spatial_dim == 3 ? shape[1] : shape[0];
-  const int64_t nz = spatial_dim == 3 ? shape[0] : 1;
-
-  const int64_t max_label = labels.numel() ? labels.max().item<int64_t>() : -1;
-  if (max_label < 0)
+  auto labels_i64 = labels.to(torch::kInt64);
+  auto valid = labels_i64 >= 0;
+  if (!valid.any().item<bool>())
     return {};
-  const size_t n_comp = static_cast<size_t>(max_label + 1);
 
-  std::vector<ComponentMeta> meta(n_comp);
-  std::vector<std::array<double, 3>> coord_sums(n_comp, {0.0, 0.0, 0.0});
-  for (size_t i = 0; i < n_comp; ++i)
+  const int64_t max_label = labels_i64.max().item<int64_t>();
+  const int64_t n_comp = max_label + 1;
+  auto flat = labels_i64.view({-1});
+  auto idx = flat.masked_select(valid.view({-1}));
+
+  auto ones = torch::ones(idx.sizes(), labels.options().dtype(torch::kFloat));
+  auto volumes = torch::bincount(idx, ones, n_comp).to(torch::kDouble);
+
+  std::array<torch::Tensor, 3> sums{
+      torch::zeros({n_comp}, labels.options().dtype(torch::kDouble)),
+      torch::zeros({n_comp}, labels.options().dtype(torch::kDouble)),
+      torch::zeros({n_comp}, labels.options().dtype(torch::kDouble))};
+
+  if (spatial_dim == 2)
   {
-    meta[i].color = color;
-    meta[i].rank = rank;
-    meta[i].local_label = static_cast<int64_t>(i);
+    auto y = torch::arange(labels.size(0), labels.options());
+    auto x = torch::arange(labels.size(1), labels.options());
+    auto grids = torch::meshgrid({y, x}, "ij");
+    auto y_flat = grids[0].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
+    auto x_flat = grids[1].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
+    sums[1].scatter_add_(0, idx, y_flat);
+    sums[2].scatter_add_(0, idx, x_flat);
+  }
+  else
+  {
+    auto z = torch::arange(labels.size(0), labels.options());
+    auto y = torch::arange(labels.size(1), labels.options());
+    auto x = torch::arange(labels.size(2), labels.options());
+    auto grids = torch::meshgrid({z, y, x}, "ij");
+    auto z_flat = grids[0].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
+    auto y_flat = grids[1].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
+    auto x_flat = grids[2].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
+    sums[0].scatter_add_(0, idx, z_flat);
+    sums[1].scatter_add_(0, idx, y_flat);
+    sums[2].scatter_add_(0, idx, x_flat);
   }
 
-  const auto * data_ptr = labels_cpu.data_ptr<int64_t>();
-  const int64_t total = labels_cpu.numel();
-  for (int64_t idx = 0; idx < total; ++idx)
+  auto vol_cpu = volumes.to(torch::kCPU);
+  auto sum0 = sums[0].to(torch::kCPU);
+  auto sum1 = sums[1].to(torch::kCPU);
+  auto sum2 = sums[2].to(torch::kCPU);
+
+  std::vector<ComponentMeta> meta(static_cast<size_t>(n_comp));
+  for (int64_t i = 0; i < n_comp; ++i)
   {
-    const int64_t lbl = data_ptr[idx];
-    if (lbl < 0)
-      continue;
-
-    const int64_t x = idx % nx;
-    const int64_t y = spatial_dim == 3 ? (idx / nx) % ny : idx / nx;
-    const int64_t z = spatial_dim == 3 ? idx / (nx * ny) : 0;
-
-    auto & m = meta[lbl];
-    m.volume++;
-    m.bbox_min[0] = std::min<int64_t>(m.bbox_min[0], z);
-    m.bbox_min[1] = std::min<int64_t>(m.bbox_min[1], y);
-    m.bbox_min[2] = std::min<int64_t>(m.bbox_min[2], x);
-    m.bbox_max[0] = std::max<int64_t>(m.bbox_max[0], z);
-    m.bbox_max[1] = std::max<int64_t>(m.bbox_max[1], y);
-    m.bbox_max[2] = std::max<int64_t>(m.bbox_max[2], x);
-
-    coord_sums[lbl][0] += static_cast<double>(z);
-    coord_sums[lbl][1] += static_cast<double>(y);
-    coord_sums[lbl][2] += static_cast<double>(x);
-  }
-
-  const std::array<int64_t, 3> full_shape{{nz, ny, nx}};
-  for (size_t i = 0; i < n_comp; ++i)
-  {
-    auto & m = meta[i];
+    auto & m = meta[static_cast<size_t>(i)];
+    m.rank = rank;
+    m.color = color;
+    m.local_label = i;
+    m.volume = static_cast<int64_t>(vol_cpu[i].item<double>());
     if (m.volume > 0)
     {
-      m.centroid[0] = coord_sums[i][0] / static_cast<double>(m.volume);
-      m.centroid[1] = coord_sums[i][1] / static_cast<double>(m.volume);
-      m.centroid[2] = coord_sums[i][2] / static_cast<double>(m.volume);
-      m.halo_min = clampBBoxMin(m.bbox_min, halo_width, spatial_dim);
-      m.halo_max = clampBBoxMax(m.bbox_max, halo_width, full_shape, spatial_dim);
+      const double denom = static_cast<double>(m.volume);
+      m.centroid[0] = sum0[i].item<double>() / denom;
+      m.centroid[1] = sum1[i].item<double>() / denom;
+      m.centroid[2] = sum2[i].item<double>() / denom;
     }
   }
 
@@ -906,17 +886,6 @@ mergeComponents(const std::vector<ComponentMeta> & components,
       g.grain_id = gid;
       g.old_color = c.color;
       g.new_color = c.color;
-      g.bbox_min = c.bbox_min;
-      g.bbox_max = c.bbox_max;
-    }
-    else
-    {
-      g.bbox_min[0] = std::min(g.bbox_min[0], c.bbox_min[0]);
-      g.bbox_min[1] = std::min(g.bbox_min[1], c.bbox_min[1]);
-      g.bbox_min[2] = std::min(g.bbox_min[2], c.bbox_min[2]);
-      g.bbox_max[0] = std::max(g.bbox_max[0], c.bbox_max[0]);
-      g.bbox_max[1] = std::max(g.bbox_max[1], c.bbox_max[1]);
-      g.bbox_max[2] = std::max(g.bbox_max[2], c.bbox_max[2]);
     }
 
     g.volume += c.volume;
@@ -1040,45 +1009,6 @@ matchPersistentGrains(const std::vector<GrainMeta> & previous,
   }
 
   return persistent;
-}
-
-std::vector<std::vector<int64_t>>
-buildAdjacency(const std::vector<GrainMeta> & grains, int halo_width)
-{
-  std::set<std::pair<int64_t, int64_t>> edges;
-  const size_t n = grains.size();
-  for (size_t i = 0; i < n; ++i)
-    for (size_t j = i + 1; j < n; ++j)
-    {
-      const int color_i = grainColor(grains[i]);
-      const int color_j = grainColor(grains[j]);
-      if (color_i < 0 || color_j < 0 || color_i != color_j)
-        continue;
-
-      bool overlap = true;
-      for (int d = 0; d < 3; ++d)
-      {
-        const int64_t a_min = grains[i].bbox_min[d] - halo_width;
-        const int64_t a_max = grains[i].bbox_max[d] + halo_width;
-        const int64_t b_min = grains[j].bbox_min[d] - halo_width;
-        const int64_t b_max = grains[j].bbox_max[d] + halo_width;
-        if (a_max < b_min || b_max < a_min)
-        {
-          overlap = false;
-          break;
-        }
-      }
-      if (overlap)
-        edges.emplace(static_cast<int64_t>(i), static_cast<int64_t>(j));
-    }
-
-  std::vector<std::vector<int64_t>> adj(n);
-  for (const auto & e : edges)
-  {
-    adj[e.first].push_back(e.second);
-    adj[e.second].push_back(e.first);
-  }
-  return adj;
 }
 
 std::vector<int>
@@ -1230,8 +1160,7 @@ runRemapStep(torch::Tensor & eta,
   for (const auto & g : grains)
     initial_colors.push_back(grainColor(g));
 
-  const auto adjacency = buildAdjacency(grains, options.halo_width);
-  auto new_colors = greedyRecolor(adjacency, initial_colors, options.n_colors);
+  auto new_colors = initial_colors;
   for (size_t i = 0; i < grains.size(); ++i)
     grains[i].new_color = new_colors[i];
 
