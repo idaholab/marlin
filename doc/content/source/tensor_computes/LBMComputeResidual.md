@@ -2,7 +2,7 @@
 
 !syntax description /TensorComputes/Solve/LBMComputeResidual
 
-This object simply computes the L1 difference between current and old timestep scalar vectors. This difference is used as a residual in LBM simulations to tell how far the simulaion is from stead-state.
+This object simply computes the L1 difference between current and old timestep scalar vectors. This difference is used as a residual in LBM simulations to tell how far the simulaion is from steady-state.
 
 ## Overview
 

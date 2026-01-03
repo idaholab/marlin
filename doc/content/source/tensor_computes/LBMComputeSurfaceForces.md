@@ -12,9 +12,30 @@ coupling. Supply the chemical potential with
 [!param](/TensorComputes/Solve/LBMComputeSurfaceForces/grad_phi). The result is a vector field
 written to [!param](/TensorComputes/Solve/LBMComputeSurfaceForces/buffer).
 
+The surface force density $\mathbf{F}_s$ is computed as:
+
+$$
+\mathbf{F}_s = \mu \nabla \phi
+$$
+
+where:
+- $\mu$ is the chemical potential (`chemical_potential`).
+- $\nabla \phi$ is the gradient of the phase field order parameter (`grad_phi`).
+
 ## Example Input File Syntax
 
-!listing test/tests/lbm/phase.i block=TensorComputes/Solve/forces
+!listing
+[TensorComputes]
+  [Solve]
+    [forces]
+      type = LBMComputeSurfaceForces
+      buffer = forces
+      chemical_potential = mu
+      grad_phi = grad_phi
+    []
+  []
+[]
+!listing-end
 
 !syntax parameters /TensorComputes/Solve/LBMComputeSurfaceForces
 
