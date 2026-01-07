@@ -205,8 +205,8 @@
     block = 1
   []
   [slug_density]
-    type = Density
-    density = ${units 2700 kg/m^3}
+    type = StrainAdjustedDensity
+    strain_free_density = ${units 2700 kg/m^3}
   []
 []
 
@@ -278,9 +278,9 @@
 
 [Outputs]
   exodus = true
-  vtk = true
+  # vtk = true
   csv = true
   print_linear_residuals = false
   perf_graph = true
-  interval = 10
+  time_step_interval = 10
 []
