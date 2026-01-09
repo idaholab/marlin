@@ -30,7 +30,7 @@
   [cauchy_stress]
     type = LinearIsotropicElasticity
     coefficient_types = 'YOUNGS_MODULUS POISSONS_RATIO'
-    coefficients = '100e9 0.31'
+    coefficients = '70e9 0.28'
     strain = 'state/Ee'
     stress = 'state/S'
   []
@@ -42,6 +42,7 @@
   [trial_state]
     type = ComposedModel
     models = 'trial_elastic_strain cauchy_stress flow_direction'
+    additional_outputs = 'state/S'
   []
 
   ###############################################################################
@@ -92,6 +93,7 @@
     equivalent_plastic_strain = 'state/ep'
     temperature = 'forces/T'
     use_temperature = true
+    flow_rate = state/ep_rate
     # OFHC Copper parameters
     A = 99.7e6          # Reference yield stress (Pa)
     B = 262.8e6         # Hardening coefficient (Pa)
@@ -125,7 +127,7 @@
   ###############################################################################
   [model]
     type = ComposedModel
-    models = 'trial_state radial_return plastic_update stress_update vonmises jc_flowrate'
-    additional_outputs = 'state/s state/ep state/S state/Ep'
+    # models = 'trial_state radial_return plastic_update stress_update vonmises jc_flowrate'
+    models = 'trial_state radial_return'
   []
 []

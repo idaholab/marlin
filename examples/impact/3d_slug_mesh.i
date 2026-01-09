@@ -70,9 +70,10 @@ v=200
     vector_value = '0 90 0'
   []
   [extrude]
-    type = MeshExtruderGenerator
-    extrusion_vector = '0 ${units -3 in -> m} 0'
+    type = AdvancedExtruderGenerator
     input = rotate_x_90
+    direction = '0 1 0'
+    heights = '${units 3 in -> m}'
     num_layers = 50 # adjust for mesh resolution
   []
   [face]
@@ -153,12 +154,28 @@ v=200
 []
 
 [NEML2]
-  input = 'elasticity_neml2.i'
+  input = 'johnson_cook_neml2.i'
   [all]
     executor_name = 'neml2'
     model = 'model'
     verbose = true
     moose_input_kernels = 'strain'
+
+    moose_input_types = 'POSTPROCESSOR POSTPROCESSOR POSTPROCESSOR'
+    moose_inputs = '     time          time          temperature'
+    neml2_inputs = '     forces/t      old_forces/t  forces/T'
+  []
+[]
+
+[Postprocessors]
+  [time]
+    type = TimePostprocessor
+    execute_on = 'INITIAL TIMESTEP_BEGIN'
+    outputs = 'none'
+  []
+  [temperature]
+    type = ConstantPostprocessor
+    value = 300
   []
 []
 
