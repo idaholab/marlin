@@ -37,25 +37,25 @@ LBMBounceBack::validParams()
 
 LBMBounceBack::LBMBounceBack(const InputParameters & parameters)
   : LBMBoundaryCondition(parameters),
-    _f_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("f_old"), 1)),
+    _f_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("f_old"), 1, _radius)),
     _exclude_corners_x(getParam<bool>("exclude_corners_x")),
     _exclude_corners_y(getParam<bool>("exclude_corners_y")),
     _exclude_corners_z(getParam<bool>("exclude_corners_z"))
 {
   if (_exclude_corners_x)
-    _x_indices = torch::arange(1, _grid_size[0] - 1, MooseTensor::intTensorOptions());
+    _x_indices = torch::arange(1, _shape[0] - 1, MooseTensor::intTensorOptions());
   else
-    _x_indices = torch::arange(_grid_size[0], MooseTensor::intTensorOptions());
+    _x_indices = torch::arange(_shape[0], MooseTensor::intTensorOptions());
 
   if (_exclude_corners_y)
-    _y_indices = torch::arange(1, _grid_size[1] - 1, MooseTensor::intTensorOptions());
+    _y_indices = torch::arange(1, _shape[1] - 1, MooseTensor::intTensorOptions());
   else
-    _y_indices = torch::arange(_grid_size[1], MooseTensor::intTensorOptions());
+    _y_indices = torch::arange(_shape[1], MooseTensor::intTensorOptions());
 
   if (_exclude_corners_z)
-    _z_indices = torch::arange(1, _grid_size[2] - 1, MooseTensor::intTensorOptions());
+    _z_indices = torch::arange(1, _shape[2] - 1, MooseTensor::intTensorOptions());
   else
-    _z_indices = torch::arange(_grid_size[2], MooseTensor::intTensorOptions());
+    _z_indices = torch::arange(_shape[2], MooseTensor::intTensorOptions());
 
   std::vector<torch::Tensor> xyz_mesh = torch::meshgrid({_x_indices, _y_indices, _z_indices});
 
@@ -67,11 +67,15 @@ LBMBounceBack::LBMBounceBack(const InputParameters & parameters)
   _y_indices = flat_y_indices.clone();
   _z_indices = flat_z_indices.clone();
 
-  // for 3D, binary media
+  // for binary media
   if (_lb_problem.isBinaryMedia())
   {
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();
+    
+    // mark 6 (64 in decimal) for wall boundary ownership
+    if (isBoundaryOwned(0))
+      _boundary_rank |= (1 << 6);
 
     for (int64_t ic = 1; ic < _stencil._q; ic++)
     {
@@ -91,8 +95,8 @@ LBMBounceBack::backBoundary()
   for (unsigned int i = 0; i < _stencil._front.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._front[i]];
-    _u.index_put_({_x_indices, _y_indices, _grid_size[2] - 1, opposite_dir},
-                  _f_old[0].index({_x_indices, _y_indices, _grid_size[2] - 1, _stencil._front[i]}));
+    _u_owned.index_put_({_x_indices, _y_indices, _shape[2] - 1, opposite_dir},
+                  _f_old_owned.index({_x_indices, _y_indices, _shape[2] - 1, _stencil._front[i]}));
   }
 }
 
@@ -102,8 +106,8 @@ LBMBounceBack::frontBoundary()
   for (unsigned int i = 0; i < _stencil._front.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._front[i]];
-    _u.index_put_({_x_indices, _y_indices, 0, _stencil._front[i]},
-                  _f_old[0].index({_x_indices, _y_indices, 0, opposite_dir}));
+    _u_owned.index_put_({_x_indices, _y_indices, 0, _stencil._front[i]},
+                  _f_old_owned.index({_x_indices, _y_indices, 0, opposite_dir}));
   }
 }
 
@@ -113,8 +117,8 @@ LBMBounceBack::leftBoundary()
   for (unsigned int i = 0; i < _stencil._left.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._left[i]];
-    _u.index_put_({0, _y_indices, _z_indices, _stencil._left[i]},
-                  _f_old[0].index({0, _y_indices, _z_indices, opposite_dir}));
+    _u_owned.index_put_({0, _y_indices, _z_indices, _stencil._left[i]},
+                  _f_old_owned.index({0, _y_indices, _z_indices, opposite_dir}));
   }
 }
 
@@ -124,8 +128,8 @@ LBMBounceBack::rightBoundary()
   for (unsigned int i = 0; i < _stencil._left.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._left[i]];
-    _u.index_put_({_grid_size[0] - 1, _y_indices, _z_indices, opposite_dir},
-                  _f_old[0].index({_grid_size[0] - 1, _y_indices, _z_indices, _stencil._left[i]}));
+    _u_owned.index_put_({_shape[0] - 1, _y_indices, _z_indices, opposite_dir},
+                  _f_old_owned.index({_shape[0] - 1, _y_indices, _z_indices, _stencil._left[i]}));
   }
 }
 
@@ -135,44 +139,25 @@ LBMBounceBack::bottomBoundary()
   for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
-    _u.index_put_({_x_indices, 0, _z_indices, _stencil._bottom[i]},
-                  _f_old[0].index({_x_indices, 0, _z_indices, opposite_dir}));
+    _u_owned.index_put_({_x_indices, 0, _z_indices, _stencil._bottom[i]},
+                  _f_old_owned.index({_x_indices, 0, _z_indices, opposite_dir}));
   }
 }
 
 void
 LBMBounceBack::topBoundary()
-{
+{ 
   for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
-    _u.index_put_(
-        {_x_indices, _grid_size[1] - 1, _z_indices, opposite_dir},
-        _f_old[0].index({_x_indices, _grid_size[1] - 1, _z_indices, _stencil._bottom[i]}));
+    _u_owned.index_put_(
+        {_x_indices, _shape[1] - 1, _z_indices, opposite_dir},
+        _f_old_owned.index({_x_indices, _shape[1] - 1, _z_indices, _stencil._bottom[i]}));
   }
 }
 
 void
 LBMBounceBack::wallBoundary()
-{
-  if (_domain.getDim() == 3)
-    wallBoundary3D(); // temporary solution to generalization problem
-  else
-    // bounce-back
-    _u.index_put_(
-        {_boundary_indices.index({Slice(), 0}),
-         _boundary_indices.index({Slice(), 1}),
-         _boundary_indices.index({Slice(), 2}),
-         _boundary_indices.index({Slice(), 3})},
-
-        _f_old[0].index({_boundary_indices.index({Slice(), 0}),
-                         _boundary_indices.index({Slice(), 1}),
-                         _boundary_indices.index({Slice(), 2}),
-                         _stencil._op.index_select(0, _boundary_indices.index({Slice(), 3}))}));
-}
-
-void
-LBMBounceBack::wallBoundary3D()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
@@ -185,7 +170,7 @@ LBMBounceBack::wallBoundary3D()
   for (/* do not use unsigned int */ int ic = 1; ic < _stencil._q; ic++)
   {
     int64_t index = _stencil._op[ic].item<int64_t>();
-    auto lattice_slice = _f_old[0].index({Slice(), Slice(), Slice(), index});
+    auto lattice_slice = _f_old_owned.index({Slice(), Slice(), Slice(), index});
     auto bounce_back_slice = f_bounce_back.index({Slice(), Slice(), Slice(), ic});
     bounce_back_slice.copy_(lattice_slice);
   }
@@ -200,34 +185,12 @@ LBMBounceBack::computeBuffer()
   if (n_old != 0)
   {
     // do not overwrite previous
-    _u = _u.clone();
+    _f_old_owned = _f_old[0];
+    for (unsigned int d = 0; d < _dim; d++)
+      _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
 
-    switch (_boundary)
-    {
-      case Boundary::top:
-        topBoundary();
-        break;
-      case Boundary::bottom:
-        bottomBoundary();
-        break;
-      case Boundary::left:
-        leftBoundary();
-        break;
-      case Boundary::right:
-        rightBoundary();
-        break;
-      case Boundary::front:
-        frontBoundary();
-        break;
-      case Boundary::back:
-        backBoundary();
-        break;
-      case Boundary::wall:
-        wallBoundary3D();
-        break;
-      default:
-        mooseError("Undefined boundary names");
-    }
+    _u_owned = _u_owned.clone();
+    LBMBoundaryCondition::computeBuffer();
   }
-  _lb_problem.maskedFillSolids(_u, 0);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

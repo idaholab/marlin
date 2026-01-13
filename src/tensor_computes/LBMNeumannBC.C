@@ -34,9 +34,9 @@ LBMNeumannBC::validParams()
 LBMNeumannBC::LBMNeumannBC(const InputParameters & parameters)
   : LBMBoundaryCondition(parameters),
     _f_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("f_old"), 1)),
-    _feq(getInputBuffer("feq")),
-    _rho(getInputBuffer("rho")),
-    _velocity(getInputBuffer("velocity")),
+    _feq(getInputBuffer("feq", _radius)),
+    _rho(getInputBuffer("rho", _radius)),
+    _velocity(getInputBuffer("velocity", _radius)),
     _gradient_value(getParam<Real>("gradient"))
 {
   _feq_boundary = torch::zeros_like(_feq, MooseTensor::floatTensorOptions());
@@ -44,11 +44,18 @@ LBMNeumannBC::LBMNeumannBC(const InputParameters & parameters)
   if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
     _region_id = getParam<int>("region_id");
+    // mark 7 (128 in decimal) for regional boundary ownership
+    if (isBoundaryOwned(_region_id))
+      _boundary_rank |= (1 << 7);
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();
   }
   else if (!isParamValid("region_id") && _lb_problem.isBinaryMedia())
-  {
+  { 
+    // mark 6 (64 in decimal) for wall boundary ownership
+    if (isBoundaryOwned(0))
+      _boundary_rank |= (1 << 6);
+    
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();
 
@@ -104,10 +111,10 @@ LBMNeumannBC::topBoundary()
   for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
   {
     auto opposite = _stencil._op[_stencil._bottom[i]].item<int64_t>();
-    _u.index_put_({Slice(), _grid_size[1] - 1, Slice(), opposite},
-                  _feq_boundary.index({Slice(), _grid_size[1] - 1, Slice(), opposite}) +
-                      (_f_old[0].index({Slice(), _grid_size[1] - 1, Slice(), opposite}) -
-                       _feq.index({Slice(), _grid_size[1] - 1, Slice(), opposite})));
+    _u.index_put_({Slice(), _shape[1] - 1, Slice(), opposite},
+                  _feq_boundary.index({Slice(), _shape[1] - 1, Slice(), opposite}) +
+                      (_f_old[0].index({Slice(), _shape[1] - 1, Slice(), opposite}) -
+                       _feq.index({Slice(), _shape[1] - 1, Slice(), opposite})));
   }
 }
 
@@ -141,10 +148,10 @@ LBMNeumannBC::rightBoundary()
   for (unsigned int i = 0; i < _stencil._left.size(0); i++)
   {
     auto opposite = _stencil._op[_stencil._left[i]].item<int64_t>();
-    _u.index_put_({_grid_size[0] - 1, Slice(), Slice(), opposite},
-                  _feq_boundary.index({_grid_size[0] - 1, Slice(), Slice(), opposite}) +
-                      (_f_old[0].index({_grid_size[0] - 1, Slice(), Slice(), opposite}) -
-                       _feq.index({_grid_size[0] - 1, Slice(), Slice(), opposite})));
+    _u.index_put_({_shape[0] - 1, Slice(), Slice(), opposite},
+                  _feq_boundary.index({_shape[0] - 1, Slice(), Slice(), opposite}) +
+                      (_f_old[0].index({_shape[0] - 1, Slice(), Slice(), opposite}) -
+                       _feq.index({_shape[0] - 1, Slice(), Slice(), opposite})));
   }
 }
 
@@ -166,10 +173,10 @@ LBMNeumannBC::backBoundary()
   for (unsigned int i = 0; i < _stencil._front.size(0); i++)
   {
     auto opposite = _stencil._op[_stencil._front[i]].item<int64_t>();
-    _u.index_put_({Slice(), Slice(), _grid_size[2] - 1, opposite},
-                  _feq_boundary.index({Slice(), Slice(), _grid_size[2] - 1, opposite}) +
-                      (_f_old[0].index({Slice(), Slice(), _grid_size[2] - 1, opposite}) -
-                       _feq.index({Slice(), Slice(), _grid_size[2] - 1, opposite})));
+    _u.index_put_({Slice(), Slice(), _shape[2] - 1, opposite},
+                  _feq_boundary.index({Slice(), Slice(), _shape[2] - 1, opposite}) +
+                      (_f_old[0].index({Slice(), Slice(), _shape[2] - 1, opposite}) -
+                       _feq.index({Slice(), Slice(), _shape[2] - 1, opposite})));
   }
 }
 

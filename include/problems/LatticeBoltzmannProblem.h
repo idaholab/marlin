@@ -44,7 +44,7 @@ public:
 
   const int & getTotalSteps() const { return _t_total; }
 
-  const std::array<int64_t, 3> & getGridSize() const { return _n; }
+  const unsigned int & getGhostRadius() const { return _ghost_radius; }
 
   const bool & isBinaryMedia() { return _is_binary_media; }
 
@@ -76,6 +76,9 @@ protected:
 
   /// bc objects
   TensorComputeList _bcs;
+
+  /// radius of ghost layers
+  unsigned int _ghost_radius = 0;
 
   /// enables slip models
   bool _enable_slip;

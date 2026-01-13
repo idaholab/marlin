@@ -36,7 +36,6 @@ public:
 
 protected:
   const torch::Tensor & _f;
-  const std::array<int64_t, 3> _grid_size;
   const Real & _value;
   const bool _perturb;
 };

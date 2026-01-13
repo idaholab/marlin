@@ -27,8 +27,8 @@ LBMComputeSurfaceForces::validParams()
 
 LBMComputeSurfaceForces::LBMComputeSurfaceForces(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
-    _chemical_potential(getInputBuffer("chemical_potential")),
-    _grad_phi(getInputBuffer("grad_phi"))
+    _chemical_potential(getInputBuffer("chemical_potential", _radius)),
+    _grad_phi(getInputBuffer("grad_phi", _radius))
 {
 }
 

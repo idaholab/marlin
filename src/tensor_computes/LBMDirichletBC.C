@@ -34,9 +34,9 @@ LBMDirichletBC::validParams()
 LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
   : LBMBoundaryCondition(parameters),
     _f_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("f_old"), 1)),
-    _feq(getInputBuffer("feq")),
-    _rho(getInputBuffer("rho")),
-    _velocity(getInputBuffer("velocity")),
+    _feq(getInputBuffer("feq", _radius)),
+    _rho(getInputBuffer("rho", _radius)),
+    _velocity(getInputBuffer("velocity", _radius)),
     _boundary_value(getParam<Real>("value"))
 {
   _feq_boundary = torch::zeros_like(_feq);
@@ -44,11 +44,18 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
   if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
     _region_id = getParam<int>("region_id");
+    // mark 7 (128 in decimal) for regional boundary ownership
+    if (isBoundaryOwned(_region_id))
+      _boundary_rank |= (1 << 7);
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();
   }
   else if (!isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
+    // mark 6 (64 in decimal) for wall boundary ownership
+    if (isBoundaryOwned(0))
+      _boundary_rank |= (1 << 6);
+
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();
 
@@ -102,10 +109,10 @@ LBMDirichletBC::topBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_({Slice(), _grid_size[1] - 1, Slice(), i},
-                  _feq_boundary.index({Slice(), _grid_size[1] - 1, Slice(), i}) +
-                      (_f_old[0].index({Slice(), _grid_size[1] - 1, Slice(), i}) -
-                       _feq.index({Slice(), _grid_size[1] - 1, Slice(), i})));
+    _u.index_put_({Slice(), _shape[1] - 1, Slice(), i},
+                  _feq_boundary.index({Slice(), _shape[1] - 1, Slice(), i}) +
+                      (_f_old[0].index({Slice(), _shape[1] - 1, Slice(), i}) -
+                       _feq.index({Slice(), _shape[1] - 1, Slice(), i})));
   }
 }
 
@@ -138,10 +145,10 @@ LBMDirichletBC::rightBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_({_grid_size[0] - 1, Slice(), Slice(), i},
-                  _feq_boundary.index({_grid_size[0] - 1, Slice(), Slice(), i}) +
-                      (_f_old[0].index({_grid_size[0] - 1, Slice(), Slice(), i}) -
-                       _feq.index({_grid_size[0] - 1, Slice(), Slice(), i})));
+    _u.index_put_({_shape[0] - 1, Slice(), Slice(), i},
+                  _feq_boundary.index({_shape[0] - 1, Slice(), Slice(), i}) +
+                      (_f_old[0].index({_shape[0] - 1, Slice(), Slice(), i}) -
+                       _feq.index({_shape[0] - 1, Slice(), Slice(), i})));
   }
 }
 
@@ -162,10 +169,10 @@ LBMDirichletBC::backBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_({Slice(), Slice(), _grid_size[2] - 1, i},
-                  _feq_boundary.index({Slice(), Slice(), _grid_size[2] - 1, i}) +
-                      (_f_old[0].index({Slice(), Slice(), _grid_size[2] - 1, i}) -
-                       _feq.index({Slice(), Slice(), _grid_size[2] - 1, i})));
+    _u.index_put_({Slice(), Slice(), _shape[2] - 1, i},
+                  _feq_boundary.index({Slice(), Slice(), _shape[2] - 1, i}) +
+                      (_f_old[0].index({Slice(), Slice(), _shape[2] - 1, i}) -
+                       _feq.index({Slice(), Slice(), _shape[2] - 1, i})));
   }
 }
 

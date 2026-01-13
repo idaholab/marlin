@@ -24,7 +24,7 @@ LBMIsotropicGradient::validParams()
 }
 
 LBMIsotropicGradient::LBMIsotropicGradient(const InputParameters & parameters)
-  : LatticeBoltzmannOperator(parameters), _scalar_field(getInputBuffer("scalar_field"))
+  : LatticeBoltzmannOperator(parameters), _scalar_field(getInputBuffer("scalar_field", _radius))
 {
   const unsigned int & dim = _domain.getDim();
 

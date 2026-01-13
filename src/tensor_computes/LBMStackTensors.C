@@ -53,7 +53,7 @@ LBMStackTensors::computeBuffer()
   std::vector<torch::Tensor> tensor_vector;
   for (const auto & name : _buffer_names)
   {
-    auto tensor_buffer = getInputBufferByName(name);
+    auto tensor_buffer = getInputBufferByName(name, _radius);
 
     if (tensor_buffer.dim() < 3)
       tensor_buffer = tensor_buffer.unsqueeze(2);

@@ -21,7 +21,7 @@ LBMComputeDensity::validParams()
 }
 
 LBMComputeDensity::LBMComputeDensity(const InputParameters & parameters)
-  : LatticeBoltzmannOperator(parameters), _f(getInputBuffer("f"))
+  : LatticeBoltzmannOperator(parameters), _f(getInputBuffer("f", _radius))
 {
 }
 

@@ -48,11 +48,13 @@ LatticeBoltzmannProblem::LatticeBoltzmannProblem(const InputParameters & paramet
     _lbm_substeps(getParam<unsigned int>("substeps")),
     _tolerance(getParam<Real>("tolerance"))
 {
-  // fix sizes
-  std::vector<int64_t> shape(_domain.getShape().begin(), _domain.getShape().end());
-  if (_domain.getDim() < 3)
-    shape.push_back(1);
+  if (_domain.comm().size() > 1)
+    _ghost_radius = 1;
 
+  // fix sizes
+  std::vector<int64_t> shape(_domain.getLocalGridSize().begin(), _domain.getLocalGridSize().end());
+  if (shape.size() < 3)
+    shape.push_back(1);
   for (const auto i : index_range(shape))
   {
     _shape_extended.push_back(shape[i]);
@@ -120,7 +122,7 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
 
       // run bcs
       for (auto & bc : _bcs)
-        bc->computeBuffer();
+        bc->realSpaceComputeBuffer();
 
       // run computes
       for (auto & cmp : _computes)

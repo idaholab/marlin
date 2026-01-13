@@ -2,6 +2,8 @@
   dim = 2
   nx = 8
   ny = 8
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]

@@ -22,10 +22,14 @@ public:
   static InputParameters validParams();
 
   LatticeBoltzmannOperator(const InputParameters & parameters);
+  virtual void realSpaceComputeBuffer() override;
 
 protected:
   LatticeBoltzmannProblem & _lb_problem;
   const LatticeBoltzmannStencilBase & _stencil;
+
+  // owned copy of output tensor
+  torch::Tensor _u_owned;
 
   const torch::Tensor _ex;
   const torch::Tensor _ey;
@@ -34,4 +38,7 @@ protected:
 
   const std::vector<int64_t> & _shape;
   const std::vector<int64_t> & _shape_q;
+
+  // radius of the stencil
+  const unsigned int _radius;
 };

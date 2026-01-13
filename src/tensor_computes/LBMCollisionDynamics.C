@@ -34,9 +34,8 @@ LBMCollisionDynamicsTempl<coll_dyn>::validParams()
 template <int coll_dyn>
 LBMCollisionDynamicsTempl<coll_dyn>::LBMCollisionDynamicsTempl(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
-    _f(getInputBuffer("f")),
-    _feq(getInputBuffer("feq")),
-    _shape(_lb_problem.getGridSize()),
+    _f(getInputBuffer("f", _radius)),
+    _feq(getInputBuffer("feq", _radius)),
     _tau_0(_lb_problem.getConstant<Real>(getParam<std::string>("tau0"))),
     _C_s(_lb_problem.getConstant<Real>(getParam<std::string>("Cs"))),
     _delta_x(1.0),

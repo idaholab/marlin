@@ -27,6 +27,16 @@ LatticeBoltzmannOperator::LatticeBoltzmannOperator(const InputParameters & param
     _ez(_stencil._ez.clone().reshape({1, 1, 1, _stencil._q})),
     _w(_stencil._weights.clone().reshape({1, 1, 1, _stencil._q})),
     _shape(_lb_problem.getExtendedShape()),
-    _shape_q(_lb_problem.getExtendedShapeQ())
+    _shape_q(_lb_problem.getExtendedShapeQ()),
+    _radius(_lb_problem.getGhostRadius())
 {
+}
+
+void
+LatticeBoltzmannOperator::realSpaceComputeBuffer()
+{
+  _u_owned = _u;
+  for (unsigned int d = 0; d < _dim; d++)
+    _u_owned = _u_owned.narrow(d, _radius, _shape[d]);
+  _lb_problem.runComputeWithGhosts(*this);
 }

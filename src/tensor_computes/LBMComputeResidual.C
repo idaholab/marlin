@@ -22,8 +22,8 @@ LBMComputeResidual::validParams()
 
 LBMComputeResidual::LBMComputeResidual(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
-    _speed(getInputBuffer("speed")),
-    _speed_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("speed"), 1))
+    _speed(getInputBuffer("speed", _radius)),
+    _speed_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("speed"), 1, _radius))
 {
 }
 

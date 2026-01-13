@@ -27,11 +27,11 @@ public:
   void frontBoundary() override;
   void backBoundary() override;
   void wallBoundary() override;
-  void wallBoundary3D();
   void computeBuffer() override;
 
 protected:
   const std::vector<torch::Tensor> & _f_old;
+  torch::Tensor _f_old_owned;
 
   // whether or not apply bounce back in the corners
   const bool _exclude_corners_x;

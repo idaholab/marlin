@@ -55,15 +55,18 @@ TensorSolver::TensorSolver(const InputParameters & parameters)
 }
 
 const std::vector<torch::Tensor> &
-TensorSolver::getBufferOld(const std::string & param, unsigned int max_states)
+TensorSolver::getBufferOld(const std::string & param, unsigned int max_states, unsigned int ghost_layers)
 {
-  return getBufferOldByName(getParam<TensorInputBufferName>(param), max_states);
+  return getBufferOldByName(getParam<TensorInputBufferName>(param), max_states, ghost_layers);
 }
 
 const std::vector<torch::Tensor> &
-TensorSolver::getBufferOldByName(const TensorInputBufferName & buffer_name, unsigned int max_states)
-{
-  return _tensor_problem.getBufferOld(buffer_name, max_states);
+TensorSolver::getBufferOldByName(const TensorInputBufferName & buffer_name, unsigned int max_states, unsigned int ghost_layers)
+{   
+  _input_buffer_ghost_layers[buffer_name] =
+      std::max(_input_buffer_ghost_layers[buffer_name], ghost_layers);
+  _tensor_problem.registerGhostLayerRequest(buffer_name, ghost_layers);
+  return _tensor_problem.getBufferOld(buffer_name, max_states, ghost_layers);
 }
 
 void

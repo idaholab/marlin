@@ -21,7 +21,7 @@ LBMComputeVelocityMagnitude::validParams()
 }
 
 LBMComputeVelocityMagnitude::LBMComputeVelocityMagnitude(const InputParameters & parameters)
-  : LatticeBoltzmannOperator(parameters), _velocity(getInputBuffer("velocity"))
+  : LatticeBoltzmannOperator(parameters), _velocity(getInputBuffer("velocity", _radius))
 {
 }
 

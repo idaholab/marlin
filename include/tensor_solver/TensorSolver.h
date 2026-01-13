@@ -30,9 +30,11 @@ public:
 
 protected:
   const std::vector<torch::Tensor> & getBufferOld(const std::string & param,
-                                                  unsigned int max_states);
+                                                  unsigned int max_states,
+                                                  unsigned int ghost_layers = 0);
   const std::vector<torch::Tensor> & getBufferOldByName(const TensorInputBufferName & buffer_name,
-                                                        unsigned int max_states);
+                                                        unsigned int max_states,
+                                                        unsigned int ghost_layers = 0);
 
   void gatherDependencies();
   void forwardBuffers();

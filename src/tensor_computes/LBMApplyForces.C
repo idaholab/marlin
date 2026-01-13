@@ -29,9 +29,9 @@ LBMApplyForces::validParams()
 
 LBMApplyForces::LBMApplyForces(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters), /*_f(getInputBuffer("f"))*/
-    _velocity(getInputBuffer("velocity")),
-    _density(getInputBuffer("rho")),
-    _forces(getInputBuffer("forces")),
+    _velocity(getInputBuffer("velocity", _radius)),
+    _density(getInputBuffer("rho", _radius)),
+    _forces(getInputBuffer("forces", _radius)),
     _tau(_lb_problem.getConstant<Real>(getParam<std::string>("tau0")))
 {
 }
@@ -90,7 +90,7 @@ LBMApplyForces::computeSourceTerm()
 
     // // sum along the last dimension
     // torch::Tensor UFccr = multiplied.sum(/*dim=*/-1);
-
+    
     // compute source
     _source_term.index_put_(
         {Slice(), Slice(), Slice(), ic},

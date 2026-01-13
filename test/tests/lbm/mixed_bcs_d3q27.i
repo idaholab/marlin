@@ -4,6 +4,8 @@
   ny = 10
   nz = 10
   mesh_mode = DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y Z'
 []
 
 [Stencil]

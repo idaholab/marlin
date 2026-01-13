@@ -50,7 +50,7 @@ XDMFTensorOutput::validParams()
 
   params.addParam<MultiMooseEnum>("output_mode", outputMode, "Output as cell or node data");
   params.addParam<bool>("transpose",
-                        true,
+                        false,
                         "The Paraview XDMF reader swaps x-y (x-z in 3d), so we transpose the "
                         "tensors before we output to make the data look right in Paraview.");
   return params;

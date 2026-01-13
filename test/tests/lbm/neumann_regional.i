@@ -3,6 +3,8 @@
   nx = 11
   ny = 11
   mesh_mode=DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]

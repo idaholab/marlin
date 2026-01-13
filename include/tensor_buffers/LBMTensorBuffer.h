@@ -8,7 +8,7 @@
 
 #pragma once
 
-#include "TensorBuffer.h"
+#include "PlainTensorBuffer.h"
 
 class LatticeBoltzmannStencilBase;
 class LatticeBoltzmannProblem;
@@ -16,7 +16,7 @@ class LatticeBoltzmannProblem;
 /**
  * Tensor wrapper for LBM tensors
  */
-class LBMTensorBuffer : public TensorBuffer<torch::Tensor>
+class LBMTensorBuffer : public PlainTensorBuffer
 {
 public:
   static InputParameters validParams();
@@ -24,7 +24,6 @@ public:
   LBMTensorBuffer(const InputParameters & parameters);
 
   void init() override;
-  virtual void makeCPUCopy() override;
 
   void readTensorFromFile(const std::vector<int64_t> &);
   void readTensorFromHdf5();
