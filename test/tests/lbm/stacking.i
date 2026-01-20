@@ -53,16 +53,45 @@
   substeps = 1
 []
 
+[Postprocessors]
+  [velocity_x_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = ux
+    value_type = MIN
+  []
+  [velocity_x_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = ux
+    value_type = MAX
+  []
+  [velocity_y_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = uy
+    value_type = MIN
+  []
+  [velocity_y_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = uy
+    value_type = MAX
+  []
+  [u_stack_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = u
+    value_type = MIN
+  []
+  [u_stack_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = u
+    value_type = MAX
+  []
+[]
+
 [Executioner]
   type = Transient
   num_steps = 2
 []
 
-[TensorOutputs]
-  [xdmf2]
-    type = XDMFTensorOutput
-    buffer = 'u'
-    output_mode = 'Cell'
-    enable_hdf5 = true
-  []
+[Outputs]
+  file_base = stacking
+  csv = true
 []

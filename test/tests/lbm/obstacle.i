@@ -148,25 +148,6 @@
   f_old = f_post_collision
 []
 
-[Postprocessors]
-  [rho_avg]
-    type = TensorAveragePostprocessor
-    buffer = rho
-    execute_on = 'TIMESTEP_END'
-  []
-  [speed_avg]
-    type = TensorAveragePostprocessor
-    buffer = speed
-    execute_on = 'TIMESTEP_END'
-  []
-  [reynolds]
-    type = ComputeReynoldsNumber
-    buffer = speed
-    tau = tau
-    diameter = D
-  []
-[]
-
 [Problem]
   type = LatticeBoltzmannProblem
   scalar_constant_names = 'rho0 Ux    Uy tau   dx    D    Cs'
@@ -176,16 +157,45 @@
   binary_media = binary_media
 []
 
-[Executioner]
-  type = Transient
-  num_steps = 3
+[Postprocessors]
+  [velocity_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = u
+    value_type = MIN
+  []
+  [velocity_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = u
+    value_type = MAX
+  []
+  [speed_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = speed
+    value_type = MIN
+  []
+  [speed_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = speed
+    value_type = MAX
+  []
+  [density_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = rho
+    value_type = MIN
+  []
+  [densty_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = rho
+    value_type = MAX
+  []
 []
 
-[TensorOutputs]
-  [xdmf2]
-    type = XDMFTensorOutput
-    buffer = 'rho u speed binary_media'
-    output_mode = 'Cell Cell Cell Cell'
-    enable_hdf5 = true
-  []
+[Executioner]
+  type = Transient
+  num_steps = 5
+[]
+
+[Outputs]
+  file_base = obstacle
+  csv = true
 []

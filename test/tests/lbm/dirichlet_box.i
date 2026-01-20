@@ -139,16 +139,35 @@
   substeps = 1
 []
 
-[Executioner]
-  type = Transient
-  num_steps = 2
+[Postprocessors]
+  [velocity_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MIN
+  []
+  [velocity_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MAX
+  []
+  [density_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = density
+    value_type = MIN
+  []
+  [densty_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = density
+    value_type = MAX
+  []
 []
 
-[TensorOutputs]
-  [xdmf2]
-    type = XDMFTensorOutput
-    buffer = 'density'
-    output_mode = 'Cell'
-    enable_hdf5 = true
-  []
+[Executioner]
+  type = Transient
+  num_steps = 5
+[]
+
+[Outputs]
+  file_base = dirichlet_box
+  csv = true
 []

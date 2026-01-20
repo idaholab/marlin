@@ -9,7 +9,7 @@
   device_names='cuda'
   floating_precision = 'single'
   parallel_mode = REAL_SPACE
-  periodic_directions = 'X Y'
+  periodic_directions = 'X Y Z'
 []
 
 [Stencil]
@@ -182,7 +182,6 @@
   type = LatticeBoltzmannProblem
   substeps = 100
   print_debug_output = true
-  is_binary_media = true
   binary_media = binary_media
 []
 
