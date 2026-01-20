@@ -50,7 +50,7 @@ XDMFTensorOutput::validParams()
 
   params.addParam<MultiMooseEnum>("output_mode", outputMode, "Output as cell or node data");
   params.addParam<bool>("transpose",
-                        false,
+                        true,
                         "The Paraview XDMF reader swaps x-y (x-z in 3d), so we transpose the "
                         "tensors before we output to make the data look right in Paraview.");
   return params;
@@ -202,6 +202,10 @@ XDMFTensorOutput::init()
   _tgrid.append_attribute("Name") = "TimeSeries";
   _tgrid.append_attribute("GridType") = "Collection";
   _tgrid.append_attribute("CollectionType") = "Temporal";
+
+  /// TODO: avoid garbage values in origin on last output
+  for (unsigned int r = 0; r < _n_rank; ++r)
+    _origin = localOrigin(r);
 
   // write XDMF file
   _doc.save_file((_file_base + ".xmf").c_str());
@@ -443,7 +447,7 @@ XDMFTensorOutput::writeParallelXMF()
   {
     const auto cells = localCellCounts(r);
     const auto nodes = localNodeCounts(r);
-    const auto origin = localOrigin(r);
+    // const auto origin = localOrigin(r);
 
     auto subgrid = grid.append_child("Grid");
     subgrid.append_attribute("Name") = ("Rank" + Moose::stringify(r)).c_str();
@@ -459,7 +463,7 @@ XDMFTensorOutput::writeParallelXMF()
     auto origin_data = geometry.append_child("DataItem");
     origin_data.append_attribute("Format") = "XML";
     origin_data.append_attribute("Dimensions") = spacing_dims.c_str();
-    origin_data.append_child(pugi::node_pcdata).set_value(Moose::stringify(origin, " ").c_str());
+    origin_data.append_child(pugi::node_pcdata).set_value(Moose::stringify(_origin, " ").c_str());
 
     auto spacing_data = geometry.append_child("DataItem");
     spacing_data.append_attribute("Format") = "XML";

@@ -32,6 +32,15 @@ LatticeBoltzmannOperator::LatticeBoltzmannOperator(const InputParameters & param
 {
 }
 
+torch::Tensor
+LatticeBoltzmannOperator::ownedView(const torch::Tensor & t)
+{
+  torch::Tensor t_owned = t;
+  for (unsigned int d = 0; d < _dim; d++)
+    t_owned = t_owned.narrow(d, _radius, _shape[d]);
+  return t_owned;
+}
+
 void
 LatticeBoltzmannOperator::realSpaceComputeBuffer()
 {

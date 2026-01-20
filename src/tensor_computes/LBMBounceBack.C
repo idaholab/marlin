@@ -72,7 +72,7 @@ LBMBounceBack::LBMBounceBack(const InputParameters & parameters)
   {
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();
-    
+
     // mark 6 (64 in decimal) for wall boundary ownership
     if (isBoundaryOwned(0))
       _boundary_rank |= (1 << 6);
@@ -95,8 +95,9 @@ LBMBounceBack::backBoundary()
   for (unsigned int i = 0; i < _stencil._front.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._front[i]];
-    _u_owned.index_put_({_x_indices, _y_indices, _shape[2] - 1, opposite_dir},
-                  _f_old_owned.index({_x_indices, _y_indices, _shape[2] - 1, _stencil._front[i]}));
+    _u_owned.index_put_(
+        {_x_indices, _y_indices, _shape[2] - 1, opposite_dir},
+        _f_old_owned.index({_x_indices, _y_indices, _shape[2] - 1, _stencil._front[i]}));
   }
 }
 
@@ -107,7 +108,7 @@ LBMBounceBack::frontBoundary()
   {
     const auto & opposite_dir = _stencil._op[_stencil._front[i]];
     _u_owned.index_put_({_x_indices, _y_indices, 0, _stencil._front[i]},
-                  _f_old_owned.index({_x_indices, _y_indices, 0, opposite_dir}));
+                        _f_old_owned.index({_x_indices, _y_indices, 0, opposite_dir}));
   }
 }
 
@@ -118,7 +119,7 @@ LBMBounceBack::leftBoundary()
   {
     const auto & opposite_dir = _stencil._op[_stencil._left[i]];
     _u_owned.index_put_({0, _y_indices, _z_indices, _stencil._left[i]},
-                  _f_old_owned.index({0, _y_indices, _z_indices, opposite_dir}));
+                        _f_old_owned.index({0, _y_indices, _z_indices, opposite_dir}));
   }
 }
 
@@ -128,8 +129,9 @@ LBMBounceBack::rightBoundary()
   for (unsigned int i = 0; i < _stencil._left.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._left[i]];
-    _u_owned.index_put_({_shape[0] - 1, _y_indices, _z_indices, opposite_dir},
-                  _f_old_owned.index({_shape[0] - 1, _y_indices, _z_indices, _stencil._left[i]}));
+    _u_owned.index_put_(
+        {_shape[0] - 1, _y_indices, _z_indices, opposite_dir},
+        _f_old_owned.index({_shape[0] - 1, _y_indices, _z_indices, _stencil._left[i]}));
   }
 }
 
@@ -140,13 +142,13 @@ LBMBounceBack::bottomBoundary()
   {
     const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
     _u_owned.index_put_({_x_indices, 0, _z_indices, _stencil._bottom[i]},
-                  _f_old_owned.index({_x_indices, 0, _z_indices, opposite_dir}));
+                        _f_old_owned.index({_x_indices, 0, _z_indices, opposite_dir}));
   }
 }
 
 void
 LBMBounceBack::topBoundary()
-{ 
+{
   for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
@@ -161,12 +163,11 @@ LBMBounceBack::wallBoundary()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == -1) & (_u == 0);
+    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u_owned) == -1) & (_u_owned == 0);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
 
-  torch::Tensor f_bounce_back = torch::zeros_like(_u);
-
+  torch::Tensor f_bounce_back = torch::zeros_like(_u_owned);
   for (/* do not use unsigned int */ int ic = 1; ic < _stencil._q; ic++)
   {
     int64_t index = _stencil._op[ic].item<int64_t>();
@@ -174,23 +175,20 @@ LBMBounceBack::wallBoundary()
     auto bounce_back_slice = f_bounce_back.index({Slice(), Slice(), Slice(), ic});
     bounce_back_slice.copy_(lattice_slice);
   }
-
-  _u.index_put_({_boundary_mask}, f_bounce_back.index({_boundary_mask}));
+  _u_owned.index_put_({_boundary_mask}, f_bounce_back.index({_boundary_mask}));
 }
 
 void
 LBMBounceBack::computeBuffer()
 {
   const auto n_old = _f_old.size();
-  if (n_old != 0)
-  {
-    // do not overwrite previous
-    _f_old_owned = _f_old[0];
-    for (unsigned int d = 0; d < _dim; d++)
-      _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
+  if (n_old == 0)
+    return;
 
-    _u_owned = _u_owned.clone();
-    LBMBoundaryCondition::computeBuffer();
-  }
+  _f_old_owned = _f_old[0];
+  for (unsigned int d = 0; d < _dim; d++)
+    _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
+
+  LBMBoundaryCondition::computeBuffer();
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

@@ -68,5 +68,6 @@ LBMEquilibrium::computeBuffer()
   }
 
   _u = _w * rho_unsqueezed * (1.0 + second_order - third_order);
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

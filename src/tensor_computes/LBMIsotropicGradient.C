@@ -115,5 +115,6 @@ LBMIsotropicGradient::computeBuffer()
       break;
     }
   }
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

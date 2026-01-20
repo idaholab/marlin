@@ -36,5 +36,6 @@ void
 LBMComputeSurfaceForces::computeBuffer()
 {
   _u = _chemical_potential.unsqueeze(-1) * _grad_phi;
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

@@ -45,7 +45,7 @@ LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
   if (getParam<bool>("add_body_force"))
   {
     std::vector<int64_t> shape = _lb_problem.getLocalTensorShape(std::vector<int64_t>());
-    if (shape.size() < 3 )
+    if (shape.size() < 3)
       shape.push_back(1);
     shape.push_back(_dim);
 
@@ -66,7 +66,6 @@ LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
 void
 LBMComputeVelocity::computeBuffer()
 {
-
   _u.index({Slice(), Slice(), Slice(), 0}) = torch::sum(_f * _stencil._ex, 3) / _rho;
 
   if (_dim > 1)
@@ -81,5 +80,6 @@ LBMComputeVelocity::computeBuffer()
   if (getParam<bool>("add_body_force"))
     _u += _body_forces / (2.0 * _rho.unsqueeze(3));
 
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

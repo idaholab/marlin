@@ -38,8 +38,17 @@ LBMComputeResidual::computeBuffer()
   }
   else
   {
-    Real sumUsqareMinusUsqareOld = torch::sum(torch::abs(_speed - _speed_old[0])).item<Real>();
-    Real sumUsquare = torch::sum(_speed).item<Real>();
+    auto speed_owned = ownedView(_speed);
+    auto speed_old_owned = ownedView(_speed_old[0]);
+
+    Real sumUsqareMinusUsqareOld =
+        torch::sum(torch::abs(speed_owned - speed_old_owned)).item<Real>();
+    Real sumUsquare = torch::sum(speed_owned).item<Real>();
+
+    // global reduction
+    _domain.comm().sum(sumUsqareMinusUsqareOld);
+    _domain.comm().sum(sumUsquare);
+
     Real residual = (sumUsquare == 0 || sumUsqareMinusUsqareOld == 0)
                         ? 1.0
                         : sumUsqareMinusUsqareOld / sumUsquare;

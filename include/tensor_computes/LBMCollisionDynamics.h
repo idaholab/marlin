@@ -41,6 +41,8 @@ protected:
   torch::Tensor _local_relaxation_matrix;
   torch::Tensor _global_relaxation_matrix;
 
+  std::vector<int64_t> _shape_with_ghost;
+
   const Real _tau_0;
   const Real _C_s;     // Smagorinsky constant
   const Real _delta_x; // grid resolution

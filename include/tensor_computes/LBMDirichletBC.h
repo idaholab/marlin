@@ -35,6 +35,8 @@ public:
 
 protected:
   const std::vector<torch::Tensor> & _f_old;
+  torch::Tensor _f_old_owned;
+
   const torch::Tensor & _feq;
   const torch::Tensor & _rho;
   const torch::Tensor & _velocity;

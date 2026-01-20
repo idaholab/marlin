@@ -22,6 +22,7 @@ public:
   static InputParameters validParams();
 
   LatticeBoltzmannOperator(const InputParameters & parameters);
+  torch::Tensor ownedView(const torch::Tensor &);
   virtual void realSpaceComputeBuffer() override;
 
 protected:

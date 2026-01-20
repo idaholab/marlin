@@ -42,8 +42,15 @@ LBMCollisionDynamicsTempl<coll_dyn>::LBMCollisionDynamicsTempl(const InputParame
     _projection(getParam<bool>("projection"))
 {
   //
-  _fneq = torch::zeros({_shape[0], _shape[1], _shape[2], _stencil._q},
-                       MooseTensor::floatTensorOptions());
+  _shape_with_ghost = _shape;
+  _shape_with_ghost[0] += 2 * _radius;
+  _shape_with_ghost[1] += 2 * _radius;
+  if (_dim == 3)
+    _shape_with_ghost[2] += 2 * _radius;
+
+  _fneq =
+      torch::zeros({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q},
+                   MooseTensor::floatTensorOptions());
 }
 
 template <int coll_dyn>
@@ -54,28 +61,23 @@ LBMCollisionDynamicsTempl<coll_dyn>::HermiteRegularization()
    * Regularization procedure projects non-equilibrium (fneq) distribution
    * onto the second order Hermite space.
    */
-
   using torch::indexing::Slice;
 
-  int64_t nx = _shape[0];
-  int64_t ny = _shape[1];
-  int64_t nz = _shape[2];
-
+  int64_t nx = _shape_with_ghost[0];
+  int64_t ny = _shape_with_ghost[1];
+  int64_t nz = _shape_with_ghost[2];
   auto f_flat = _f.view({nx * ny * nz, _stencil._q});
   auto feq_flat = _feq.view({nx * ny * nz, _stencil._q});
   auto f_neq_hat = _fneq.view({nx * ny * nz, _stencil._q});
-
   torch::Tensor fneq = f_flat - feq_flat;
   torch::Tensor fneqtimescc = torch::zeros({nx * ny * nz, 9}, MooseTensor::floatTensorOptions());
   torch::Tensor e_xyz = torch::stack({_stencil._ex, _stencil._ey, _stencil._ez}, 0);
-
   for (int ic = 0; ic < _stencil._q; ic++)
   {
     auto exyz_ic = e_xyz.index({Slice(), ic}).flatten();
     torch::Tensor ccr = torch::outer(exyz_ic, exyz_ic).flatten();
     fneqtimescc += (fneq.select(1, ic).view({nx * ny * nz, 1}) * ccr.view({1, 9}));
   }
-
   // Compute Hermite tensor
   torch::Tensor H2 = torch::zeros({1, 9}, MooseTensor::floatTensorOptions());
   for (int ic = 0; ic < _stencil._q; ic++)
@@ -90,7 +92,6 @@ LBMCollisionDynamicsTempl<coll_dyn>::HermiteRegularization()
         {Slice(), ic},
         (_stencil._weights[ic] * (1.0 / (2.0 * _lb_problem._cs2)) * (fneqtimescc * H2).sum(1)));
   }
-
   _fneq = f_neq_hat.view({nx, ny, nz, _stencil._q});
 }
 
@@ -98,9 +99,9 @@ template <int coll_dyn>
 void
 LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
 {
-  int64_t nx = _shape[0];
-  int64_t ny = _shape[1];
-  int64_t nz = _shape[2];
+  int64_t nx = _shape_with_ghost[0];
+  int64_t ny = _shape_with_ghost[1];
+  int64_t nz = _shape_with_ghost[2];
 
   auto f_neq_hat = _fneq.view({nx * ny * nz, _stencil._q, 1, 1, 1});
 
@@ -196,7 +197,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeLocalRelaxationMatrix()
   if (_lb_problem.getTotalSteps() == 0)
   {
     std::array<int64_t, 5> local_relaxation_mrt_shape = {
-        _shape[0], _shape[1], _shape[2], _stencil._q, _stencil._q};
+        _shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q, _stencil._q};
 
     _local_relaxation_matrix =
         torch::zeros(local_relaxation_mrt_shape, MooseTensor::floatTensorOptions());
@@ -234,7 +235,8 @@ LBMCollisionDynamicsTempl<0>::BGKDynamics()
 {
   /* LBM BGK collision */
   _u = _feq + _fneq - 1.0 / _tau_0 * _fneq;
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }
 
 template <>
@@ -250,8 +252,8 @@ LBMCollisionDynamicsTempl<1>::MRTDynamics()
   auto f = torch::einsum("ab,ijkb->ijka", {_stencil._M_inv, m_neq_relaxed});
 
   _u = _feq + _fneq - f;
-
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }
 
 template <>
@@ -259,11 +261,10 @@ void
 LBMCollisionDynamicsTempl<2>::SmagorinskyDynamics()
 {
   computeRelaxationParameter();
-
   // BGK collision
   _u = _feq + _fneq - 1.0 / _relaxation_parameter * _fneq;
-
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }
 
 template <>
@@ -281,6 +282,8 @@ LBMCollisionDynamicsTempl<3>::SmagorinskyMRTDynamics()
 
   // f = M^{-1} x S x M x (f - feq)
   _u = _feq + _fneq - f;
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }
 
 template <int coll_dyn>
@@ -309,7 +312,6 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeBuffer()
     default:
       mooseError("Undefined template value");
   }
-  _lb_problem.maskedFillSolids(_u, 0);
 }
 
 template class LBMCollisionDynamicsTempl<0>;

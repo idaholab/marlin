@@ -84,6 +84,9 @@ private:
   std::string _geometry_type;
   std::vector<std::pair<std::array<int64_t, 3>, std::array<int64_t, 3>>> _cached_local_bounds;
 
+  /// TODO: precomputed origin (parallel) to avoid garbage values in origin on last output
+  std::vector<Real> _origin;
+
   /// xml document references (root rank only in parallel)
   pugi::xml_document _doc;
   pugi::xml_node _tgrid;

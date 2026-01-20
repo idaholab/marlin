@@ -82,7 +82,6 @@ LBMComputeForces::computeBuffer()
   if (_enable_surface_forces)
     computeSurfaceForces();
 
-  /// more forces can be added ?
-
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

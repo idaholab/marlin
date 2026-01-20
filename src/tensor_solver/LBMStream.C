@@ -50,21 +50,27 @@ LBMStream::LBMStream(const InputParameters & parameters)
 
 void
 LBMStream::computeBuffer()
-{ 
+{
   // Ensure all input buffers have the same ghost layers
   for (const auto & [name, ghost] : _input_buffer_ghost_layers)
     if (ghost != _radius)
-      mooseError("Ghost layer mismatch! Expected all input buffers to have the same ghost layer size'", _radius,
-                 "' but buffer '", name, "' has ghost layer size '", ghost, "'.");
+      mooseError(
+          "Ghost layer mismatch! Expected all input buffers to have the same ghost layer size'",
+          _radius,
+          "' but buffer '",
+          name,
+          "' has ghost layer size '",
+          ghost,
+          "'.");
 
   // Exchange ghost layers
   for (const auto & [buffer_name, ghost] : _input_buffer_ghost_layers)
     if (ghost > 0)
       _lb_problem.exchangeGhostLayers(buffer_name, ghost);
-  
+
   const auto n_old = _variables[0]._f_old.size();
   if (n_old != 0 && _radius == 0)
-  { 
+  {
     // serial streaming
     for (auto & [u, f_old] : _variables)
     {
@@ -73,19 +79,19 @@ LBMStream::computeBuffer()
       for (int i = 0; i < _stencil._q; i++)
       {
         u.index_put_({Slice(), Slice(), Slice(), i},
-                    torch::roll(f_old[0].index({Slice(), Slice(), Slice(), i}),
-                                /* shifts = */
-                                {_stencil._ex[i].item<int64_t>(),
+                     torch::roll(f_old[0].index({Slice(), Slice(), Slice(), i}),
+                                 /* shifts = */
+                                 {_stencil._ex[i].item<int64_t>(),
                                   _stencil._ey[i].item<int64_t>(),
                                   _stencil._ez[i].item<int64_t>()},
-                                /* dims = */
-                                {0, 1, 2}));
+                                 /* dims = */
+                                 {0, 1, 2}));
       }
       _lb_problem.maskedFillSolids(u, 0);
     }
   }
   else if (n_old != 0 && _radius > 0)
-  { 
+  {
     // streaming with ghost layers
     // get domain info for slicing
     const auto owned = _lb_problem.getExtendedShape();
@@ -101,23 +107,20 @@ LBMStream::computeBuffer()
       for (int i = 0; i < _stencil._q; i++)
       {
         // shifts
-        int64_t shifts[] = 
-        {
-          _stencil._ex[i].item<int64_t>(),
-          _stencil._ey[i].item<int64_t>(),
-          _stencil._ez[i].item<int64_t>()
-        };
-        
+        int64_t shifts[] = {_stencil._ex[i].item<int64_t>(),
+                            _stencil._ey[i].item<int64_t>(),
+                            _stencil._ez[i].item<int64_t>()};
+
         // stream via slicing
         auto f_shifted = f_old[0];
         for (unsigned int d = 0; d < _dim; d++)
           f_shifted = f_shifted.narrow(d, halo - shifts[d], owned[d]);
 
-        u_owned.index_put_({Slice(), Slice(), Slice(), i}, 
-                          f_shifted.index({Slice(), Slice(), Slice(), i}));
+        u_owned.index_put_({Slice(), Slice(), Slice(), i},
+                           f_shifted.index({Slice(), Slice(), Slice(), i}));
       }
 
-      _lb_problem.maskedFillSolids(u, 0);
+      _lb_problem.maskedFillSolids(u_owned, 0);
     }
   }
 }

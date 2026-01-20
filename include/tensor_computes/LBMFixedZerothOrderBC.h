@@ -34,5 +34,6 @@ public:
 
 protected:
   const torch::Tensor & _f;
+  torch::Tensor _f_owned;
   const Real _value;
 };

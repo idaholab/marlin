@@ -8,7 +8,8 @@
   zmax = 146
   device_names='cuda'
   floating_precision = 'single'
-  mesh_mode=DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]

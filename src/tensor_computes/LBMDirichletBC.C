@@ -101,7 +101,8 @@ LBMDirichletBC::computeBoundaryEquilibrium()
     second_order = edotu / _lb_problem._cs2 + 0.5 * edotu_sqr / _lb_problem._cs4;
     third_order = 0.5 * usqr / _lb_problem._cs2;
   }
-  _feq_boundary = _w * rho_unsqueezed * (1.0 + second_order - third_order);
+  auto feq_boundary = _w * rho_unsqueezed * (1.0 + second_order - third_order);
+  _feq_boundary = ownedView(feq_boundary);
 }
 
 void
@@ -109,10 +110,10 @@ LBMDirichletBC::topBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_({Slice(), _shape[1] - 1, Slice(), i},
-                  _feq_boundary.index({Slice(), _shape[1] - 1, Slice(), i}) +
-                      (_f_old[0].index({Slice(), _shape[1] - 1, Slice(), i}) -
-                       _feq.index({Slice(), _shape[1] - 1, Slice(), i})));
+    _u_owned.index_put_({Slice(), _shape[1] - 1, Slice(), i},
+                        _feq_boundary.index({Slice(), _shape[1] - 1, Slice(), i}) +
+                            (_f_old_owned.index({Slice(), _shape[1] - 1, Slice(), i}) -
+                             ownedView(_feq).index({Slice(), _shape[1] - 1, Slice(), i})));
   }
 }
 
@@ -121,10 +122,10 @@ LBMDirichletBC::bottomBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_(
-        {Slice(), 0, Slice(), i},
-        _feq_boundary.index({Slice(), 0, Slice(), i}) +
-            (_f_old[0].index({Slice(), 0, Slice(), i}) - _feq.index({Slice(), 0, Slice(), i})));
+    _u_owned.index_put_({Slice(), 0, Slice(), i},
+                        _feq_boundary.index({Slice(), 0, Slice(), i}) +
+                            (_f_old_owned.index({Slice(), 0, Slice(), i}) -
+                             ownedView(_feq).index({Slice(), 0, Slice(), i})));
   }
 }
 
@@ -133,10 +134,10 @@ LBMDirichletBC::leftBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_(
-        {0, Slice(), Slice(), i},
-        _feq_boundary.index({0, Slice(), Slice(), i}) +
-            (_f_old[0].index({0, Slice(), Slice(), i}) - _feq.index({0, Slice(), Slice(), i})));
+    _u_owned.index_put_({0, Slice(), Slice(), i},
+                        _feq_boundary.index({0, Slice(), Slice(), i}) +
+                            (_f_old_owned.index({0, Slice(), Slice(), i}) -
+                             ownedView(_feq).index({0, Slice(), Slice(), i})));
   }
 }
 
@@ -145,10 +146,10 @@ LBMDirichletBC::rightBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_({_shape[0] - 1, Slice(), Slice(), i},
-                  _feq_boundary.index({_shape[0] - 1, Slice(), Slice(), i}) +
-                      (_f_old[0].index({_shape[0] - 1, Slice(), Slice(), i}) -
-                       _feq.index({_shape[0] - 1, Slice(), Slice(), i})));
+    _u_owned.index_put_({_shape[0] - 1, Slice(), Slice(), i},
+                        _feq_boundary.index({_shape[0] - 1, Slice(), Slice(), i}) +
+                            (_f_old_owned.index({_shape[0] - 1, Slice(), Slice(), i}) -
+                             ownedView(_feq).index({_shape[0] - 1, Slice(), Slice(), i})));
   }
 }
 
@@ -157,10 +158,10 @@ LBMDirichletBC::frontBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_(
-        {Slice(), Slice(), 0, i},
-        _feq_boundary.index({Slice(), Slice(), 0, i}) +
-            (_f_old[0].index({Slice(), Slice(), 0, i}) - _feq.index({Slice(), Slice(), 0, i})));
+    _u_owned.index_put_({Slice(), Slice(), 0, i},
+                        _feq_boundary.index({Slice(), Slice(), 0, i}) +
+                            (_f_old_owned.index({Slice(), Slice(), 0, i}) -
+                             ownedView(_feq).index({Slice(), Slice(), 0, i})));
   }
 }
 
@@ -169,10 +170,10 @@ LBMDirichletBC::backBoundary()
 {
   for (int64_t i = 0; i < _stencil._q; i++)
   {
-    _u.index_put_({Slice(), Slice(), _shape[2] - 1, i},
-                  _feq_boundary.index({Slice(), Slice(), _shape[2] - 1, i}) +
-                      (_f_old[0].index({Slice(), Slice(), _shape[2] - 1, i}) -
-                       _feq.index({Slice(), Slice(), _shape[2] - 1, i})));
+    _u_owned.index_put_({Slice(), Slice(), _shape[2] - 1, i},
+                        _feq_boundary.index({Slice(), Slice(), _shape[2] - 1, i}) +
+                            (_f_old_owned.index({Slice(), Slice(), _shape[2] - 1, i}) -
+                             ownedView(_feq).index({Slice(), Slice(), _shape[2] - 1, i})));
   }
 }
 
@@ -181,12 +182,13 @@ LBMDirichletBC::wallBoundary()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == -1);
+    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u_owned) == -1);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u.index_put_({_boundary_mask},
-                _feq_boundary.index({_boundary_mask}) +
-                    (_f_old[0].index({_boundary_mask}) - _feq.index({_boundary_mask})));
+  _u_owned.index_put_(
+      {_boundary_mask},
+      _feq_boundary.index({_boundary_mask}) +
+          (_f_old_owned.index({_boundary_mask}) - ownedView(_feq).index({_boundary_mask})));
 }
 
 void
@@ -194,17 +196,22 @@ LBMDirichletBC::regionalBoundary()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u) == _region_id);
+    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u_owned) == _region_id);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u.index_put_({_boundary_mask},
-                _feq_boundary.index({_boundary_mask}) +
-                    (_f_old[0].index({_boundary_mask}) - _feq.index({_boundary_mask})));
+  _u_owned.index_put_(
+      {_boundary_mask},
+      _feq_boundary.index({_boundary_mask}) +
+          (_f_old_owned.index({_boundary_mask}) - ownedView(_feq).index({_boundary_mask})));
 }
 
 void
 LBMDirichletBC::computeBuffer()
 {
+  _f_old_owned = _f_old[0];
+  for (unsigned int d = 0; d < _dim; d++)
+    _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
+
   computeBoundaryEquilibrium();
   LBMBoundaryCondition::computeBuffer();
 }

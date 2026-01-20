@@ -151,7 +151,7 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _local_ranks = {0};
     _local_weights = {1};
 
-    if (_device_names.size() || !marlin_app->parameters().isParamSetByUser("compute_device"))
+    if (_device_names.size() && !marlin_app->parameters().isParamSetByUser("compute_device"))
       marlin_app->setTorchDevice(_device_names[0], {});
   }
   else
