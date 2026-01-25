@@ -2,6 +2,8 @@
   dim = 2
   nx = 8
   ny = 8
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]
@@ -154,15 +156,6 @@
   f_old = h_post_collision
 []
 
-[TensorOutputs]
-  [xdmf]
-    type = XDMFTensorOutput
-    buffer = 'phi'
-    output_mode = 'Cell'
-    enable_hdf5 = true
-  []
-[]
-
 [Problem]
   type = LatticeBoltzmannProblem
   substeps = 1
@@ -171,7 +164,65 @@
   scalar_constant_values = '2.0 1 0.01'
 []
 
+[Postprocessors]
+  [phi_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = phi
+    value_type = MIN
+  []
+  [phi_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = phi
+    value_type = MAX
+  []
+  [grad_phi_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = grad_phi
+    value_type = MIN
+  []
+  [grad_phi_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = grad_phi
+    value_type = MAX
+  []
+  [laplacian_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = laplacian_phi
+    value_type = MIN
+  []
+  [laplacian_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = laplacian_phi
+    value_type = MAX
+  []
+  [mu_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = mu
+    value_type = MIN
+  []
+  [mu_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = mu
+    value_type = MAX
+  []
+  [forces_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = forces
+    value_type = MIN
+  []
+  [forces_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = forces
+    value_type = MAX
+  []
+[]
+
 [Executioner]
   type = Transient
   num_steps = 10
+[]
+
+[Outputs]
+  file_base = phase
+  csv = true
 []

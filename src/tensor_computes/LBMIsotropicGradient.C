@@ -24,7 +24,7 @@ LBMIsotropicGradient::validParams()
 }
 
 LBMIsotropicGradient::LBMIsotropicGradient(const InputParameters & parameters)
-  : LatticeBoltzmannOperator(parameters), _scalar_field(getInputBuffer("scalar_field"))
+  : LatticeBoltzmannOperator(parameters), _scalar_field(getInputBuffer("scalar_field", _radius))
 {
   const unsigned int & dim = _domain.getDim();
 
@@ -115,5 +115,6 @@ LBMIsotropicGradient::computeBuffer()
       break;
     }
   }
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

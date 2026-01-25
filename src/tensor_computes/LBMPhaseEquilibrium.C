@@ -26,8 +26,8 @@ LBMPhaseEquilibrium::validParams()
 
 LBMPhaseEquilibrium::LBMPhaseEquilibrium(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
-    _phi(getInputBuffer("phi")),
-    _grad_phi(getInputBuffer("grad_phi")),
+    _phi(getInputBuffer("phi", _radius)),
+    _grad_phi(getInputBuffer("grad_phi", _radius)),
     _tau_phi(_lb_problem.getConstant<Real>(getParam<std::string>("tau_phi"))),
     _D(_lb_problem.getConstant<Real>(getParam<std::string>("thickness")))
 {
@@ -86,5 +86,6 @@ LBMPhaseEquilibrium::computeBuffer()
     default:
       mooseError("Unsupported dimension for buffer _u");
   }
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

@@ -113,7 +113,9 @@ public:
 
   /// return the old states of the tensor
   template <typename T = torch::Tensor>
-  const std::vector<T> & getBufferOld(const std::string & buffer_name, unsigned int max_states);
+  const std::vector<T> & getBufferOld(const std::string & buffer_name,
+                                      unsigned int max_states,
+                                      unsigned int ghost_layers = 0);
 
   /// returns a reference to a raw torch::Tensor view of buffer_name
   const torch::Tensor & getRawBuffer(const std::string & buffer_name);
@@ -160,6 +162,8 @@ public:
 
   void runComputeWithGhosts(TensorOperatorBase & compute);
 
+  void exchangeGhostLayers(const std::string & buffer_name, unsigned int ghost_layers);
+
 protected:
   void updateDOFMap();
   void updateLocalTensorShape();
@@ -174,8 +178,6 @@ protected:
                                 const std::string & name,
                                 InputParameters & parameters,
                                 TensorComputeList & list);
-
-  void exchangeGhostLayers(const std::string & buffer_name, unsigned int ghost_layers);
 
   /// execute initial conditionobjects
   void executeTensorInitialConditions();
@@ -323,9 +325,11 @@ TensorProblem::getBuffer(const std::string & buffer_name, unsigned int ghost_lay
 
 template <typename T>
 const std::vector<T> &
-TensorProblem::getBufferOld(const std::string & buffer_name, unsigned int max_states)
+TensorProblem::getBufferOld(const std::string & buffer_name,
+                            unsigned int max_states,
+                            unsigned int ghost_layers)
 {
-  return getBufferHelper<T>(buffer_name).getOldTensor(max_states);
+  return getBufferHelper<T>(buffer_name, ghost_layers).getOldTensor(max_states);
 }
 
 template <typename T>

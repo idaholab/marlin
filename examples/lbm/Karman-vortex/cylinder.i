@@ -5,7 +5,8 @@
   xmax = 4
   ymax = 1
   device_names='cpu'
-  mesh_mode=DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]
@@ -174,7 +175,6 @@
   scalar_constant_values = '1.0 0.01 0.0 0.506 0.001  40  0.15'
   substeps = 100
   print_debug_output=true
-  is_binary_media = true
   binary_media = binary_media
 []
 

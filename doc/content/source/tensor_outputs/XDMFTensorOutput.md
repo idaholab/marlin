@@ -24,7 +24,7 @@ node data with [!param](/TensorOutputs/XDMFTensorOutput/output_mode).
 
 ## Example Input File Syntax
 
-!listing test/tests/lbm/neumann_box.i block=TensorOutputs/xdmf2
+!listing examples/lbm/Karman-vortex/cylinder.i block=TensorOutputs/xdmf2
 
 !syntax parameters /TensorOutputs/XDMFTensorOutput
 

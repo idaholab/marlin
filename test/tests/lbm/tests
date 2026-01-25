@@ -1,223 +1,223 @@
 [Tests]
   [channel_flow_2d]
-    type = HDF5Diff
+    type = CSVDiff
     input = channel2D.i
-    hdf5diff = channel2D.h5
+    csvdiff = channel2D.csv
     requirement = 'The system shall be able to solve a 2D channel flow problem.'
     design = 'LBMStream.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [channel_flow_3d]
-    type = HDF5Diff
+    type = CSVDiff
     input = channel3D.i
-    hdf5diff = channel3D.h5
+    csvdiff = channel3D.csv
     requirement = 'The system shall be able to solve a 3D channel flow problem.'
     design = 'LBMD3Q19.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [isotropic_mrt]
-    type = HDF5Diff
+    type = CSVDiff
     input = isotropic_stencil_mrt.i
-    hdf5diff = isotropic_stencil_mrt.h5
+    csvdiff = isotropic_stencil_mrt.csv
     requirement = 'The system shall be able to solve a 3D channel flow problem with D3Q27 stencil and MRT collision.'
     design = 'LBMD3Q27.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [flow_around_obstacle]
-    type = HDF5Diff
+    type = CSVDiff
     input = obstacle.i
-    hdf5diff = obstacle.h5
+    csvdiff = obstacle.csv
     requirement = 'The system shall be able to load tensor from h5 file and run LBMIterations.'
     design = 'LBMTensorBuffer.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [phase-field]
-    type = HDF5Diff
+    type = CSVDiff
     input = phase.i
-    hdf5diff = phase.h5
+    csvdiff = phase.csv
     requirement = 'The system shall be able to solve Cahn-Hillard equation for phase evolution from random initial condition using LBM.'
     design = 'LBMComputeChemicalPotential.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    min_parallel = 1
     max_parallel = 1
   []
   [dirichlet_box]
-    type = HDF5Diff
+    type = CSVDiff
     input = dirichlet_box.i
-    hdf5diff = dirichlet_box.h5
+    csvdiff = dirichlet_box.csv
     requirement = 'The system shall be able to apply Dirichlet boundary conditions.'
     design = 'LBMDirichletBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [dirichlet_wall]
-    type = HDF5Diff
+    type = CSVDiff
     input = dirichlet_wall.i
-    hdf5diff = dirichlet_wall.h5
+    csvdiff = dirichlet_wall.csv
     requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls.'
     design = 'LBMDirichletBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [dirichlet_regional]
-    type = HDF5Diff
+    type = CSVDiff
     input = dirichlet_regional.i
-    hdf5diff = dirichlet_regional.h5
+    csvdiff = dirichlet_regional.csv
     requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls defined by region id.'
     design = 'LBMDirichletBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [neumann_box]
-    type = HDF5Diff
+    type = CSVDiff
     input = neumann_box.i
-    hdf5diff = neumann_box.h5
+    csvdiff = neumann_box.csv
     requirement = 'The system shall be able to apply Neumann boundary conditions.'
     design = 'LBMNeumannBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [neumann_wall]
-    type = HDF5Diff
+    type = CSVDiff
     input = neumann_wall.i
-    hdf5diff = neumann_wall.h5
+    csvdiff = neumann_wall.csv
     requirement = 'The system shall be able to apply Neumann boundary conditions on the walls.'
     design = 'LBMNeumannBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [neumann_regional]
-    type = HDF5Diff
+    type = CSVDiff
     input = neumann_regional.i
-    hdf5diff = neumann_regional.h5
+    csvdiff = neumann_regional.csv
     requirement = 'The system shall be able to apply Neumann boundary conditions on the walls defined by region id.'
     design = 'LBMNeumannBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [stacking]
-    type = HDF5Diff
+    type = CSVDiff
     input = stacking.i
-    hdf5diff = stacking.h5
+    csvdiff = stacking.csv
     requirement = 'The system shall be able to stack tensors to create vectorial tensors.'
     design = 'LBMStackTensors.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
+    min_parallel = 1
     max_parallel = 1
   []
   [vertical_density_bcs]
-    type = HDF5Diff
+    type = CSVDiff
     input = vertical_density_bcs.i
-    hdf5diff = vertical_density_bcs.h5
+    csvdiff = vertical_density_bcs.csv
     requirement = 'The system shall be able to apply microscopic density BC at every face.'
     design = 'LBMFixedZerothOrderBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [vertical_velocity_bcs]
-    type = HDF5Diff
+    type = CSVDiff
     input = vertical_velocity_bcs.i
-    hdf5diff = vertical_velocity_bcs.h5
+    csvdiff = vertical_velocity_bcs.csv
     requirement = 'The system shall be able to apply microscopic velocity BC at every face.'
     design = 'LBMFixedFirstOrderBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [horizontal_mixed_bcs_d2q9]
-    type = HDF5Diff
+    type = CSVDiff
     input = horizontal_mixed_bcs_d2q9.i
-    hdf5diff = horizontal_mixed_bcs_d2q9.h5
+    csvdiff = horizontal_mixed_bcs_d2q9.csv
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [horizontal_mixed_bcs_d2q9_reverse]
-    type = HDF5Diff
+    type = CSVDiff
     input = horizontal_mixed_bcs_d2q9_reverse.i
-    hdf5diff = horizontal_mixed_bcs_d2q9_reverse.h5
+    csvdiff = horizontal_mixed_bcs_d2q9_reverse.csv
     requirement = 'The system shall be able to apply mixture of microscopic density and zero gradient BC.'
     design = 'LBMFixedZerothOrderBC.md LBMMicroscopicZeroGradientBC'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [mixed_bcs_d3q19]
-    type = HDF5Diff
+    type = CSVDiff
     input = mixed_bcs_d3q19.i
-    hdf5diff = mixed_bcs_d3q19.h5
+    csvdiff = mixed_bcs_d3q19.csv
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q19 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [mixed_bcs_d3q19_reverse]
-    type = HDF5Diff
+    type = CSVDiff
     input = mixed_bcs_d3q19_reverse.i
-    hdf5diff = mixed_bcs_d3q19_reverse.h5
+    csvdiff = mixed_bcs_d3q19_reverse.csv
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q19 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [mixed_bcs_d3q27]
-    type = HDF5Diff
+    type = CSVDiff
     input = mixed_bcs_d3q27.i
-    hdf5diff = mixed_bcs_d3q27.h5
+    csvdiff = mixed_bcs_d3q27.csv
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q27 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [mixed_bcs_d3q27_reverse]
-    type = HDF5Diff
+    type = CSVDiff
     input = mixed_bcs_d3q27_reverse.i
-    hdf5diff = mixed_bcs_d3q27_reverse.h5
+    csvdiff = mixed_bcs_d3q27_reverse.csv
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q27 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [smagorinsky_mrt]
-    type = HDF5Diff
+    type = CSVDiff
     input = smagorinsky_mrt.i
-    hdf5diff = smagorinsky_mrt.h5
+    csvdiff = smagorinsky_mrt.csv
     requirement = 'The system shall be able to solve Smagorinsky MRT collision.'
     design = 'LBMCollisionDynamics.md'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [smagorinsky_mrt_jit]
-    type = HDF5Diff
+    type = CSVDiff
     input = smagorinsky_mrt.i
-    hdf5diff = smagorinsky_mrt.h5
+    csvdiff = smagorinsky_mrt.csv
     requirement = 'The system shall be able to solve Smagorinsky MRT collision with jit tracing.'
     design = 'LBMCollisionDynamics.md'
     cli_args = 'TensorComputes/Solve/root/enable_jit=true'
-    abs_tol = 1e-10
     compute_devices = 'cpu cuda mps'
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
 []

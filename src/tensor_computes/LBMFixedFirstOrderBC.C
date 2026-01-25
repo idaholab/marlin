@@ -29,8 +29,7 @@ LBMFixedFirstOrderBC::validParams()
 
 LBMFixedFirstOrderBC::LBMFixedFirstOrderBC(const InputParameters & parameters)
   : LBMBoundaryCondition(parameters),
-    _f(getInputBufferByName(getParam<TensorInputBufferName>("f"))),
-    _grid_size(_lb_problem.getGridSize()),
+    _f(getInputBufferByName(getParam<TensorInputBufferName>("f"), _radius)),
     _value(_lb_problem.getConstant<Real>(getParam<std::string>("value"))),
     _perturb(getParam<bool>("perturb"))
 {
@@ -59,43 +58,47 @@ LBMFixedFirstOrderBC::backBoundary()
 void
 LBMFixedFirstOrderBC::leftBoundaryD2Q9()
 {
-  Real deltaU = 0.0;
-  torch::Tensor u_x_perturbed = torch::zeros({_grid_size[1], 1}, MooseTensor::floatTensorOptions());
+  auto rank = _domain.comm().rank();
+  std::array<int64_t, 3> begin, end;
+  _domain.getLocalBounds(rank, begin, end);
+  auto n_global = _domain.getGridSize();
+  torch::Tensor u_x_perturbed =
+      torch::zeros({end[1] - begin[1], 1}, MooseTensor::floatTensorOptions());
 
   if (_perturb)
   {
-    deltaU = 1.0e-6 * _value;
-    Real phi = 0.0; // static_cast<Real>(rand()) / static_cast<float>(RAND_MAX) * 2.0 * M_PI;
+    Real deltaU = 1.0e-6 * _value;
     torch::Tensor y_coords =
-        torch::arange(0, _grid_size[1], MooseTensor::floatTensorOptions()).unsqueeze(1);
-    u_x_perturbed = _value + deltaU * torch::sin(y_coords / _grid_size[1] * 2.0 * M_PI + phi);
+        torch::arange(begin[1], end[1], MooseTensor::floatTensorOptions()).unsqueeze(1) /
+        n_global[1];
+    u_x_perturbed = _value + deltaU * torch::sin(y_coords * 2.0 * M_PI);
   }
   else
     u_x_perturbed.fill_(_value);
 
   torch::Tensor density =
       1.0 / (1.0 - u_x_perturbed) *
-      (_f.index({0, Slice(), Slice(), 0}) + _f.index({0, Slice(), Slice(), 2}) +
-       _f.index({0, Slice(), Slice(), 4}) +
-       2.0 * (_f.index({0, Slice(), Slice(), 3}) + _f.index({0, Slice(), Slice(), 6}) +
-              _f.index({0, Slice(), Slice(), 7})));
+      (_f_owned.index({0, Slice(), Slice(), 0}) + _f_owned.index({0, Slice(), Slice(), 2}) +
+       _f_owned.index({0, Slice(), Slice(), 4}) +
+       2.0 * (_f_owned.index({0, Slice(), Slice(), 3}) + _f_owned.index({0, Slice(), Slice(), 6}) +
+              _f_owned.index({0, Slice(), Slice(), 7})));
 
   // axis aligned direction
   const auto & opposite_dir = _stencil._op[_stencil._left[0]];
-  _u.index_put_({0, Slice(), Slice(), _stencil._left[0]},
-                _f.index({0, Slice(), Slice(), opposite_dir}) +
-                    2.0 / 3.0 * density * u_x_perturbed);
+  _u_owned.index_put_({0, Slice(), Slice(), _stencil._left[0]},
+                      _f_owned.index({0, Slice(), Slice(), opposite_dir}) +
+                          2.0 / 3.0 * density * u_x_perturbed);
 
   // other directions
   for (unsigned int i = 1; i < _stencil._left.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._left[i]];
-    _u.index_put_(
-        {0, Slice(), Slice(), _stencil._left[i]},
-        _f.index({0, Slice(), Slice(), opposite_dir}) -
-            0.5 * _stencil._ey[_stencil._left[i]] *
-                (_f.index({0, Slice(), Slice(), 2}) - _f.index({0, Slice(), Slice(), 4})) +
-            1.0 / 6.0 * density * u_x_perturbed);
+    _u_owned.index_put_({0, Slice(), Slice(), _stencil._left[i]},
+                        _f_owned.index({0, Slice(), Slice(), opposite_dir}) -
+                            0.5 * _stencil._ey[_stencil._left[i]] *
+                                (_f_owned.index({0, Slice(), Slice(), 2}) -
+                                 _f_owned.index({0, Slice(), Slice(), 4})) +
+                            1.0 / 6.0 * density * u_x_perturbed);
   }
 }
 
@@ -106,21 +109,22 @@ LBMFixedFirstOrderBC::leftBoundary()
     leftBoundaryD2Q9(); // higher order specialization for D2Q9
   else
   {
-    torch::Tensor density = 1.0 / (1.0 - _value) *
-                            (torch::sum(_f.index({0, Slice(), Slice(), -_stencil._neutral_x}), -1) +
-                             2 * torch::sum(_f.index({0, Slice(), Slice(), _stencil._right}), -1));
+    torch::Tensor density =
+        1.0 / (1.0 - _value) *
+        (torch::sum(_f_owned.index({0, Slice(), Slice(), -_stencil._neutral_x}), -1) +
+         2 * torch::sum(_f_owned.index({0, Slice(), Slice(), _stencil._right}), -1));
 
-    _u.index_put_({0, Slice(), Slice(), _stencil._left[0]},
-                  _f.index({0, Slice(), Slice(), _stencil._right[0]}) +
-                      2.0 * _stencil._weights[_stencil._left[0]] / _lb_problem._cs2 * _value *
-                          density);
+    _u_owned.index_put_({0, Slice(), Slice(), _stencil._left[0]},
+                        _f_owned.index({0, Slice(), Slice(), _stencil._right[0]}) +
+                            2.0 * _stencil._weights[_stencil._left[0]] / _lb_problem._cs2 * _value *
+                                density);
 
     for (unsigned int i = 1; i < _stencil._left.size(0); i++)
     {
-      _u.index_put_({0, Slice(), Slice(), _stencil._left[i]},
-                    _f.index({0, Slice(), Slice(), _stencil._right[i]}) +
-                        2.0 * _stencil._weights[_stencil._left[i]] / _lb_problem._cs2 * _value *
-                            density);
+      _u_owned.index_put_({0, Slice(), Slice(), _stencil._left[i]},
+                          _f_owned.index({0, Slice(), Slice(), _stencil._right[i]}) +
+                              2.0 * _stencil._weights[_stencil._left[i]] / _lb_problem._cs2 *
+                                  _value * density);
     }
   }
 }
@@ -129,29 +133,29 @@ void
 LBMFixedFirstOrderBC::rightBoundaryD2Q9()
 {
   torch::Tensor density = 1.0 / (1.0 + _value) *
-                          (_f.index({_grid_size[0] - 1, Slice(), Slice(), 0}) +
-                           _f.index({_grid_size[0] - 1, Slice(), Slice(), 2}) +
-                           _f.index({_grid_size[0] - 1, Slice(), Slice(), 4}) +
-                           2 * (_f.index({_grid_size[0] - 1, Slice(), Slice(), 1}) +
-                                _f.index({_grid_size[0] - 1, Slice(), Slice(), 5}) +
-                                _f.index({_grid_size[0] - 1, Slice(), Slice(), 8})));
+                          (_f_owned.index({_shape[0] - 1, Slice(), Slice(), 0}) +
+                           _f_owned.index({_shape[0] - 1, Slice(), Slice(), 2}) +
+                           _f_owned.index({_shape[0] - 1, Slice(), Slice(), 4}) +
+                           2 * (_f_owned.index({_shape[0] - 1, Slice(), Slice(), 1}) +
+                                _f_owned.index({_shape[0] - 1, Slice(), Slice(), 5}) +
+                                _f_owned.index({_shape[0] - 1, Slice(), Slice(), 8})));
 
   // axis aligned direction
   const auto & opposite_dir = _stencil._op[_stencil._left[0]];
-  _u.index_put_({_grid_size[0] - 1, Slice(), Slice(), opposite_dir},
-                _f.index({_grid_size[0] - 1, Slice(), Slice(), _stencil._left[0]}) -
-                    2.0 / 3.0 * density * _value);
+  _u_owned.index_put_({_shape[0] - 1, Slice(), Slice(), opposite_dir},
+                      _f_owned.index({_shape[0] - 1, Slice(), Slice(), _stencil._left[0]}) -
+                          2.0 / 3.0 * density * _value);
 
   // other directions
   for (unsigned int i = 1; i < _stencil._left.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._left[i]];
-    _u.index_put_({_grid_size[0] - 1, Slice(), Slice(), opposite_dir},
-                  _f.index({_grid_size[0] - 1, Slice(), Slice(), _stencil._left[i]}) +
-                      0.5 * _stencil._ey[opposite_dir] *
-                          (_f.index({_grid_size[0] - 1, Slice(), Slice(), 4}) -
-                           _f.index({_grid_size[0] - 1, Slice(), Slice(), 2})) -
-                      1.0 / 6.0 * density * _value);
+    _u_owned.index_put_({_shape[0] - 1, Slice(), Slice(), opposite_dir},
+                        _f_owned.index({_shape[0] - 1, Slice(), Slice(), _stencil._left[i]}) +
+                            0.5 * _stencil._ey[opposite_dir] *
+                                (_f_owned.index({_shape[0] - 1, Slice(), Slice(), 4}) -
+                                 _f_owned.index({_shape[0] - 1, Slice(), Slice(), 2})) -
+                            1.0 / 6.0 * density * _value);
   }
 }
 
@@ -164,20 +168,20 @@ LBMFixedFirstOrderBC::rightBoundary()
   {
     torch::Tensor density =
         1.0 / (1.0 + _value) *
-        (torch::sum(_f.index({_grid_size[0] - 1, Slice(), Slice(), -_stencil._neutral_x}), -1) +
-         2 * torch::sum(_f.index({_grid_size[0] - 1, Slice(), Slice(), _stencil._left}), -1));
+        (torch::sum(_f_owned.index({_shape[0] - 1, Slice(), Slice(), -_stencil._neutral_x}), -1) +
+         2 * torch::sum(_f_owned.index({_shape[0] - 1, Slice(), Slice(), _stencil._left}), -1));
 
-    _u.index_put_({_grid_size[0] - 1, Slice(), Slice(), _stencil._right[0]},
-                  _f.index({_grid_size[0] - 1, Slice(), Slice(), _stencil._left[0]}) -
-                      2.0 * _stencil._weights[_stencil._right[0]] / _lb_problem._cs2 * _value *
-                          density);
+    _u_owned.index_put_({_shape[0] - 1, Slice(), Slice(), _stencil._right[0]},
+                        _f_owned.index({_shape[0] - 1, Slice(), Slice(), _stencil._left[0]}) -
+                            2.0 * _stencil._weights[_stencil._right[0]] / _lb_problem._cs2 *
+                                _value * density);
 
     for (unsigned int i = 1; i < _stencil._right.size(0); i++)
     {
-      _u.index_put_({_grid_size[0] - 1, Slice(), Slice(), _stencil._right[i]},
-                    _f.index({_grid_size[0] - 1, Slice(), Slice(), _stencil._left[i]}) -
-                        2.0 * _stencil._weights[_stencil._right[i]] / _lb_problem._cs2 * _value *
-                            density);
+      _u_owned.index_put_({_shape[0] - 1, Slice(), Slice(), _stencil._right[i]},
+                          _f_owned.index({_shape[0] - 1, Slice(), Slice(), _stencil._left[i]}) -
+                              2.0 * _stencil._weights[_stencil._right[i]] / _lb_problem._cs2 *
+                                  _value * density);
     }
   }
 }
@@ -187,26 +191,27 @@ LBMFixedFirstOrderBC::bottomBoundaryD2Q9()
 {
   torch::Tensor density =
       1.0 / (1.0 - _value) *
-      (_f.index({Slice(), 0, Slice(), 0}) + _f.index({Slice(), 0, Slice(), 1}) +
-       _f.index({Slice(), 0, Slice(), 3}) +
-       2 * (_f.index({Slice(), 0, Slice(), 4}) + _f.index({Slice(), 0, Slice(), 7}) +
-            _f.index({Slice(), 0, Slice(), 8})));
+      (_f_owned.index({Slice(), 0, Slice(), 0}) + _f_owned.index({Slice(), 0, Slice(), 1}) +
+       _f_owned.index({Slice(), 0, Slice(), 3}) +
+       2 * (_f_owned.index({Slice(), 0, Slice(), 4}) + _f_owned.index({Slice(), 0, Slice(), 7}) +
+            _f_owned.index({Slice(), 0, Slice(), 8})));
 
   // axis aligned direction
   const auto & opposite_dir = _stencil._op[_stencil._bottom[0]];
-  _u.index_put_({Slice(), 0, Slice(), _stencil._bottom[0]},
-                _f.index({Slice(), 0, Slice(), opposite_dir}) + 2.0 / 3.0 * density * _value);
+  _u_owned.index_put_({Slice(), 0, Slice(), _stencil._bottom[0]},
+                      _f_owned.index({Slice(), 0, Slice(), opposite_dir}) +
+                          2.0 / 3.0 * density * _value);
 
   // other directions
   for (unsigned int i = 1; i < _stencil._bottom.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
-    _u.index_put_(
-        {Slice(), 0, Slice(), _stencil._bottom[i]},
-        _f.index({Slice(), 0, Slice(), opposite_dir}) -
-            0.5 * _stencil._ex[_stencil._bottom[i]] *
-                (_f.index({Slice(), 0, Slice(), 1}) - _f.index({Slice(), 0, Slice(), 3})) +
-            1.0 / 6.0 * density * _value);
+    _u_owned.index_put_({Slice(), 0, Slice(), _stencil._bottom[i]},
+                        _f_owned.index({Slice(), 0, Slice(), opposite_dir}) -
+                            0.5 * _stencil._ex[_stencil._bottom[i]] *
+                                (_f_owned.index({Slice(), 0, Slice(), 1}) -
+                                 _f_owned.index({Slice(), 0, Slice(), 3})) +
+                            1.0 / 6.0 * density * _value);
   }
 }
 
@@ -224,29 +229,29 @@ void
 LBMFixedFirstOrderBC::topBoundaryD2Q9()
 {
   torch::Tensor density = 1.0 / (1.0 + _value) *
-                          (_f.index({Slice(), _grid_size[1] - 1, Slice(), 0}) +
-                           _f.index({Slice(), _grid_size[1] - 1, Slice(), 1}) +
-                           _f.index({Slice(), _grid_size[1] - 1, Slice(), 3}) +
-                           2 * (_f.index({Slice(), _grid_size[1] - 1, Slice(), 2}) +
-                                _f.index({Slice(), _grid_size[1] - 1, Slice(), 5}) +
-                                _f.index({Slice(), _grid_size[1] - 1, Slice(), 6})));
+                          (_f_owned.index({Slice(), _shape[1] - 1, Slice(), 0}) +
+                           _f_owned.index({Slice(), _shape[1] - 1, Slice(), 1}) +
+                           _f_owned.index({Slice(), _shape[1] - 1, Slice(), 3}) +
+                           2 * (_f_owned.index({Slice(), _shape[1] - 1, Slice(), 2}) +
+                                _f_owned.index({Slice(), _shape[1] - 1, Slice(), 5}) +
+                                _f_owned.index({Slice(), _shape[1] - 1, Slice(), 6})));
 
   // axis aligned direction
   const auto & opposite_dir = _stencil._op[_stencil._bottom[0]];
-  _u.index_put_({Slice(), _grid_size[1] - 1, Slice(), opposite_dir},
-                _f.index({Slice(), _grid_size[1] - 1, Slice(), _stencil._bottom[0]}) -
-                    2.0 / 3.0 * density * _value);
+  _u_owned.index_put_({Slice(), _shape[1] - 1, Slice(), opposite_dir},
+                      _f_owned.index({Slice(), _shape[1] - 1, Slice(), _stencil._bottom[0]}) -
+                          2.0 / 3.0 * density * _value);
 
   // other directions
   for (unsigned int i = 1; i < _stencil._bottom.size(0); i++)
   {
     const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
-    _u.index_put_({Slice(), _grid_size[1] - 1, Slice(), opposite_dir},
-                  _f.index({Slice(), _grid_size[1] - 1, Slice(), _stencil._bottom[i]}) +
-                      0.5 * _stencil._ex[opposite_dir] *
-                          (_f.index({Slice(), _grid_size[1] - 1, Slice(), 3}) -
-                           _f.index({Slice(), _grid_size[1] - 1, Slice(), 1})) -
-                      1.0 / 6.0 * density * _value);
+    _u_owned.index_put_({Slice(), _shape[1] - 1, Slice(), opposite_dir},
+                        _f_owned.index({Slice(), _shape[1] - 1, Slice(), _stencil._bottom[i]}) +
+                            0.5 * _stencil._ex[opposite_dir] *
+                                (_f_owned.index({Slice(), _shape[1] - 1, Slice(), 3}) -
+                                 _f_owned.index({Slice(), _shape[1] - 1, Slice(), 1})) -
+                            1.0 / 6.0 * density * _value);
   }
 }
 
@@ -263,32 +268,10 @@ LBMFixedFirstOrderBC::topBoundary()
 void
 LBMFixedFirstOrderBC::computeBuffer()
 {
-  _u = _u.clone();
-  switch (_boundary)
-  {
-    case Boundary::top:
-      topBoundary();
-      break;
-    case Boundary::bottom:
-      bottomBoundary();
-      break;
-    case Boundary::left:
-      leftBoundary();
-      break;
-    case Boundary::right:
-      rightBoundary();
-      break;
-    case Boundary::front:
-      frontBoundary();
-      break;
-    case Boundary::back:
-      backBoundary();
-      break;
-    case Boundary::wall:
-      wallBoundary();
-      break;
-    default:
-      mooseError("Undefined boundary names");
-  }
-  _lb_problem.maskedFillSolids(_u, 0);
+  _f_owned = _f;
+  for (unsigned int d = 0; d < _dim; d++)
+    _f_owned = _f_owned.narrow(d, _radius, _shape[d]);
+
+  LBMBoundaryCondition::computeBuffer();
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

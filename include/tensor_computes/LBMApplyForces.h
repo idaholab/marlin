@@ -28,6 +28,7 @@ protected:
   const torch::Tensor & _density;
   const torch::Tensor & _forces;
 
+  std::vector<int64_t> _shape_q_with_ghost;
   torch::Tensor _source_term = torch::zeros(_shape_q, MooseTensor::floatTensorOptions());
 
   const Real _tau;

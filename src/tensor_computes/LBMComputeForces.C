@@ -44,8 +44,8 @@ LBMComputeForces::LBMComputeForces(const InputParameters & parameters)
     _enable_surface_forces(getParam<bool>("enable_surface_forces")),
     _g(_lb_problem.getConstant<Real>(getParam<std::string>("gravity"))),
     _gravity_direction(static_cast<int64_t>(getParam<Real>("gravity_direction"))),
-    _density_tensor(getInputBufferByName(getParam<TensorInputBufferName>("rho"))),
-    _temperature(getInputBufferByName(getParam<TensorInputBufferName>("temperature")))
+    _density_tensor(getInputBufferByName(getParam<TensorInputBufferName>("rho"), _radius)),
+    _temperature(getInputBufferByName(getParam<TensorInputBufferName>("temperature"), _radius))
 {
 }
 
@@ -82,7 +82,6 @@ LBMComputeForces::computeBuffer()
   if (_enable_surface_forces)
     computeSurfaceForces();
 
-  /// more forces can be added ?
-
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

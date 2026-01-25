@@ -27,8 +27,8 @@ LBMComputeSurfaceForces::validParams()
 
 LBMComputeSurfaceForces::LBMComputeSurfaceForces(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
-    _chemical_potential(getInputBuffer("chemical_potential")),
-    _grad_phi(getInputBuffer("grad_phi"))
+    _chemical_potential(getInputBuffer("chemical_potential", _radius)),
+    _grad_phi(getInputBuffer("grad_phi", _radius))
 {
 }
 
@@ -36,5 +36,6 @@ void
 LBMComputeSurfaceForces::computeBuffer()
 {
   _u = _chemical_potential.unsqueeze(-1) * _grad_phi;
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

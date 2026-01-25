@@ -151,7 +151,7 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _local_ranks = {0};
     _local_weights = {1};
 
-    if (_device_names.size() || !marlin_app->parameters().isParamSetByUser("compute_device"))
+    if (_device_names.size() && !marlin_app->parameters().isParamSetByUser("compute_device"))
       marlin_app->setTorchDevice(_device_names[0], {});
   }
   else
@@ -1092,6 +1092,10 @@ DomainAction::mpiTypeFromScalar(torch::ScalarType scalar) const
       return MPI_FLOAT;
     case torch::kFloat64:
       return MPI_DOUBLE;
+    case torch::kInt32:
+      return MPI_INT;
+    case torch::kInt64:
+      return MPI_INT64_T;
     case torch::kComplexFloat:
       return MPI_CXX_FLOAT_COMPLEX;
     case torch::kComplexDouble:

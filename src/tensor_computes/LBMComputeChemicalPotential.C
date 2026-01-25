@@ -25,8 +25,8 @@ LBMComputeChemicalPotential::validParams()
 
 LBMComputeChemicalPotential::LBMComputeChemicalPotential(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
-    _phi(getInputBuffer("phi")),
-    _laplacian_phi(getInputBuffer("laplacian_phi")),
+    _phi(getInputBuffer("phi", _radius)),
+    _laplacian_phi(getInputBuffer("laplacian_phi", _radius)),
     _D(_lb_problem.getConstant<Real>(getParam<std::string>("thickness"))),
     _sigma(_lb_problem.getConstant<Real>(getParam<std::string>("sigma")))
 {
