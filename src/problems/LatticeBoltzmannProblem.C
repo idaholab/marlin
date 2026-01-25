@@ -72,9 +72,20 @@ LatticeBoltzmannProblem::init()
 
   // binary mesh if provided
   if (_is_binary_media)
-    _binary_media = getBuffer(getParam<TensorInputBufferName>("binary_media"));
+  {
+    _binary_media = getBuffer(getParam<TensorInputBufferName>("binary_media"), _ghost_radius);
+
+    _binary_media_owned = _binary_media;
+    for (unsigned int d = 0; d < _dim; d++)
+      _binary_media_owned = _binary_media_owned.narrow(d, _ghost_radius, _shape_extended[d]);
+
+    exchangeGhostLayers(getParam<TensorInputBufferName>("binary_media"), _ghost_radius);
+  }
   else
+  {
     _binary_media = torch::ones(_shape, MooseTensor::intTensorOptions());
+    _binary_media_owned = _binary_media;
+  }
 }
 
 void
@@ -167,18 +178,18 @@ void
 LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t, const Real & value)
 {
   const auto tensor_shape = t.sizes();
-  if (_is_binary_media && _binary_media.sum().item<int64_t>() > 0)
+  if (_is_binary_media && _binary_media_owned.sum().item<int64_t>() > 0)
   {
-    if (t.dim() == _binary_media.dim())
+    if (t.dim() == _binary_media_owned.dim())
     {
       // 3D
-      const auto solid_mask = (_binary_media == value);
+      const auto solid_mask = (_binary_media_owned == value);
       t.masked_fill_(solid_mask, value);
     }
     else
     {
       // 2D and 1D
-      const auto solid_mask = (_binary_media == value).unsqueeze(-1).expand(tensor_shape);
+      const auto solid_mask = (_binary_media_owned == value).unsqueeze(-1).expand(tensor_shape);
       t.masked_fill_(solid_mask, value);
     }
   }

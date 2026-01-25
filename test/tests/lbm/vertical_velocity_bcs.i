@@ -50,6 +50,12 @@
       bulk = density
       velocity = velocity
     []
+    [initial_f_bb]
+      type = LBMEquilibrium
+      buffer = f_bounce_back
+      bulk = density
+      velocity = velocity
+    []
   []
   [Solve]
     [density]
@@ -99,7 +105,7 @@
 [TensorSolver]
   type = LBMStream
   buffer = f
-  f_old = f
+  f_old = f_bounce_back
 []
 
 [Problem]

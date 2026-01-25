@@ -162,11 +162,14 @@ LBMTensorBuffer::readTensorFromHdf5()
     H5Dread(dataset_id, datatype_id, H5S_ALL, dataspace_id, H5P_DEFAULT, buffer.data());
 
     auto cpu_tensor = torch::from_blob(buffer.data(), torch_dims, torch_dtype).clone();
-    auto local_cpu_tensor = cpu_tensor;
+
+    _u = torch::ones(_lb_problem.getLocalTensorShape(std::vector<int64_t>()), moose_options);
 
     // extract local sub-tensor if running in parallel
     auto r = _domain.comm().rank();
     auto n_ranks = _domain.comm().size();
+    torch::Tensor local_cpu_tensor;
+
     if (n_ranks > 1)
     {
       std::array<int64_t, 3> begin, end;
@@ -179,7 +182,16 @@ LBMTensorBuffer::readTensorFromHdf5()
                                .narrow(1, begin[1], end[1] - begin[1])
                                .narrow(2, begin[2], end[2] - begin[2]);
     }
-    _u = local_cpu_tensor.to(moose_options);
+    else
+      local_cpu_tensor = cpu_tensor;
+
+    // Fit into _u with padding
+    auto ghost_radius = _lb_problem.getGhostRadius();
+    torch::Tensor u_owned = _u;
+    for (unsigned int d = 0; d < _domain.getDim(); d++)
+      u_owned = u_owned.narrow(d, ghost_radius, local_cpu_tensor.size(d));
+
+    u_owned.copy_(local_cpu_tensor.to(moose_options));
   };
 
   if (getParam<bool>("is_integer"))

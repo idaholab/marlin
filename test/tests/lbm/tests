@@ -36,8 +36,8 @@
     requirement = 'The system shall be able to load tensor from h5 file and run LBMIterations.'
     design = 'LBMTensorBuffer.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [phase-field]
     type = CSVDiff
@@ -126,8 +126,8 @@
     requirement = 'The system shall be able to apply microscopic density BC at every face.'
     design = 'LBMFixedZerothOrderBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [vertical_velocity_bcs]
     type = CSVDiff
@@ -136,8 +136,8 @@
     requirement = 'The system shall be able to apply microscopic velocity BC at every face.'
     design = 'LBMFixedFirstOrderBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [horizontal_mixed_bcs_d2q9]
     type = CSVDiff
@@ -146,8 +146,8 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [horizontal_mixed_bcs_d2q9_reverse]
     type = CSVDiff
@@ -166,8 +166,8 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q19 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [mixed_bcs_d3q19_reverse]
     type = CSVDiff
@@ -176,8 +176,8 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q19 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [mixed_bcs_d3q27]
     type = CSVDiff
@@ -186,8 +186,8 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q27 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [mixed_bcs_d3q27_reverse]
     type = CSVDiff
@@ -196,8 +196,8 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q27 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 1
-    max_parallel = 1
+    min_parallel = 4
+    max_parallel = 4
   []
   [smagorinsky_mrt]
     type = CSVDiff

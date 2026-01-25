@@ -67,26 +67,8 @@ LBMBounceBack::LBMBounceBack(const InputParameters & parameters)
   _y_indices = flat_y_indices.clone();
   _z_indices = flat_z_indices.clone();
 
-  // for binary media
   if (_lb_problem.isBinaryMedia())
-  {
-    const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
-    _binary_mesh = binary_mesh.clone();
-
-    // mark 6 (64 in decimal) for wall boundary ownership
-    if (isBoundaryOwned(0))
-      _boundary_rank |= (1 << 6);
-
-    for (int64_t ic = 1; ic < _stencil._q; ic++)
-    {
-      int64_t ex = _stencil._ex[ic].item<int64_t>();
-      int64_t ey = _stencil._ey[ic].item<int64_t>();
-      int64_t ez = _stencil._ez[ic].item<int64_t>();
-      torch::Tensor shifted_mesh = torch::roll(binary_mesh, {ex, ey, ez}, {0, 1, 2});
-      torch::Tensor adjacent_to_boundary = (shifted_mesh == 0) & (binary_mesh >= 1);
-      _binary_mesh.masked_fill_(adjacent_to_boundary, -1);
-    }
-  }
+    maskBoundary();
 }
 
 void
@@ -163,7 +145,8 @@ LBMBounceBack::wallBoundary()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (_binary_mesh.unsqueeze(-1).expand_as(_u_owned) == -1) & (_u_owned == 0);
+    _boundary_mask =
+        (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1) & (_u_owned == 0);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
 

@@ -1092,6 +1092,10 @@ DomainAction::mpiTypeFromScalar(torch::ScalarType scalar) const
       return MPI_FLOAT;
     case torch::kFloat64:
       return MPI_DOUBLE;
+    case torch::kInt32:
+      return MPI_INT;
+    case torch::kInt64:
+      return MPI_INT64_T;
     case torch::kComplexFloat:
       return MPI_CXX_FLOAT_COMPLEX;
     case torch::kComplexDouble:

@@ -43,9 +43,17 @@ LBMStream::LBMStream(const InputParameters & parameters)
   if (input_buffer_names.size() != n || output_buffer_names.size() != n)
     paramError("buffer", "Must have the same number of entries as 'f_old'");
 
+  // ensure input and output buffers are distinct
   for (const auto i : make_range(n))
+  {
+    if (input_buffer_names[i] == output_buffer_names[i])
+      paramError("f_old",
+                 "Input buffer and output buffer must be distinct; buffer '",
+                 input_buffer_names[i],
+                 "' was provided for both.");
     _variables.push_back(Variable{getOutputBufferByName(output_buffer_names[i]),
                                   getBufferOldByName(input_buffer_names[i], 1, _radius)});
+  }
 }
 
 void

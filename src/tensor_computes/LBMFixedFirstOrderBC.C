@@ -58,16 +58,20 @@ LBMFixedFirstOrderBC::backBoundary()
 void
 LBMFixedFirstOrderBC::leftBoundaryD2Q9()
 {
-  Real deltaU = 0.0;
-  torch::Tensor u_x_perturbed = torch::zeros({_shape[1], 1}, MooseTensor::floatTensorOptions());
+  auto rank = _domain.comm().rank();
+  std::array<int64_t, 3> begin, end;
+  _domain.getLocalBounds(rank, begin, end);
+  auto n_global = _domain.getGridSize();
+  torch::Tensor u_x_perturbed =
+      torch::zeros({end[1] - begin[1], 1}, MooseTensor::floatTensorOptions());
 
   if (_perturb)
   {
-    deltaU = 1.0e-6 * _value;
-    Real phi = 0.0; // static_cast<Real>(rand()) / static_cast<float>(RAND_MAX) * 2.0 * M_PI;
+    Real deltaU = 1.0e-6 * _value;
     torch::Tensor y_coords =
-        torch::arange(0, _shape[1], MooseTensor::floatTensorOptions()).unsqueeze(1);
-    u_x_perturbed = _value + deltaU * torch::sin(y_coords / _shape[1] * 2.0 * M_PI + phi);
+        torch::arange(begin[1], end[1], MooseTensor::floatTensorOptions()).unsqueeze(1) /
+        n_global[1];
+    u_x_perturbed = _value + deltaU * torch::sin(y_coords * 2.0 * M_PI);
   }
   else
     u_x_perturbed.fill_(_value);
@@ -264,8 +268,6 @@ LBMFixedFirstOrderBC::topBoundary()
 void
 LBMFixedFirstOrderBC::computeBuffer()
 {
-  // _u = _u.clone();
-
   _f_owned = _f;
   for (unsigned int d = 0; d < _dim; d++)
     _f_owned = _f_owned.narrow(d, _radius, _shape[d]);

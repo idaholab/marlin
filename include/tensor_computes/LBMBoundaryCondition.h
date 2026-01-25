@@ -44,6 +44,7 @@ public:
   virtual void wallBoundary() {};
   virtual void regionalBoundary() {};
 
+  void maskBoundary();
   bool isBoundaryOwned(const int &);
   virtual void computeBuffer() override;
 
@@ -64,4 +65,7 @@ protected:
   torch::Tensor _boundary_types;
   // maps the rank to the boundary node indices
   uint8_t _boundary_rank = 0;
+
+  torch::Tensor _binary_mesh;
+  torch::Tensor _boundary_mask;
 };

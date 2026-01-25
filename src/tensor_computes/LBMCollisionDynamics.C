@@ -99,11 +99,13 @@ template <int coll_dyn>
 void
 LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
 {
-  int64_t nx = _shape_with_ghost[0];
-  int64_t ny = _shape_with_ghost[1];
-  int64_t nz = _shape_with_ghost[2];
+  auto fneq_owned = ownedView(_fneq);
+  auto sizes = fneq_owned.sizes();
+  int64_t nx = sizes[0];
+  int64_t ny = sizes[1];
+  int64_t nz = sizes[2];
 
-  auto f_neq_hat = _fneq.view({nx * ny * nz, _stencil._q, 1, 1, 1});
+  auto f_neq_hat = fneq_owned.reshape({nx * ny * nz, _stencil._q, 1, 1, 1});
 
   torch::Tensor S;
   {
@@ -137,7 +139,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
         auto outer_product = torch::einsum("i,j,k->kij", {ex_col, ey_col, ez_col});
         outer_products[i] = outer_product;
       }
-      outer_products = outer_products.view({1, _stencil._q, 3, 3, 3});
+      outer_products = outer_products.reshape({1, _stencil._q, 3, 3, 3});
     } // ex_2d ey_2d ez_2d are out of scope
 
     torch::Tensor Q_mean;
@@ -151,7 +153,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
         // this will take slightly longer .... ??
 
         const int64_t M = nx * ny * nz;
-        const int64_t batch_size = M / 20; // just pulled out of my ***
+        const int64_t batch_size = std::max<int64_t>(1, M / 20);
         torch::Tensor f_neq_outer_prod_batched =
             torch::zeros({M, 3, 3, 3}, MooseTensor::floatTensorOptions());
 
@@ -165,11 +167,16 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
 
           f_neq_outer_prod_batched.slice(0, i, i + current_batch_size).copy_(batch_result);
         }
-        Q = f_neq_outer_prod_batched.view({nx, ny, nz, 3, 3, 3});
+        Q = f_neq_outer_prod_batched.reshape({nx, ny, nz, 3, 3, 3});
       }
 
       // mean density
-      _mean_density = torch::mean(torch::sum(_f, 3)).item<double>();
+      auto density = torch::sum(ownedView(_f), 3);
+      auto sum_density = torch::sum(density, {0, 1, 2}).item<double>();
+      auto num_points = density.numel();
+      _domain.comm().sum(sum_density);
+      _domain.comm().sum(num_points);
+      _mean_density = sum_density / num_points;
 
       // Frobenius norm
       Q_mean = torch::norm(Q, 2, {3, 4, 5}) / (_mean_density * _lb_problem._cs2);
@@ -186,8 +193,14 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
   } // outer_products is out of scope
 
   // relaxation parameter
-  _relaxation_parameter = _tau_0 + _C_s * _delta_x * _delta_x * S / _lb_problem._cs2;
-  _relaxation_parameter = _relaxation_parameter.view({nx, ny, nz, 1});
+  auto relaxation_owned = _tau_0 + _C_s * _delta_x * _delta_x * S / _lb_problem._cs2;
+  relaxation_owned = relaxation_owned.reshape({nx, ny, nz, 1});
+  _relaxation_parameter =
+      torch::ones({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], 1},
+                  MooseTensor::floatTensorOptions()) *
+      _tau_0;
+  auto relaxation_owned_view = ownedView(_relaxation_parameter);
+  relaxation_owned_view.copy_(relaxation_owned);
 }
 
 template <int coll_dyn>

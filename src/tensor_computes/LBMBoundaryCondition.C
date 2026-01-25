@@ -43,6 +43,48 @@ LBMBoundaryCondition::LBMBoundaryCondition(const InputParameters & parameters)
     _boundary_rank |= (1 << 4); // Mark as FRONT
   if (end[2] == n_global[2])
     _boundary_rank |= (1 << 5); // Mark as BACK
+
+  // for binary media
+  if (_lb_problem.isBinaryMedia())
+  {
+    const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
+    _binary_mesh = binary_mesh.clone();
+    // mark 6 (64 in decimal) for wall boundary ownership
+    if (isBoundaryOwned(0))
+      _boundary_rank |= (1 << 6);
+  }
+}
+
+void
+LBMBoundaryCondition::maskBoundary()
+{
+  // If rank > 0, we have ghost layers, so we use 0 padding (consume the ghosts)
+  int p = (_domain.comm().size() > 1) ? 0 : 1;
+
+  auto zeros_mask = (_binary_mesh == 0).to(MooseTensor::floatTensorOptions());
+  zeros_mask = zeros_mask.unsqueeze(0).unsqueeze(0);
+
+  torch::Tensor has_zero_neighbor;
+  if (_domain.getDim() == 2)
+  {
+    has_zero_neighbor = torch::max_pool3d(zeros_mask, {3, 3, 1}, {1, 1, 1}, {p, p, 0});
+  }
+  else if (_domain.getDim() == 3)
+  {
+    has_zero_neighbor = torch::max_pool3d(zeros_mask, {3, 3, 3}, {1, 1, 1}, {p, p, p});
+  }
+  else
+  {
+    mooseError("Domain dimension not supported.");
+  }
+
+  has_zero_neighbor = has_zero_neighbor.squeeze(0).squeeze(0);
+
+  // Align the views
+  auto owned_mesh = (_domain.comm().size() > 1) ? ownedView(_binary_mesh) : _binary_mesh;
+
+  auto boundary_mask = (owned_mesh == 1) & (has_zero_neighbor > 0);
+  owned_mesh.copy_(torch::where(boundary_mask, torch::full_like(owned_mesh, -1), owned_mesh));
 }
 
 bool
@@ -51,8 +93,7 @@ LBMBoundaryCondition::isBoundaryOwned(const int & value)
   if (!_lb_problem.isBinaryMedia())
     return false;
 
-  const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
-  return torch::any(binary_mesh == value).item<bool>();
+  return torch::any(_binary_mesh == value).item<bool>();
 }
 
 void

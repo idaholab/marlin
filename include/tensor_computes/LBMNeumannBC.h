@@ -36,6 +36,7 @@ public:
 protected:
   const std::vector<torch::Tensor> & _f_old;
   torch::Tensor _f_old_owned;
+
   const torch::Tensor & _feq;
   const torch::Tensor & _rho;
   const torch::Tensor & _velocity;
@@ -43,6 +44,4 @@ protected:
   int _region_id = 0;
 
   torch::Tensor _feq_boundary;
-  torch::Tensor _binary_mesh;
-  torch::Tensor _boundary_mask;
 };

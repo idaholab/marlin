@@ -65,6 +65,7 @@ public:
 protected:
   /// LBM mesh/media
   torch::Tensor _binary_media;
+  torch::Tensor _binary_media_owned;
   const bool _is_binary_media;
 
   ///
