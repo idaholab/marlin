@@ -6,7 +6,7 @@
     requirement = 'The system shall be able to solve a 2D channel flow problem.'
     design = 'LBMStream.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [channel_flow_3d]
@@ -16,7 +16,7 @@
     requirement = 'The system shall be able to solve a 3D channel flow problem.'
     design = 'LBMD3Q19.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [isotropic_mrt]
@@ -26,7 +26,7 @@
     requirement = 'The system shall be able to solve a 3D channel flow problem with D3Q27 stencil and MRT collision.'
     design = 'LBMD3Q27.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [flow_around_obstacle]
@@ -36,7 +36,7 @@
     requirement = 'The system shall be able to load tensor from h5 file and run LBMIterations.'
     design = 'LBMTensorBuffer.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [phase-field]
@@ -56,17 +56,17 @@
     requirement = 'The system shall be able to apply Dirichlet boundary conditions.'
     design = 'LBMDirichletBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
-  [dirichlet_wall]
+  [dirichlet_wall] 
     type = CSVDiff
     input = dirichlet_wall.i
     csvdiff = dirichlet_wall.csv
     requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls.'
     design = 'LBMDirichletBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [dirichlet_regional]
@@ -76,7 +76,7 @@
     requirement = 'The system shall be able to apply Dirichlet boundary conditions on the walls defined by region id.'
     design = 'LBMDirichletBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [neumann_box]
@@ -86,7 +86,7 @@
     requirement = 'The system shall be able to apply Neumann boundary conditions.'
     design = 'LBMNeumannBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [neumann_wall]
@@ -96,7 +96,7 @@
     requirement = 'The system shall be able to apply Neumann boundary conditions on the walls.'
     design = 'LBMNeumannBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [neumann_regional]
@@ -106,7 +106,7 @@
     requirement = 'The system shall be able to apply Neumann boundary conditions on the walls defined by region id.'
     design = 'LBMNeumannBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [stacking]
@@ -126,7 +126,7 @@
     requirement = 'The system shall be able to apply microscopic density BC at every face.'
     design = 'LBMFixedZerothOrderBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [vertical_velocity_bcs]
@@ -136,7 +136,7 @@
     requirement = 'The system shall be able to apply microscopic velocity BC at every face.'
     design = 'LBMFixedFirstOrderBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [horizontal_mixed_bcs_d2q9]
@@ -146,7 +146,7 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [horizontal_mixed_bcs_d2q9_reverse]
@@ -156,7 +156,7 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and zero gradient BC.'
     design = 'LBMFixedZerothOrderBC.md LBMMicroscopicZeroGradientBC'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [mixed_bcs_d3q19]
@@ -166,7 +166,7 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q19 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [mixed_bcs_d3q19_reverse]
@@ -176,7 +176,7 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q19 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q19.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [mixed_bcs_d3q27]
@@ -186,7 +186,7 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q27 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [mixed_bcs_d3q27_reverse]
@@ -196,7 +196,7 @@
     requirement = 'The system shall be able to apply mixture of microscopic density and velocity BC for D3Q27 stencil.'
     design = 'LBMFixedFirstOrderBC.md LBMFixedZerothOrderBC.md LBMD3Q27.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [smagorinsky_mrt]
@@ -206,7 +206,7 @@
     requirement = 'The system shall be able to solve Smagorinsky MRT collision.'
     design = 'LBMCollisionDynamics.md'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
   [smagorinsky_mrt_jit]
@@ -217,7 +217,7 @@
     design = 'LBMCollisionDynamics.md'
     cli_args = 'TensorComputes/Solve/root/enable_jit=true'
     compute_devices = 'cpu cuda mps'
-    min_parallel = 4
+    min_parallel = 1
     max_parallel = 4
   []
 []
