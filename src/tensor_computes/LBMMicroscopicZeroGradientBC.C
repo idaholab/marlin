@@ -72,9 +72,6 @@ LBMMicroscopicZeroGradientBC::backBoundary()
 void
 LBMMicroscopicZeroGradientBC::computeBuffer()
 {
-  // do not overwrite previous
-  // _u = _u.clone();
-
   LBMBoundaryCondition::computeBuffer();
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
