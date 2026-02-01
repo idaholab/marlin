@@ -53,24 +53,12 @@ ReciprocalMeanFix::computeBuffer()
 
   const auto target = _u_inf * static_cast<Real>(_domain.getNumberOfCells());
 
-  if (_u.is_complex())
-  {
-    auto value = torch::tensor(c10::complex<double>(target, 0.0), _u.options());
-    if (_dim == 1)
-      _u.index_put_({0}, value);
-    else if (_dim == 2)
-      _u.index_put_({0, 0}, value);
-    else
-      _u.index_put_({0, 0, 0}, value);
-  }
+  auto value = _u.is_complex() ? torch::tensor(c10::complex<double>(target, 0.0), _u.options())
+                               : torch::tensor(target, _u.options());
+  if (_dim == 1)
+    _u.index_put_({0}, value);
+  else if (_dim == 2)
+    _u.index_put_({0, 0}, value);
   else
-  {
-    auto value = torch::tensor(target, _u.options());
-    if (_dim == 1)
-      _u.index_put_({0}, value);
-    else if (_dim == 2)
-      _u.index_put_({0, 0}, value);
-    else
-      _u.index_put_({0, 0, 0}, value);
-  }
+    _u.index_put_({0, 0, 0}, value);
 }
