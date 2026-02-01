@@ -9,7 +9,7 @@ lambda=4
 gamma=10
 L=1
 u_inf=-0.4
-eps_a=0.03
+eps_a=0.4
 eps_n=1e-3
 r0=6
 
@@ -123,6 +123,7 @@ r0=6
       type = ParsedCompute
       buffer = u
       expression = 'u_inf'
+      expand = REAL
     []
 
     # per-grain random rotations
@@ -179,10 +180,10 @@ r0=6
       inputs = 'rot1 gradvec1'
     []
     [fluxvec1]
-      type = ParsedCompute
+      type = ScaleVector
       buffer = fluxvec1
-      expression = 'a2m1_1*gradvec1'
-      inputs = 'a2m1_1 gradvec1'
+      scalar = a2m1_1
+      vector = gradvec1
     []
     [anis1]
       type = DivergenceVector
@@ -203,10 +204,10 @@ r0=6
       inputs = 'rot2 gradvec2'
     []
     [fluxvec2]
-      type = ParsedCompute
+      type = ScaleVector
       buffer = fluxvec2
-      expression = 'a2m1_2*gradvec2'
-      inputs = 'a2m1_2 gradvec2'
+      scalar = a2m1_2
+      vector = gradvec2
     []
     [anis2]
       type = DivergenceVector
@@ -227,10 +228,10 @@ r0=6
       inputs = 'rot3 gradvec3'
     []
     [fluxvec3]
-      type = ParsedCompute
+      type = ScaleVector
       buffer = fluxvec3
-      expression = 'a2m1_3*gradvec3'
-      inputs = 'a2m1_3 gradvec3'
+      scalar = a2m1_3
+      vector = gradvec3
     []
     [anis3]
       type = DivergenceVector
@@ -251,10 +252,10 @@ r0=6
       inputs = 'rot4 gradvec4'
     []
     [fluxvec4]
-      type = ParsedCompute
+      type = ScaleVector
       buffer = fluxvec4
-      expression = 'a2m1_4*gradvec4'
-      inputs = 'a2m1_4 gradvec4'
+      scalar = a2m1_4
+      vector = gradvec4
     []
     [anis4]
       type = DivergenceVector
@@ -275,10 +276,10 @@ r0=6
       inputs = 'rot5 gradvec5'
     []
     [fluxvec5]
-      type = ParsedCompute
+      type = ScaleVector
       buffer = fluxvec5
-      expression = 'a2m1_5*gradvec5'
-      inputs = 'a2m1_5 gradvec5'
+      scalar = a2m1_5
+      vector = gradvec5
     []
     [anis5]
       type = DivergenceVector
@@ -299,31 +300,31 @@ r0=6
     [Rphi1]
       type = ParsedCompute
       buffer = Rphi1
-      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=6*phi1*(1-phi1); (-fdw-ov+lambda*u*gp+anis1)/tau'
+      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=6*phi1*(1-phi1); (-fdw-ov-lambda*u*gp+anis1)/tau'
       inputs = 'phi1 sum_phi_sq u anis1'
     []
     [Rphi2]
       type = ParsedCompute
       buffer = Rphi2
-      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=6*phi2*(1-phi2); (-fdw-ov+lambda*u*gp+anis2)/tau'
+      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=6*phi2*(1-phi2); (-fdw-ov-lambda*u*gp+anis2)/tau'
       inputs = 'phi2 sum_phi_sq u anis2'
     []
     [Rphi3]
       type = ParsedCompute
       buffer = Rphi3
-      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=6*phi3*(1-phi3); (-fdw-ov+lambda*u*gp+anis3)/tau'
+      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=6*phi3*(1-phi3); (-fdw-ov-lambda*u*gp+anis3)/tau'
       inputs = 'phi3 sum_phi_sq u anis3'
     []
     [Rphi4]
       type = ParsedCompute
       buffer = Rphi4
-      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=6*phi4*(1-phi4); (-fdw-ov+lambda*u*gp+anis4)/tau'
+      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=6*phi4*(1-phi4); (-fdw-ov-lambda*u*gp+anis4)/tau'
       inputs = 'phi4 sum_phi_sq u anis4'
     []
     [Rphi5]
       type = ParsedCompute
       buffer = Rphi5
-      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=6*phi5*(1-phi5); (-fdw-ov+lambda*u*gp+anis5)/tau'
+      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=6*phi5*(1-phi5); (-fdw-ov-lambda*u*gp+anis5)/tau'
       inputs = 'phi5 sum_phi_sq u anis5'
     []
 
@@ -449,8 +450,8 @@ r0=6
 [TensorOutputs]
   [xdmf]
     type = XDMFTensorOutput
-    buffer = 'phi1 phi2 phi3 phi4 phi5 u s'
-    output_mode = 'Node Node Node Node Node Node Node'
+    buffer = 'phi1 phi2 phi3 phi4 phi5 u s a2m1_1 anis1'
+    output_mode = 'Node Node Node Node Node Node Node Node Node'
     enable_hdf5 = true
   []
 []

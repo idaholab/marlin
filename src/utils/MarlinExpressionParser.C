@@ -936,7 +936,12 @@ FunctionCall::buildGraph(torch::jit::Graph & graph,
   else if (_name == "pow" && arg_vals.size() == 2)
     return graph.insert(torch::jit::aten::pow, {arg_vals[0], arg_vals[1]});
   else if (_name == "matvec" && arg_vals.size() == 2)
-    return graph.insert(torch::jit::aten::matmul, {arg_vals[0], arg_vals[1]});
+  {
+    auto dim = graph.insertConstant(int64_t(-1));
+    auto vec = graph.insert(torch::jit::aten::unsqueeze, {arg_vals[1], dim});
+    auto prod = graph.insert(torch::jit::aten::matmul, {arg_vals[0], vec});
+    return graph.insert(torch::jit::aten::squeeze, {prod, dim});
+  }
   else if (_name == "vecvec" && arg_vals.size() == 2)
   {
     auto prod = graph.insert(torch::jit::aten::mul, {arg_vals[0], arg_vals[1]});
