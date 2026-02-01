@@ -935,6 +935,21 @@ FunctionCall::buildGraph(torch::jit::Graph & graph,
     return graph.insert(torch::jit::aten::hypot, {arg_vals[0], arg_vals[1]});
   else if (_name == "pow" && arg_vals.size() == 2)
     return graph.insert(torch::jit::aten::pow, {arg_vals[0], arg_vals[1]});
+  else if (_name == "matvec" && arg_vals.size() == 2)
+    return graph.insert(torch::jit::aten::matmul, {arg_vals[0], arg_vals[1]});
+  else if (_name == "vecvec" && arg_vals.size() == 2)
+  {
+    auto prod = graph.insert(torch::jit::aten::mul, {arg_vals[0], arg_vals[1]});
+    auto dims = graph.insertConstant(std::vector<int64_t>{-1});
+    auto keepdim = graph.insertConstant(false);
+    return graph.insert(torch::jit::aten::sum, {prod, dims, keepdim});
+  }
+  else if (_name == "transpose" && arg_vals.size() == 1)
+  {
+    auto dim0 = graph.insertConstant(int64_t(-2));
+    auto dim1 = graph.insertConstant(int64_t(-1));
+    return graph.insert(torch::jit::aten::transpose, {arg_vals[0], dim0, dim1});
+  }
   else if (_name == "if" && arg_vals.size() == 3)
     return graph.insert(torch::jit::aten::where, {arg_vals[0], arg_vals[1], arg_vals[2]});
   else if (_name == "FFT" && arg_vals.size() == 1)
