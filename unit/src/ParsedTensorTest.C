@@ -207,8 +207,7 @@ TEST(ParsedTensorTest, MatVecVecVecTranspose)
 {
   const auto opts = MooseTensor::floatTensorOptions();
 
-  const auto A =
-      torch::tensor({{{1.0, 2.0}, {3.0, 4.0}}, {{5.0, 6.0}, {7.0, 8.0}}}, opts);
+  const auto A = torch::tensor({{{1.0, 2.0}, {3.0, 4.0}}, {{5.0, 6.0}, {7.0, 8.0}}}, opts);
   const auto v = torch::tensor({{1.0, 1.0}, {2.0, 0.0}}, opts);
 
   {
