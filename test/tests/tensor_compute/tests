@@ -109,4 +109,14 @@
     compute_devices = 'cpu cuda mps'
     max_parallel = 1
   []
+
+  [phase_field_crystal]
+    issues = '#133'
+    type = CSVDiff
+    input = pfc_fcc.i
+    csvdiff = pfc_fcc_out.csv
+    requirement = 'The system shall be able to simulate a phase-field crystal model and generate an FCC unit crystal'
+    compute_devices = 'cpu cuda mps'
+    max_parallel = 1
+  []
 []
