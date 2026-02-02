@@ -2,8 +2,6 @@
 # Using larger epsilon for stronger density modulations
 # Based on PhysRevE.81.061601 two-mode FCC PFC model
 
-pi = 3.14159265359
-
 # Grid parameters - fine resolution to resolve atomic peaks
 N = 1  # Grid points per dimension
 
@@ -15,8 +13,8 @@ Q1_param = ${fparse sqrt(4.0/3.0)}  # FCC wave number ratio
 
 # Domain size: want several unit cells but fine enough resolution
 # The (111) wavelength is 2*pi/q0 = 2*pi*sqrt(3/4) ≈ 5.44 (dimensionless)
-# Let's fit about 8 wavelengths in each direction
-Lx = ${fparse N * 2 * ${pi} / ${Q1_param}}
+# Let's fit about 'N' wavelengths in each direction
+Lx = ${fparse N * 2 * pi / ${Q1_param}}
 Ly = ${Lx}
 
 [Domain]
@@ -25,7 +23,6 @@ Ly = ${Lx}
     ny = ${fparse ${N} * 8 }
     xmax = ${Lx}
     ymax = ${Ly}
-    device_names = 'cpu'
 []
 
 [TensorComputes]

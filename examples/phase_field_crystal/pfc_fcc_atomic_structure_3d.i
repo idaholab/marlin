@@ -1,8 +1,6 @@
 # 3D FCC PFC test showing atomic-scale density fluctuations
 # Based on PhysRevE.81.061601 two-mode FCC PFC model
 
-pi = 3.14159265359
-
 # Grid parameters - 3D resolution
 N = 64  # Grid points per dimension (64^3 = 262k points)
 
@@ -14,7 +12,7 @@ Q1_param = ${fparse sqrt(4.0/3.0)}  # FCC wave number ratio
 
 # Domain size: want several unit cells
 # The (111) wavelength is 2*pi/q0 = 2*pi*sqrt(3/4) ≈ 5.44 (dimensionless)
-# Fit about 6-8 wavelengths in each direction
+# Fit 8 wavelengths in each direction
 Lx = ${fparse 8 * 2 * ${pi} / ${Q1_param}}
 Ly = ${Lx}
 Lz = ${Lx}
@@ -27,7 +25,6 @@ Lz = ${Lx}
     xmax = ${Lx}
     ymax = ${Ly}
     zmax = ${Lz}
-    device_names = 'mps'
 []
 
 [TensorComputes]
