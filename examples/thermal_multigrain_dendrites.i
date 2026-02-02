@@ -300,31 +300,31 @@ r0=6
     [Rphi1]
       type = ParsedCompute
       buffer = Rphi1
-      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=6*phi1*(1-phi1); (-fdw-ov-lambda*u*gp+anis1)/(tau*(1+a2m1_1))'
+      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=6*phi1*(1-phi1); kin:=1/(1+a2m1_1); ((-fdw-ov-lambda*u*gp)*kin+anis1)/tau'
       inputs = 'phi1 sum_phi_sq u anis1 a2m1_1'
     []
     [Rphi2]
       type = ParsedCompute
       buffer = Rphi2
-      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=6*phi2*(1-phi2); (-fdw-ov-lambda*u*gp+anis2)/(tau*(1+a2m1_2))'
+      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=6*phi2*(1-phi2); kin:=1/(1+a2m1_2); ((-fdw-ov-lambda*u*gp)*kin+anis2)/tau'
       inputs = 'phi2 sum_phi_sq u anis2 a2m1_2'
     []
     [Rphi3]
       type = ParsedCompute
       buffer = Rphi3
-      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=6*phi3*(1-phi3); (-fdw-ov-lambda*u*gp+anis3)/(tau*(1+a2m1_3))'
+      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=6*phi3*(1-phi3); kin:=1/(1+a2m1_3); ((-fdw-ov-lambda*u*gp)*kin+anis3)/tau'
       inputs = 'phi3 sum_phi_sq u anis3 a2m1_3'
     []
     [Rphi4]
       type = ParsedCompute
       buffer = Rphi4
-      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=6*phi4*(1-phi4); (-fdw-ov-lambda*u*gp+anis4)/(tau*(1+a2m1_4))'
+      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=6*phi4*(1-phi4); kin:=1/(1+a2m1_4); ((-fdw-ov-lambda*u*gp)*kin+anis4)/tau'
       inputs = 'phi4 sum_phi_sq u anis4 a2m1_4'
     []
     [Rphi5]
       type = ParsedCompute
       buffer = Rphi5
-      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=6*phi5*(1-phi5); (-fdw-ov-lambda*u*gp+anis5)/(tau*(1+a2m1_5))'
+      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=6*phi5*(1-phi5); kin:=1/(1+a2m1_5); ((-fdw-ov-lambda*u*gp)*kin+anis5)/tau'
       inputs = 'phi5 sum_phi_sq u anis5 a2m1_5'
     []
 
