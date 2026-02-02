@@ -1,11 +1,10 @@
-# FCC PFC test designed to clearly show atomic-scale density fluctuations
-# Using larger epsilon for stronger density modulations
+# 3D FCC PFC test showing atomic-scale density fluctuations
 # Based on PhysRevE.81.061601 two-mode FCC PFC model
 
 pi = 3.14159265359
 
-# Grid parameters - fine resolution to resolve atomic peaks
-N = 1  # Grid points per dimension
+# Grid parameters - 3D resolution
+N = 64  # Grid points per dimension (64^3 = 262k points)
 
 # PFC model parameters - LARGER epsilon for clearer atomic structure
 psi_mean = -0.2         # Mean density
@@ -13,19 +12,22 @@ epsilon = 0.15          # Larger undercooling for stronger modulations
 R1_param = 0.0          # Two-mode coupling (0 for max FCC stability)
 Q1_param = ${fparse sqrt(4.0/3.0)}  # FCC wave number ratio
 
-# Domain size: want several unit cells but fine enough resolution
+# Domain size: want several unit cells
 # The (111) wavelength is 2*pi/q0 = 2*pi*sqrt(3/4) ≈ 5.44 (dimensionless)
-# Let's fit about 8 wavelengths in each direction
-Lx = ${fparse N * 2 * ${pi} / ${Q1_param}}
+# Fit about 6-8 wavelengths in each direction
+Lx = ${fparse 8 * 2 * ${pi} / ${Q1_param}}
 Ly = ${Lx}
+Lz = ${Lx}
 
 [Domain]
-    dim = 2
-    nx = ${fparse ${N} * 8 }
-    ny = ${fparse ${N} * 8 }
+    dim = 3
+    nx = ${N}
+    ny = ${N}
+    nz = ${N}
     xmax = ${Lx}
     ymax = ${Ly}
-    device_names = 'cpu'
+    zmax = ${Lz}
+    device_names = 'mps'
 []
 
 [TensorComputes]
@@ -85,7 +87,7 @@ Ly = ${Lx}
     corrector_order = 1
     corrector_steps = 3
     predictor_order = 1
-    substeps = 1000
+    substeps = 10000
 []
 
 [Postprocessors]
@@ -118,8 +120,8 @@ Ly = ${Lx}
 
 [Executioner]
     type = Transient
-    num_steps = 100
-    dt = 0.2  # Larger timestep for faster evolution
+    num_steps = 200  # Reduced for 3D (much more expensive)
+    dt = 5
 []
 
 [Outputs]

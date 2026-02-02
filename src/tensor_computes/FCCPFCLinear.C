@@ -42,8 +42,7 @@ FCCPFCLinear::computeBuffer()
 {
   const auto one_minus_k2 = 1.0 - _k2;
   const auto q1_sq_minus_k2 = _q1 * _q1 - _k2;
-  const auto lhat =
-      -_eps + one_minus_k2 * one_minus_k2 * (q1_sq_minus_k2 * q1_sq_minus_k2 + _r1);
+  const auto lhat = -_eps + one_minus_k2 * one_minus_k2 * (q1_sq_minus_k2 * q1_sq_minus_k2 + _r1);
 
   _u = -_k2 * lhat * _mobility;
 }

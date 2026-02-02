@@ -5,7 +5,7 @@
 pi = 3.14159265359
 
 # Grid parameters - fine resolution to resolve atomic peaks
-N = 1  # Grid points per dimension
+N = 4  # Grid points per dimension
 
 # PFC model parameters - LARGER epsilon for clearer atomic structure
 psi_mean = -0.2         # Mean density
@@ -25,7 +25,7 @@ Ly = ${Lx}
     ny = ${fparse ${N} * 8 }
     xmax = ${Lx}
     ymax = ${Ly}
-    device_names = 'cpu'
+    device_names = 'mps'
 []
 
 [TensorComputes]
@@ -85,7 +85,7 @@ Ly = ${Lx}
     corrector_order = 1
     corrector_steps = 3
     predictor_order = 1
-    substeps = 1000
+    substeps = 10000
 []
 
 [Postprocessors]
@@ -118,8 +118,8 @@ Ly = ${Lx}
 
 [Executioner]
     type = Transient
-    num_steps = 100
-    dt = 0.2  # Larger timestep for faster evolution
+    num_steps = 1000
+    dt = 20  # Larger timestep for faster evolution
 []
 
 [Outputs]
