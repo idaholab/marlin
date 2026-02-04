@@ -13,7 +13,7 @@ diameter with [!param](/Postprocessors/ComputeReynoldsNumber/diameter).
 
 ## Example Input File Syntax
 
-!listing test/tests/lbm/obstacle.i block=Postprocessors/reynolds
+!listing examples/lbm/Karman-vortex/cylinder.i block=Postprocessors/reynolds
 
 !syntax parameters /UserObjects/ComputeReynoldsNumber
 

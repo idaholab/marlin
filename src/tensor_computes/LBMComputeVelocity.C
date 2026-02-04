@@ -32,9 +32,9 @@ LBMComputeVelocity::validParams()
 
 LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
-    _f(getInputBuffer("f")),
-    _rho(getInputBuffer("rho")),
-    _force_tensor(getInputBuffer("forces")),
+    _f(getInputBuffer("f", _radius)),
+    _rho(getInputBuffer("rho", _radius)),
+    _force_tensor(getInputBuffer("forces", _radius)),
     _body_force_constant_x(
         _lb_problem.getConstant<Real>(getParam<MarlinConstantName>("body_force_x"))),
     _body_force_constant_y(
@@ -44,14 +44,18 @@ LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
 {
   if (getParam<bool>("add_body_force"))
   {
-    std::vector<int64_t> shape = {_shape[0], _shape[1], _shape[2], _domain.getDim()};
+    std::vector<int64_t> shape = _lb_problem.getLocalTensorShape(std::vector<int64_t>());
+    if (shape.size() < 3)
+      shape.push_back(1);
+    shape.push_back(_dim);
+
     _body_forces = torch::zeros(shape, MooseTensor::floatTensorOptions());
 
     auto force_constants =
         torch::tensor({_body_force_constant_x, _body_force_constant_y, _body_force_constant_z},
                       MooseTensor::floatTensorOptions());
 
-    for (int64_t d = 0; d < _domain.getDim(); d++)
+    for (int64_t d = 0; d < _dim; d++)
     {
       auto t_index = torch::tensor({d}, MooseTensor::intTensorOptions());
       _body_forces.index_fill_(-1, t_index, force_constants[d]);
@@ -62,13 +66,11 @@ LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
 void
 LBMComputeVelocity::computeBuffer()
 {
-  const unsigned int & dim = _domain.getDim();
-
   _u.index({Slice(), Slice(), Slice(), 0}) = torch::sum(_f * _stencil._ex, 3) / _rho;
 
-  if (dim > 1)
+  if (_dim > 1)
     _u.index({Slice(), Slice(), Slice(), 1}) = torch::sum(_f * _stencil._ey, 3) / _rho;
-  if (dim > 2)
+  if (_dim > 2)
     _u.index({Slice(), Slice(), Slice(), 2}) = torch::sum(_f * _stencil._ez, 3) / _rho;
 
   // include forces
@@ -78,5 +80,6 @@ LBMComputeVelocity::computeBuffer()
   if (getParam<bool>("add_body_force"))
     _u += _body_forces / (2.0 * _rho.unsqueeze(3));
 
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

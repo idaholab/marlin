@@ -20,7 +20,7 @@ registerMooseObject("MarlinApp", LBMTensorBuffer);
 InputParameters
 LBMTensorBuffer::validParams()
 {
-  InputParameters params = TensorBuffer<torch::Tensor>::validParams();
+  InputParameters params = PlainTensorBuffer::validParams();
   params.addRequiredParam<std::string>("buffer_type",
                                        "The buffer type can be either distribution function (df), "
                                        "macroscopic scalar (ms) or macroscopic vectorial (mv)");
@@ -35,7 +35,7 @@ LBMTensorBuffer::validParams()
 }
 
 LBMTensorBuffer::LBMTensorBuffer(const InputParameters & parameters)
-  : TensorBuffer<torch::Tensor>(parameters),
+  : PlainTensorBuffer(parameters),
     _buffer_type(getParam<std::string>("buffer_type")),
     _lb_problem(dynamic_cast<LatticeBoltzmannProblem &>(
         *getCheckedPointerParam<TensorProblem *>("_tensor_problem"))),
@@ -56,7 +56,7 @@ LBMTensorBuffer::init()
   else
     mooseError("Buffer type ", _buffer_type, " is not recognized");
 
-  std::vector<int64_t> shape(_domain.getShape().begin(), _domain.getShape().end());
+  std::vector<int64_t> shape = _lb_problem.getLocalTensorShape(std::vector<int64_t>());
 
   if (_domain.getDim() < 3)
     shape.push_back(1);
@@ -145,33 +145,60 @@ LBMTensorBuffer::readTensorFromHdf5()
   // total number of elements in the buffer
   int64_t total_number_of_elements = 1;
   for (auto i : index_range(dims))
-  {
     total_number_of_elements *= dims[i];
-  }
 
   // make tensor
   std::vector<int64_t> torch_dims(dims.begin(), dims.end());
 
+  auto read_and_process_tensor =
+      [&](auto type_dummy, c10::ScalarType torch_dtype, const torch::TensorOptions & moose_options)
+  {
+    using T = decltype(type_dummy);
+
+    // create read buffer
+    std::vector<T> buffer(total_number_of_elements);
+
+    // read data
+    H5Dread(dataset_id, datatype_id, H5S_ALL, dataspace_id, H5P_DEFAULT, buffer.data());
+
+    auto cpu_tensor = torch::from_blob(buffer.data(), torch_dims, torch_dtype).clone();
+
+    _u = torch::ones(_lb_problem.getLocalTensorShape(std::vector<int64_t>()), moose_options);
+
+    // extract local sub-tensor if running in parallel
+    auto r = _domain.comm().rank();
+    auto n_ranks = _domain.comm().size();
+    torch::Tensor local_cpu_tensor;
+
+    if (n_ranks > 1)
+    {
+      std::array<int64_t, 3> begin, end;
+      _domain.getLocalBounds(r, begin, end);
+      if (cpu_tensor.dim() < 3)
+        local_cpu_tensor = cpu_tensor.narrow(0, begin[0], end[0] - begin[0])
+                               .narrow(1, begin[1], end[1] - begin[1]);
+      else
+        local_cpu_tensor = cpu_tensor.narrow(0, begin[0], end[0] - begin[0])
+                               .narrow(1, begin[1], end[1] - begin[1])
+                               .narrow(2, begin[2], end[2] - begin[2]);
+    }
+    else
+      local_cpu_tensor = cpu_tensor;
+
+    // Fit into _u with padding
+    auto ghost_radius = _lb_problem.getGhostRadius();
+    torch::Tensor u_owned = _u;
+    for (unsigned int d = 0; d < _domain.getDim(); d++)
+      u_owned = u_owned.narrow(d, ghost_radius, local_cpu_tensor.size(d));
+
+    u_owned.copy_(local_cpu_tensor.to(moose_options));
+  };
+
   if (getParam<bool>("is_integer"))
-  {
-    // create read buffer
-    std::vector<int64_t> buffer(total_number_of_elements);
-    // read data
-    H5Dread(dataset_id, datatype_id, H5S_ALL, dataspace_id, H5P_DEFAULT, buffer.data());
-
-    auto cpu_tensor = torch::from_blob(buffer.data(), torch_dims, torch::kInt64).clone();
-    _u = cpu_tensor.to(MooseTensor::intTensorOptions());
-  }
+    read_and_process_tensor(int64_t{}, torch::kInt64, MooseTensor::intTensorOptions());
   else
-  {
-    // create read buffer
-    std::vector<double> buffer(total_number_of_elements);
-    // read data
-    H5Dread(dataset_id, datatype_id, H5S_ALL, dataspace_id, H5P_DEFAULT, buffer.data());
+    read_and_process_tensor(double{}, torch::kFloat64, MooseTensor::floatTensorOptions());
 
-    auto cpu_tensor = torch::from_blob(buffer.data(), torch_dims, torch::kFloat64).clone();
-    _u = cpu_tensor.to(MooseTensor::floatTensorOptions());
-  }
   while (_u.dim() < 3)
     _u.unsqueeze_(-1);
 
@@ -182,19 +209,4 @@ LBMTensorBuffer::readTensorFromHdf5()
 #else
   mooseError("MOOSE was built without HDF5 support.");
 #endif
-}
-
-void
-LBMTensorBuffer::makeCPUCopy()
-{
-  if (!_u.defined())
-    return;
-
-  if (_cpu_copy_requested)
-  {
-    if (_u.is_cpu())
-      _u_cpu = _u.clone().contiguous();
-    else
-      _u_cpu = _u.cpu().contiguous();
-  }
 }

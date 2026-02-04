@@ -15,6 +15,8 @@ amplitude = '${Ny}/100.0'
   ymax = '${Ny}'
   device_names='cpu'
   mesh_mode=DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]

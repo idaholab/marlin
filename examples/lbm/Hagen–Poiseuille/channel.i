@@ -2,7 +2,8 @@
   dim = 2
   nx = 100
   ny = 100
-  mesh_mode = DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]
@@ -129,9 +130,18 @@
   f_old = fpc
 []
 
+[Postprocessors]
+  [max_u]
+    type = TensorExtremeValuePostprocessor
+    buffer = speed
+    value_type = MAX
+    execute_on = 'INITIAL TIMESTEP_END'
+  []
+[]
+
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 100000
+  substeps = 10000
 []
 
 [Executioner]

@@ -4,6 +4,8 @@
   ny = 10
   nz = 10
   mesh_mode = DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y Z'
 []
 
 [Stencil]
@@ -49,6 +51,12 @@
       bulk = density
       velocity = velocity
     []
+    [initial_f_bb]
+      type = LBMEquilibrium
+      buffer = f_bounce_back
+      bulk = density
+      velocity = velocity
+    []
   []
   [Solve]
     [density]
@@ -86,24 +94,43 @@
 [TensorSolver]
   type = LBMStream
   buffer = f
-  f_old = f
+  f_old = f_bounce_back
 []
 
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 2
+  substeps = 1
+[]
+
+[Postprocessors]
+  [velocity_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MIN
+  []
+  [velocity_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MAX
+  []
+  [density_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = density
+    value_type = MIN
+  []
+  [densty_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = density
+    value_type = MAX
+  []
 []
 
 [Executioner]
   type = Transient
-  num_steps = 2
+  num_steps = 5
 []
 
-[TensorOutputs]
-  [xdmf2]
-    type = XDMFTensorOutput
-    buffer = 'velocity density'
-    output_mode = 'Cell Cell'
-    enable_hdf5 = true
-  []
+[Outputs]
+  file_base = mixed_bcs_d3q19_reverse
+  csv = true
 []

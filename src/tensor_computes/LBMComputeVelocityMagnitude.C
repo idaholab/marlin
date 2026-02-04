@@ -21,7 +21,7 @@ LBMComputeVelocityMagnitude::validParams()
 }
 
 LBMComputeVelocityMagnitude::LBMComputeVelocityMagnitude(const InputParameters & parameters)
-  : LatticeBoltzmannOperator(parameters), _velocity(getInputBuffer("velocity"))
+  : LatticeBoltzmannOperator(parameters), _velocity(getInputBuffer("velocity", _radius))
 {
 }
 
@@ -41,5 +41,6 @@ LBMComputeVelocityMagnitude::computeBuffer()
     default:
       mooseError("Unsupported dimension");
   }
-  _lb_problem.maskedFillSolids(_u, 0);
+  _u_owned = ownedView(_u);
+  _lb_problem.maskedFillSolids(_u_owned, 0);
 }

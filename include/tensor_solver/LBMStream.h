@@ -38,4 +38,5 @@ protected:
   };
 
   std::vector<Variable> _variables;
+  const unsigned int _radius;
 };

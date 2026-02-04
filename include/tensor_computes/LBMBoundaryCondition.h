@@ -44,11 +44,11 @@ public:
   virtual void wallBoundary() {};
   virtual void regionalBoundary() {};
 
+  void maskBoundary();
+  bool isBoundaryOwned(const int &);
   virtual void computeBuffer() override;
 
 protected:
-  const std::array<int64_t, 3> _grid_size;
-
   enum class Boundary
   {
     top,
@@ -63,4 +63,13 @@ protected:
 
   torch::Tensor _boundary_indices;
   torch::Tensor _boundary_types;
+
+  /// Bitmask indicating which boundaries are owned by this MPI rank.
+  /// Bits 0-5 correspond to the Boundary enum values (top, bottom, left, right, front, back).
+  /// Bit 6 indicates wall boundary ownership (binary media obstacles).
+  /// Bit 7 indicates regional boundary ownership.
+  uint8_t _boundary_rank = 0;
+
+  torch::Tensor _binary_mesh;
+  torch::Tensor _boundary_mask;
 };

@@ -27,6 +27,25 @@ LatticeBoltzmannOperator::LatticeBoltzmannOperator(const InputParameters & param
     _ez(_stencil._ez.clone().reshape({1, 1, 1, _stencil._q})),
     _w(_stencil._weights.clone().reshape({1, 1, 1, _stencil._q})),
     _shape(_lb_problem.getExtendedShape()),
-    _shape_q(_lb_problem.getExtendedShapeQ())
+    _shape_q(_lb_problem.getExtendedShapeQ()),
+    _radius(_lb_problem.getGhostRadius())
 {
+}
+
+torch::Tensor
+LatticeBoltzmannOperator::ownedView(const torch::Tensor & t)
+{
+  torch::Tensor t_owned = t;
+  for (unsigned int d = 0; d < _dim; d++)
+    t_owned = t_owned.narrow(d, _radius, _shape[d]);
+  return t_owned;
+}
+
+void
+LatticeBoltzmannOperator::realSpaceComputeBuffer()
+{
+  _u_owned = _u;
+  for (unsigned int d = 0; d < _dim; d++)
+    _u_owned = _u_owned.narrow(d, _radius, _shape[d]);
+  _lb_problem.runComputeWithGhosts(*this);
 }

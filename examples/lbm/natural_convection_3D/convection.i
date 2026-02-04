@@ -6,8 +6,9 @@
   xmax = 270
   ymax = 270
   zmax = 405
-  device_names='cuda'
-  mesh_mode=DUMMY
+  device_names='cpu'
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y Z'
   floating_precision=SINGLE
 []
 

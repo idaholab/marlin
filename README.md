@@ -14,7 +14,7 @@ The primary developer of Marlin is _Daniel Schwen_. Lattice Boltzmann implementa
 
 ## Install
 
-- MacOS [installation instructions](doc/content/installation.md)
+- MacOS and Linux [installation instructions](doc/content/installation.md)
 
 ## Why another spectral solver?
 
