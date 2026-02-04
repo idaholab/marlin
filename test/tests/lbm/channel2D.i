@@ -3,6 +3,8 @@
   nx = 10
   ny = 10
   mesh_mode = DUMMY
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]
@@ -131,19 +133,48 @@
 
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 100
+  substeps = 10
+[]
+
+[Postprocessors]
+  [velocity_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MIN
+  []
+  [velocity_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MAX
+  []
+  [speed_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = speed
+    value_type = MIN
+  []
+  [speed_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = speed
+    value_type = MAX
+  []
+  [density_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = density
+    value_type = MIN
+  []
+  [densty_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = density
+    value_type = MAX
+  []
 []
 
 [Executioner]
   type = Transient
-  num_steps = 2
+  num_steps = 11
 []
 
-[TensorOutputs]
-  [xdmf2]
-    type = XDMFTensorOutput
-    buffer = 'velocity'
-    output_mode = 'Cell'
-    enable_hdf5 = true
-  []
+[Outputs]
+  file_base = channel2D
+  csv = true
 []

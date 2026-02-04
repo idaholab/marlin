@@ -3,6 +3,8 @@
   nx = 512
   ny = 512
   device_names='cpu'
+  parallel_mode = REAL_SPACE
+  periodic_directions = 'X Y'
 []
 
 [Stencil]
