@@ -14,6 +14,7 @@
 #include <ATen/core/TensorBody.h>
 #include <ATen/ops/unsqueeze_ops.h>
 #include <util/Optional.h>
+#include <cmath>
 
 registerMooseObject("MarlinApp", FFTMechanics);
 
@@ -107,6 +108,13 @@ FFTMechanics::computeBuffer()
   const auto K_dF = [&](const torch::Tensor & dFm)
   { return trans2(ddot42(_tK4, trans2(dFm.reshape(_r2shape)))); };
   const auto G_K_dF = [&](const torch::Tensor & dFm) { return G(K_dF(dFm)); };
+  const auto reduce_sum = [&](const torch::Tensor & t) { return _domain.allreduceSum(t); };
+  const auto global_norm = [&](const torch::Tensor & r)
+  {
+    auto local = torch::sum(r * r);
+    auto global = reduce_sum(local);
+    return std::sqrt(global.cpu().item<double>());
+  };
 
   // initialize deformation gradient, and stress/stiffness       [grid of tensors]
   _u = _tF;
@@ -120,8 +128,7 @@ FFTMechanics::computeBuffer()
   if (_applied_macroscopic_strain)
     _u = _u + _applied_macroscopic_strain->expand(_r2_shape);
 
-  const auto Fn =
-      at::linalg_norm(_u, c10::nullopt, c10::nullopt, false, c10::nullopt).cpu().item<double>();
+  const auto Fn = global_norm(_u);
 
   unsigned int iiter = 0;
   auto dFm = torch::zeros_like(b);
@@ -129,8 +136,8 @@ FFTMechanics::computeBuffer()
   // iterate as long as the iterative update does not vanish
   while (true)
   {
-    const auto [dFm_new, iterations, lnorm] =
-        conjugateGradientSolve(G_K_dF, b, dFm, _l_tol, _l_max_its);
+    const auto [dFm_new, iterations, lnorm] = conjugateGradientSolve(
+        G_K_dF, b, dFm, _l_tol, _l_max_its, [](const torch::Tensor & r) { return r; }, reduce_sum);
     dFm = dFm_new;
 
     // update DOFs (array -> tens.grid)
@@ -142,8 +149,7 @@ FFTMechanics::computeBuffer()
     // convert res.stress to residual
     b = -G(_tP);
 
-    const auto anorm =
-        at::linalg_norm(dFm, c10::nullopt, c10::nullopt, false, c10::nullopt).cpu().item<double>();
+    const auto anorm = global_norm(dFm);
     const auto rnorm = anorm / Fn;
 
     // print nonlinear residual to the screen

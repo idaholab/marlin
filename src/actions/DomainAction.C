@@ -132,6 +132,9 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _local_begin[d].assign(_n_rank, 0);
     _local_end[d].assign(_n_rank, 0);
     _n_local_all[d].assign(_n_rank, 0);
+    _local_reciprocal_begin[d].assign(_n_rank, 0);
+    _local_reciprocal_end[d].assign(_n_rank, 0);
+    _n_reciprocal_all[d].assign(_n_rank, 0);
   }
 
   if (_parallel_mode == ParallelMode::NONE && _n_rank > 1)
@@ -346,6 +349,9 @@ DomainAction::partitionSerial()
     _local_begin[d].assign(_n_rank, 0);
     _local_end[d].assign(_n_rank, _n_global[d]);
     _n_local_all[d].assign(_n_rank, _n_global[d]);
+    _local_reciprocal_begin[d].assign(_n_rank, 0);
+    _local_reciprocal_end[d].assign(_n_rank, _n_reciprocal_global[d]);
+    _n_reciprocal_all[d].assign(_n_rank, _n_reciprocal_global[d]);
   }
 
   // to do, make those slices dependent on local begin/end
@@ -481,6 +487,13 @@ DomainAction::partitionRealSpace()
     _n_local_all[2][r] = counts[2][iz];
   }
 
+  for (const auto d : {0u, 1u, 2u})
+  {
+    _local_reciprocal_begin[d].assign(_n_rank, 0);
+    _local_reciprocal_end[d].assign(_n_rank, _n_reciprocal_global[d]);
+    _n_reciprocal_all[d].assign(_n_rank, _n_reciprocal_global[d]);
+  }
+
   _real_space_index = {
       static_cast<unsigned int>(_rank % _real_space_partitions[0]),
       static_cast<unsigned int>((_rank / _real_space_partitions[0]) % _real_space_partitions[1]),
@@ -516,28 +529,40 @@ DomainAction::partitionSlabs()
   if (_local_weights.size() != _n_rank)
     mooseError("Internal error: local weight vector size does not match number of ranks.");
 
-  // x is partitioned along the reciprocal axis (rfft halves the dimension)
-  _n_local_all[0] = partitionHepler(_global_reciprocal_axis[0].sizes()[0], _local_weights);
+  // real-space: y is partitioned, x and z are not
+  _n_local_all[0].assign(_n_rank, _n_global[0]);
+  _local_begin[0].assign(_n_rank, 0);
+  _local_end[0].assign(_n_rank, _n_global[0]);
 
-  // y is partitioned along the real-space axis
   _n_local_all[1] = partitionHepler(_global_axis[1].sizes()[1], _local_weights);
-
-  // set begin/end for x and y
-  for (const auto d : {0, 1})
+  int64_t b = 0;
+  for (const auto r : make_range(_n_rank))
   {
-    int64_t b = 0;
-    for (const auto r : make_range(_n_rank))
-    {
-      _local_begin[d][r] = b;
-      b += _n_local_all[d][r];
-      _local_end[d][r] = b;
-    }
+    _local_begin[1][r] = b;
+    b += _n_local_all[1][r];
+    _local_end[1][r] = b;
   }
 
-  // z is not partitioned at all
   _n_local_all[2].assign(_n_rank, _n_global[2]);
   _local_begin[2].assign(_n_rank, 0);
   _local_end[2].assign(_n_rank, _n_global[2]);
+
+  // reciprocal-space: x is partitioned, y and z are not
+  _n_reciprocal_all[0] = partitionHepler(_global_reciprocal_axis[0].sizes()[0], _local_weights);
+  int64_t rb = 0;
+  for (const auto r : make_range(_n_rank))
+  {
+    _local_reciprocal_begin[0][r] = rb;
+    rb += _n_reciprocal_all[0][r];
+    _local_reciprocal_end[0][r] = rb;
+  }
+
+  for (const auto d : {1u, 2u})
+  {
+    _n_reciprocal_all[d].assign(_n_rank, _n_reciprocal_global[d]);
+    _local_reciprocal_begin[d].assign(_n_rank, 0);
+    _local_reciprocal_end[d].assign(_n_rank, _n_reciprocal_global[d]);
+  }
 
   // slice the real space into x-z slabs stacked in y direction
   _local_axis[0] = _global_axis[0].slice(0, 0, _n_global[0]);
@@ -547,7 +572,8 @@ DomainAction::partitionSlabs()
 
   // slice the reciprocal space into y-z slices stacked in x direction
   _local_reciprocal_axis[0] =
-      _global_reciprocal_axis[0].slice(0, _local_begin[0][_rank], _local_end[0][_rank]);
+      _global_reciprocal_axis[0].slice(
+          0, _local_reciprocal_begin[0][_rank], _local_reciprocal_end[0][_rank]);
   _local_reciprocal_axis[1] = _global_reciprocal_axis[1].slice(1, 0, _n_reciprocal_global[1]);
 
   _n_local[2] = _n_global[2];
@@ -696,6 +722,25 @@ DomainAction::partitionPencils()
       _pencil_stage2_y_offsets[py_final],
       _pencil_stage2_y_offsets[py_final] + _pencil_stage2_y_sizes[py_final]);
   _local_reciprocal_axis[2] = _global_reciprocal_axis[2];
+
+  for (unsigned int r = 0; r < _n_rank; ++r)
+  {
+    const unsigned int r_px = r % _pencil_y_partitions;
+    const unsigned int r_py_final = r / _pencil_y_partitions;
+
+    _local_reciprocal_begin[0][r] = _pencil_x_offsets[r_px];
+    _local_reciprocal_end[0][r] = _pencil_x_offsets[r_px] + _pencil_x_sizes[r_px];
+    _n_reciprocal_all[0][r] = _pencil_x_sizes[r_px];
+
+    _local_reciprocal_begin[1][r] = _pencil_stage2_y_offsets[r_py_final];
+    _local_reciprocal_end[1][r] =
+        _pencil_stage2_y_offsets[r_py_final] + _pencil_stage2_y_sizes[r_py_final];
+    _n_reciprocal_all[1][r] = _pencil_stage2_y_sizes[r_py_final];
+
+    _local_reciprocal_begin[2][r] = 0;
+    _local_reciprocal_end[2][r] = _n_reciprocal_global[2];
+    _n_reciprocal_all[2][r] = _n_reciprocal_global[2];
+  }
 
   const auto local_kx = _pencil_x_sizes[_pencil_y_index[_rank]];
   const auto local_ky = _pencil_stage2_y_sizes[_pencil_z_index[_rank]];
@@ -886,7 +931,8 @@ DomainAction::fftSlab(const torch::Tensor & t) const
   std::vector<MPI_Request> send_requests(_n_rank, MPI_REQUEST_NULL);
   for (const auto i : make_range(_n_rank))
   {
-    auto slice = slab.slice(0, _local_begin[0][i], _local_end[0][i]).contiguous();
+    auto slice =
+        slab.slice(0, _local_reciprocal_begin[0][i], _local_reciprocal_end[0][i]).contiguous();
     if (i == _rank)
       _recv_tensor[i] = slice;
     else
@@ -911,9 +957,9 @@ DomainAction::fftSlab(const torch::Tensor & t) const
     {
       std::vector<int64_t> recv_shape;
       if (_dim == 2)
-        recv_shape = {_n_local_all[0][_rank], _n_local_all[1][i]};
+        recv_shape = {_n_reciprocal_all[0][_rank], _n_local_all[1][i]};
       else
-        recv_shape = {_n_local_all[0][_rank], _n_local_all[1][i], _n_local_all[2][i]};
+        recv_shape = {_n_reciprocal_all[0][_rank], _n_local_all[1][i], _n_local_all[2][i]};
 
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
@@ -986,9 +1032,9 @@ DomainAction::ifftSlab(const torch::Tensor & t) const
     {
       std::vector<int64_t> recv_shape;
       if (_dim == 2)
-        recv_shape = {_n_local_all[0][i], _n_local_all[1][_rank]};
+        recv_shape = {_n_reciprocal_all[0][i], _n_local_all[1][_rank]};
       else
-        recv_shape = {_n_local_all[0][i], _n_local_all[1][_rank], _n_local_all[2][i]};
+        recv_shape = {_n_reciprocal_all[0][i], _n_local_all[1][_rank], _n_local_all[2][i]};
 
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
@@ -1564,11 +1610,48 @@ DomainAction::sum(const torch::Tensor & t) const
 {
   torch::Tensor local_sum = t.sum(_domain_dimensions, false, c10::nullopt);
 
-  // TODO: parallel implementation
   if (comm().size() == 1)
     return local_sum;
-  else
-    mooseError("Sum is not implemented in parallel, yet.");
+  return allreduceSum(local_sum);
+}
+
+torch::Tensor
+DomainAction::allreduceSum(const torch::Tensor & t) const
+{
+  auto in = t.contiguous();
+  if (comm().size() == 1)
+    return in.clone();
+
+  if (_debug)
+  {
+    const int64_t local_count = in.numel();
+    int64_t min_count = local_count;
+    int64_t max_count = local_count;
+    MPI_Allreduce(&local_count, &min_count, 1, MPI_INT64_T, MPI_MIN, mpiComm());
+    MPI_Allreduce(&local_count, &max_count, 1, MPI_INT64_T, MPI_MAX, mpiComm());
+    if (min_count != max_count)
+      mooseError("allreduceSum requires equal tensor sizes across ranks (min=",
+                 min_count,
+                 ", max=",
+                 max_count,
+                 ").");
+  }
+
+  const auto mpi_type = mpiTypeFromScalar(in.scalar_type());
+
+  if (_gpu_aware_mpi)
+  {
+    auto out = torch::zeros_like(in);
+    MPI_Allreduce(in.data_ptr(), out.data_ptr(), in.numel(), mpi_type, MPI_SUM, mpiComm());
+    return out;
+  }
+
+  auto cpu_in = in.to(in.options().device(torch::kCPU));
+  auto cpu_out = torch::zeros_like(cpu_in);
+  MPI_Allreduce(
+      cpu_in.data_ptr(), cpu_out.data_ptr(), cpu_out.numel(), mpi_type, MPI_SUM, mpiComm());
+
+  return cpu_out.to(in.options());
 }
 
 torch::Tensor

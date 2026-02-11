@@ -52,15 +52,35 @@ torch::Tensor dot24(const torch::Tensor & A2, const torch::Tensor & B4);
 torch::Tensor dot42(const torch::Tensor & A4, const torch::Tensor & B2);
 torch::Tensor dyad22(const torch::Tensor & A2, const torch::Tensor & B2);
 
-template <typename T1, typename T2>
+template <typename T1, typename T2, typename ReduceSum>
 std::tuple<torch::Tensor, unsigned int, double>
-conjugateGradientSolve(T1 A, torch::Tensor b, torch::Tensor x0, double tol, int64_t maxiter, T2 M)
+conjugateGradientSolve(T1 A,
+                       torch::Tensor b,
+                       torch::Tensor x0,
+                       double tol,
+                       int64_t maxiter,
+                       T2 M,
+                       ReduceSum reduce_sum)
 {
   // initialize solution guess
   torch::Tensor x = x0.defined() ? x0.clone() : torch::zeros_like(b);
 
+  auto global_dot = [&](const torch::Tensor & a, const torch::Tensor & c)
+  {
+    auto local = torch::sum(a * c);
+    auto global = reduce_sum(local);
+    return global.cpu().template item<double>();
+  };
+
+  auto global_norm = [&](const torch::Tensor & r)
+  {
+    auto local = torch::sum(r * r);
+    auto global = reduce_sum(local);
+    return std::sqrt(global.cpu().template item<double>());
+  };
+
   // norm of b (for relative tolerance)
-  const double b_norm = torch::norm(b).cpu().template item<double>();
+  const double b_norm = global_norm(b);
   if (b_norm == 0.0)
     // solution is zero if b is zero
     return {x, 0u, 0.0};
@@ -79,26 +99,24 @@ conjugateGradientSolve(T1 A, torch::Tensor b, torch::Tensor x0, double tol, int6
   torch::Tensor p = z.clone();
 
   // dot product (r, z)
-  double rz_old = torch::sum(r * z).cpu().template item<double>();
+  double rz_old = global_dot(r, z);
 
   // CG iteration
-  double res_norm;
+  double res_norm = 0.0;
   for (const auto k : libMesh::make_range(maxiter))
   {
     // compute matrix-vector product
     const auto Ap = A(p);
 
     // step size alpha
-    double alpha = rz_old / torch::sum(p * Ap).cpu().template item<double>();
+    double alpha = rz_old / global_dot(p, Ap);
 
     // update solution
     x = x + alpha * p;
 
     // update residual
     r = r - alpha * Ap;
-    res_norm = torch::norm(r).cpu().template item<double>(); // ||r||
-
-    // std::cout << res_norm << '\n';
+    res_norm = global_norm(r); // ||r||
 
     // Converged to desired tolerance
     if (res_norm <= tol * b_norm)
@@ -106,7 +124,7 @@ conjugateGradientSolve(T1 A, torch::Tensor b, torch::Tensor x0, double tol, int6
 
     // apply preconditioner to new residual
     z = M(r);
-    const auto rz_new = torch::sum(r * z).cpu().template item<double>();
+    const auto rz_new = global_dot(r, z);
 
     // update scalar beta
     double beta = rz_new / rz_old;
@@ -120,6 +138,14 @@ conjugateGradientSolve(T1 A, torch::Tensor b, torch::Tensor x0, double tol, int6
 
   // Reached max iterations without full convergence
   return {x, maxiter, res_norm};
+}
+
+template <typename T1, typename T2>
+std::tuple<torch::Tensor, unsigned int, double>
+conjugateGradientSolve(T1 A, torch::Tensor b, torch::Tensor x0, double tol, int64_t maxiter, T2 M)
+{
+  return conjugateGradientSolve(
+      A, b, x0, tol, maxiter, M, [](const torch::Tensor & t) { return t; });
 }
 
 template <typename T>
