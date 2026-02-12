@@ -571,9 +571,8 @@ DomainAction::partitionSlabs()
   _n_local[1] = _local_end[1][_rank] - _local_begin[1][_rank];
 
   // slice the reciprocal space into y-z slices stacked in x direction
-  _local_reciprocal_axis[0] =
-      _global_reciprocal_axis[0].slice(
-          0, _local_reciprocal_begin[0][_rank], _local_reciprocal_end[0][_rank]);
+  _local_reciprocal_axis[0] = _global_reciprocal_axis[0].slice(
+      0, _local_reciprocal_begin[0][_rank], _local_reciprocal_end[0][_rank]);
   _local_reciprocal_axis[1] = _global_reciprocal_axis[1].slice(1, 0, _n_reciprocal_global[1]);
 
   _n_local[2] = _n_global[2];
@@ -914,11 +913,8 @@ DomainAction::fftSerial(const torch::Tensor & t) const
 torch::Tensor
 DomainAction::fftSlab(const torch::Tensor & t) const
 {
-  mooseInfoRepeated("fftSlab");
   if (_dim == 1)
     mooseError("Unsupported mesh dimension");
-
-  MooseTensor::printTensorInfo(t);
 
   auto slab =
       _dim == 3 ? torch::fft::fft2(t, c10::nullopt, {0, 2}) : torch::fft::fft(t, c10::nullopt, 0);
@@ -927,6 +923,11 @@ DomainAction::fftSlab(const torch::Tensor & t) const
   const auto mpi_type = mpiTypeFromScalar(slab.scalar_type());
   const auto cpu_options = slab.options().device(torch::kCPU);
   const auto device_options = slab.options();
+  const auto append_components = [&](std::vector<int64_t> & shape)
+  {
+    for (auto d = _dim; d < slab.dim(); ++d)
+      shape.push_back(slab.sizes()[d]);
+  };
 
   std::vector<MPI_Request> send_requests(_n_rank, MPI_REQUEST_NULL);
   for (const auto i : make_range(_n_rank))
@@ -961,6 +962,7 @@ DomainAction::fftSlab(const torch::Tensor & t) const
       else
         recv_shape = {_n_reciprocal_all[0][_rank], _n_local_all[1][i], _n_local_all[2][i]};
 
+      append_components(recv_shape);
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
       MPI_Recv(recv_tensor.data_ptr(), recv_tensor.numel(), mpi_type, i, 0, mpiComm(), &status);
@@ -986,11 +988,8 @@ DomainAction::fftSlab(const torch::Tensor & t) const
 torch::Tensor
 DomainAction::ifftSlab(const torch::Tensor & t) const
 {
-  mooseInfoRepeated("ifftSlab");
   if (_dim == 1)
     mooseError("Unsupported mesh dimension");
-
-  MooseTensor::printTensorInfo(t);
 
   // Step 1: Inverse FFT along Y direction (reciprocal space)
   // Input is in reciprocal space layout: Y-Z slabs stacked in X direction
@@ -1003,6 +1002,11 @@ DomainAction::ifftSlab(const torch::Tensor & t) const
   const auto mpi_type = mpiTypeFromScalar(t_ifft_y.scalar_type());
   const auto cpu_options = t_ifft_y.options().device(torch::kCPU);
   const auto device_options = t_ifft_y.options();
+  const auto append_components = [&](std::vector<int64_t> & shape)
+  {
+    for (auto d = _dim; d < t_ifft_y.dim(); ++d)
+      shape.push_back(t_ifft_y.sizes()[d]);
+  };
 
   std::vector<MPI_Request> send_requests(_n_rank, MPI_REQUEST_NULL);
   for (const auto i : make_range(_n_rank))
@@ -1036,6 +1040,7 @@ DomainAction::ifftSlab(const torch::Tensor & t) const
       else
         recv_shape = {_n_reciprocal_all[0][i], _n_local_all[1][_rank], _n_local_all[2][i]};
 
+      append_components(recv_shape);
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
       MPI_Recv(recv_tensor.data_ptr(), recv_tensor.numel(), mpi_type, i, 0, mpiComm(), &status);
@@ -1159,6 +1164,12 @@ DomainAction::pencilStage1Forward(const torch::Tensor & input) const
   const auto cpu_options = input.options().device(torch::kCPU);
   const auto device_options = input.options();
 
+  const auto append_components = [&](std::vector<int64_t> & shape)
+  {
+    for (auto d = _dim; d < input.dim(); ++d)
+      shape.push_back(input.sizes()[d]);
+  };
+
   const unsigned int px = _rank % _pencil_y_partitions;
   const unsigned int group_base = _pencil_z_index[_rank] * _pencil_y_partitions;
 
@@ -1193,8 +1204,10 @@ DomainAction::pencilStage1Forward(const torch::Tensor & input) const
     }
   }
 
-  torch::Tensor result = torch::empty(
-      {_pencil_x_sizes[px], static_cast<int64_t>(_n_global[1]), _n_local[2]}, device_options);
+  std::vector<int64_t> result_shape = {
+      _pencil_x_sizes[px], static_cast<int64_t>(_n_global[1]), _n_local[2]};
+  append_components(result_shape);
+  torch::Tensor result = torch::empty(result_shape, device_options);
 
   for (unsigned int py_src = 0; py_src < _pencil_y_partitions; ++py_src)
   {
@@ -1206,6 +1219,7 @@ DomainAction::pencilStage1Forward(const torch::Tensor & input) const
     {
       std::vector<int64_t> recv_shape = {
           _pencil_x_sizes[px], _n_local_all[1][source_rank], _n_local_all[2][source_rank]};
+      append_components(recv_shape);
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
       MPI_Recv(recv_tensor.data_ptr(),
@@ -1237,6 +1251,12 @@ DomainAction::pencilStage2Forward(const torch::Tensor & input) const
   const auto device_options = input.options();
 
   const unsigned int px = _rank % _pencil_y_partitions;
+  const auto append_components = [&](std::vector<int64_t> & shape)
+  {
+    for (auto d = _dim; d < input.dim(); ++d)
+      shape.push_back(input.sizes()[d]);
+  };
+
   const unsigned int y_final = _pencil_z_index[_rank];
 
   std::vector<MPI_Request> send_requests(_pencil_z_partitions, MPI_REQUEST_NULL);
@@ -1270,9 +1290,10 @@ DomainAction::pencilStage2Forward(const torch::Tensor & input) const
     }
   }
 
-  torch::Tensor result = torch::empty(
-      {_pencil_x_sizes[px], _pencil_stage2_y_sizes[y_final], static_cast<int64_t>(_n_global[2])},
-      device_options);
+  std::vector<int64_t> result_shape = {
+      _pencil_x_sizes[px], _pencil_stage2_y_sizes[y_final], static_cast<int64_t>(_n_global[2])};
+  append_components(result_shape);
+  torch::Tensor result = torch::empty(result_shape, device_options);
 
   for (unsigned int z_src = 0; z_src < _pencil_z_partitions; ++z_src)
   {
@@ -1284,6 +1305,7 @@ DomainAction::pencilStage2Forward(const torch::Tensor & input) const
     {
       std::vector<int64_t> recv_shape = {
           _pencil_x_sizes[px], _pencil_stage2_y_sizes[y_final], _n_local_all[2][source_rank]};
+      append_components(recv_shape);
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
       MPI_Recv(recv_tensor.data_ptr(),
@@ -1315,6 +1337,12 @@ DomainAction::pencilStage2Inverse(const torch::Tensor & input) const
   const auto device_options = input.options();
 
   const unsigned int px = _rank % _pencil_y_partitions;
+  const auto append_components = [&](std::vector<int64_t> & shape)
+  {
+    for (auto d = _dim; d < input.dim(); ++d)
+      shape.push_back(input.sizes()[d]);
+  };
+
   const unsigned int z_idx = _pencil_z_index[_rank];
 
   std::vector<MPI_Request> send_requests(_pencil_z_partitions, MPI_REQUEST_NULL);
@@ -1344,8 +1372,10 @@ DomainAction::pencilStage2Inverse(const torch::Tensor & input) const
     }
   }
 
-  torch::Tensor result = torch::empty(
-      {_pencil_x_sizes[px], static_cast<int64_t>(_n_global[1]), _n_local[2]}, device_options);
+  std::vector<int64_t> result_shape = {
+      _pencil_x_sizes[px], static_cast<int64_t>(_n_global[1]), _n_local[2]};
+  append_components(result_shape);
+  torch::Tensor result = torch::empty(result_shape, device_options);
 
   for (unsigned int py_src = 0; py_src < _pencil_z_partitions; ++py_src)
   {
@@ -1357,6 +1387,7 @@ DomainAction::pencilStage2Inverse(const torch::Tensor & input) const
     {
       std::vector<int64_t> recv_shape = {
           _pencil_x_sizes[px], _pencil_stage2_y_sizes[py_src], _n_local[2]};
+      append_components(recv_shape);
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
       MPI_Recv(recv_tensor.data_ptr(),
@@ -1388,6 +1419,12 @@ DomainAction::pencilStage1Inverse(const torch::Tensor & input) const
   const auto device_options = input.options();
 
   const unsigned int px = _rank % _pencil_y_partitions;
+  const auto append_components = [&](std::vector<int64_t> & shape)
+  {
+    for (auto d = _dim; d < input.dim(); ++d)
+      shape.push_back(input.sizes()[d]);
+  };
+
   const unsigned int z_idx = _pencil_z_index[_rank];
   const unsigned int group_base = z_idx * _pencil_y_partitions;
 
@@ -1418,8 +1455,10 @@ DomainAction::pencilStage1Inverse(const torch::Tensor & input) const
     }
   }
 
-  torch::Tensor result =
-      torch::empty({static_cast<int64_t>(_n_global[0]), _n_local[1], _n_local[2]}, device_options);
+  std::vector<int64_t> result_shape = {
+      static_cast<int64_t>(_n_global[0]), _n_local[1], _n_local[2]};
+  append_components(result_shape);
+  torch::Tensor result = torch::empty(result_shape, device_options);
 
   for (unsigned int px_src = 0; px_src < _pencil_y_partitions; ++px_src)
   {
@@ -1430,6 +1469,7 @@ DomainAction::pencilStage1Inverse(const torch::Tensor & input) const
     else
     {
       std::vector<int64_t> recv_shape = {_pencil_x_sizes[px_src], _n_local[1], _n_local[2]};
+      append_components(recv_shape);
       auto recv_tensor = torch::empty(recv_shape, _gpu_aware_mpi ? device_options : cpu_options);
       MPI_Status status;
       MPI_Recv(recv_tensor.data_ptr(),

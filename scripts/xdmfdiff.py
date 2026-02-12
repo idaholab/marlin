@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""Utility for reading and comparing XDMF outputs (including parallel multi-grid layouts)."""
 
 import argparse
 import math
@@ -15,12 +16,14 @@ import numpy as np
 
 
 def _parse_int_tuple(text: Optional[str]) -> Tuple[int, ...]:
+    """Parse a whitespace-separated dimension string into a tuple of ints."""
     if not text:
         raise RuntimeError("Missing integer dimensions in XDMF file.")
     return tuple(int(v) for v in text.split())
 
 
 def _read_numeric_text(element: ET.Element, dtype=float) -> np.ndarray:
+    """Read numeric values from an XML DataItem element."""
     text = ''.join(element.itertext()).strip()
     if not text:
         raise RuntimeError("Empty DataItem encountered while parsing XDMF.")
@@ -28,6 +31,7 @@ def _read_numeric_text(element: ET.Element, dtype=float) -> np.ndarray:
 
 
 def _normalize_center(value: Optional[str]) -> Optional[str]:
+    """Normalize XDMF center labels to 'Cell' or 'Node' (or return None)."""
     center = (value or '').strip().lower()
     if center in ('node', 'nodes', 'point', 'points'):
         return 'Node'
@@ -37,6 +41,7 @@ def _normalize_center(value: Optional[str]) -> Optional[str]:
 
 
 def _xdmf_datatype(array: np.ndarray) -> str:
+    """Map numpy dtype to XDMF DataType strings."""
     if np.issubdtype(array.dtype, np.integer):
         return 'Int'
     if np.issubdtype(array.dtype, np.bool_):
@@ -45,14 +50,17 @@ def _xdmf_datatype(array: np.ndarray) -> str:
 
 
 def _format_dims(shape: Sequence[int]) -> str:
+    """Format dimensions for XDMF output attributes."""
     return ' '.join(str(v) for v in shape)
 
 
 def _sanitize_name(name: str) -> str:
+    """Return a filesystem-safe field name."""
     return re.sub(r'[^0-9A-Za-z_.-]', '_', name)
 
 
 class HDFDataStore:
+    """Cache HDF5 file handles and provide dataset reads."""
     def __init__(self, base_dir: str):
         self.base_dir = base_dir
         self._handles: Dict[str, h5py.File] = {}
@@ -81,6 +89,7 @@ class HDFDataStore:
 
 @dataclass
 class MeshInfo:
+    """Global mesh metadata extracted from the XDMF Domain."""
     topology_type: str
     geometry_type: str
     node_dims: Tuple[int, ...]
@@ -102,13 +111,52 @@ class MeshInfo:
 
 @dataclass
 class AttributeData:
+    """Concrete attribute payload loaded into memory."""
     name: str
     center: str
     values: np.ndarray
 
 
 @dataclass
+class DataItemSpec:
+    """Deferred DataItem reference for lazy dataset loading."""
+    fmt: str
+    text: str
+    dims: Optional[Tuple[int, ...]]
+    dtype: Optional[str]
+
+
+@dataclass
+class AttributeSpec:
+    """Deferred attribute metadata for lazy dataset loading."""
+    name: str
+    center: str
+    data_item: DataItemSpec
+
+
+@dataclass
+class UniformGridSpec:
+    """Deferred uniform grid metadata for lazy dataset loading."""
+    name: str
+    path: str
+    node_dims: Tuple[int, ...]
+    origin: np.ndarray
+    spacing: np.ndarray
+    attributes: List[AttributeSpec]
+
+
+@dataclass
+class StepSpec:
+    """Collection of grids that belong to a single timestep."""
+    step_id: str
+    index: int
+    time_value: Optional[float]
+    grids: List[UniformGridSpec] = field(default_factory=list)
+
+
+@dataclass
 class UniformGridData:
+    """Concrete uniform grid data with loaded attributes."""
     name: str
     path: str
     node_dims: Tuple[int, ...]
@@ -125,6 +173,7 @@ class UniformGridData:
 
 
 class FieldAccumulator:
+    """Accumulate per-rank grid blocks into a single global array."""
     def __init__(self, mesh_shape: Tuple[int, ...], component_shape: Tuple[int, ...], dtype: np.dtype, ndim: int):
         self.component_shape = component_shape
         self.ndim = ndim
@@ -148,6 +197,7 @@ class FieldAccumulator:
 
 @dataclass
 class Snapshot:
+    """Merged field data for a single timestep."""
     step_id: str
     index: int
     time_value: Optional[float]
@@ -162,6 +212,7 @@ class Snapshot:
 
 
 class SnapshotBuilder:
+    """Build a Snapshot by inserting per-grid blocks at computed offsets."""
     def __init__(self, mesh: MeshInfo, step_id: str, index: int, time_value: Optional[float]):
         self.mesh = mesh
         self.step_id = step_id
@@ -222,6 +273,7 @@ class SnapshotBuilder:
 
 
 class OffsetResolver:
+    """Compute grid offsets from origin/spacing and validate coverage."""
     def __init__(self, mesh: MeshInfo):
         self.mesh = mesh
         self._cache: Dict[Tuple[str, Tuple[int, ...]], Tuple[int, ...]] = {}
@@ -287,6 +339,7 @@ class TraverseContext:
 
 
 class XdmfSeries:
+    """Parse an XDMF series and load timesteps on demand."""
     def __init__(self, path: str):
         self.path = path
         self.base_dir = os.path.dirname(os.path.abspath(path))
@@ -299,12 +352,14 @@ class XdmfSeries:
         self.mesh = self._parse_mesh()
         self._hdf_store = HDFDataStore(self.base_dir)
         self._offset_resolver = OffsetResolver(self.mesh)
-        try:
-            self.snapshots = self._collect_snapshots()
-        finally:
-            self._hdf_store.close()
+        self.steps = self._collect_steps()
+
+    def close(self) -> None:
+        """Close any cached HDF5 handles."""
+        self._hdf_store.close()
 
     def _parse_mesh(self) -> MeshInfo:
+        """Parse global mesh topology and geometry."""
         topology = self.domain.find('Topology')
         geometry = self.domain.find('Geometry')
         if topology is None or geometry is None:
@@ -326,6 +381,7 @@ class XdmfSeries:
         )
 
     def _parse_geometry(self, geometry: ET.Element) -> Tuple[np.ndarray, np.ndarray]:
+        """Parse origin and spacing from a Geometry block."""
         geom_type = (geometry.attrib.get('Type', '') or '').upper()
         data_items = geometry.findall('DataItem')
         if not geom_type.startswith('ORIGIN_DX') or len(data_items) < 2:
@@ -334,28 +390,36 @@ class XdmfSeries:
         spacing = _read_numeric_text(data_items[1])
         return origin.astype(float), spacing.astype(float)
 
-    def _read_data_array(self, data_item: ET.Element) -> np.ndarray:
-        fmt = (data_item.attrib.get('Format', 'XML') or '').strip().upper()
+    def _read_data_array(self, spec: DataItemSpec) -> np.ndarray:
+        """Read a DataItem payload into a numpy array."""
+        fmt = spec.fmt.upper()
         if fmt == 'HDF':
-            spec = ''.join(data_item.itertext()).strip()
-            return self._hdf_store.read(spec)
-        if fmt == 'XML':
-            dtype_attr = (data_item.attrib.get('DataType', '') or '').strip().lower()
+            data = self._hdf_store.read(spec.text)
+        elif fmt == 'XML':
+            dtype_attr = (spec.dtype or '').strip().lower()
             dtype = int if dtype_attr in ('int', 'integer') else float
-            data = _read_numeric_text(data_item, dtype=dtype)
+            data = np.fromstring(spec.text, sep=' ', dtype=dtype)
         else:
-            raise RuntimeError(f"Unsupported DataItem format '{fmt}'.")
-        dims_text = data_item.attrib.get('Dimensions')
-        if dims_text:
-            dims = _parse_int_tuple(dims_text)
-            if data.size != int(np.prod(dims)):
+            raise RuntimeError(f"Unsupported DataItem format '{spec.fmt}'.")
+        if spec.dims:
+            if data.size != int(np.prod(spec.dims)):
                 raise RuntimeError(
-                    f"DataItem declared dimensions {dims} but contains {data.size} values."
+                    f"DataItem declared dimensions {spec.dims} but contains {data.size} values."
                 )
-            data = data.reshape(dims, order='C')
+            data = data.reshape(spec.dims, order='C')
         return data
 
-    def _parse_uniform_grid(self, grid: ET.Element, path: str) -> UniformGridData:
+    def _parse_data_item(self, data_item: ET.Element) -> DataItemSpec:
+        """Parse a DataItem element into a deferred spec."""
+        fmt = (data_item.attrib.get('Format', 'XML') or '').strip().upper()
+        text = ''.join(data_item.itertext()).strip()
+        dims_text = data_item.attrib.get('Dimensions')
+        dims = _parse_int_tuple(dims_text) if dims_text else None
+        dtype = data_item.attrib.get('DataType')
+        return DataItemSpec(fmt=fmt, text=text, dims=dims, dtype=dtype)
+
+    def _parse_uniform_grid(self, grid: ET.Element, path: str) -> UniformGridSpec:
+        """Parse a uniform grid definition into a deferred spec."""
         topology = grid.find('Topology')
         if topology is None:
             topology = self.domain.find('Topology')
@@ -366,7 +430,7 @@ class XdmfSeries:
             raise RuntimeError(f"Grid '{path}' is missing topology or geometry definitions.")
         node_dims = _parse_int_tuple(topology.attrib.get('Dimensions'))
         geom_origin, geom_spacing = self._parse_geometry(geometry)
-        attributes: List[AttributeData] = []
+        attributes: List[AttributeSpec] = []
         for attr in grid.findall('Attribute'):
             center = _normalize_center(attr.attrib.get('Center'))
             if center is None:
@@ -378,9 +442,14 @@ class XdmfSeries:
             data_item = attr.find('DataItem')
             if data_item is None:
                 raise RuntimeError(f"Attribute '{attr.attrib.get('Name')}' in grid '{path}' has no DataItem.")
-            values = self._read_data_array(data_item)
-            attributes.append(AttributeData(name=attr.attrib.get('Name', 'unnamed'), center=center, values=values))
-        return UniformGridData(
+            attributes.append(
+                AttributeSpec(
+                    name=attr.attrib.get('Name', 'unnamed'),
+                    center=center,
+                    data_item=self._parse_data_item(data_item),
+                )
+            )
+        return UniformGridSpec(
             name=grid.attrib.get('Name', path.split('/')[-1]),
             path=path,
             node_dims=node_dims,
@@ -389,18 +458,20 @@ class XdmfSeries:
             attributes=attributes,
         )
 
-    def _collect_snapshots(self) -> List[Snapshot]:
-        builders: Dict[str, SnapshotBuilder] = {}
+    def _collect_steps(self) -> List[StepSpec]:
+        """Collect grids grouped by timestep without loading data."""
+        steps: Dict[str, StepSpec] = {}
         order: List[str] = []
 
-        def get_builder(step_id: str, time_value: Optional[float]) -> SnapshotBuilder:
-            if step_id not in builders:
-                builder = SnapshotBuilder(self.mesh, step_id, len(order), time_value)
-                builders[step_id] = builder
+        def get_step(step_id: str, time_value: Optional[float]) -> StepSpec:
+            if step_id not in steps:
+                step = StepSpec(step_id=step_id, index=len(order), time_value=time_value)
+                steps[step_id] = step
                 order.append(step_id)
-            builder = builders[step_id]
-            builder.ensure_time_value(time_value)
-            return builder
+            step = steps[step_id]
+            if step.time_value is None and time_value is not None:
+                step.time_value = time_value
+            return step
 
         def walk(grid: ET.Element, context: TraverseContext, name_stack: List[str]) -> None:
             grid_name = grid.attrib.get('Name', f"Grid{len(name_stack)}")
@@ -412,8 +483,10 @@ class XdmfSeries:
             if time_elem is not None and 'Value' in time_elem.attrib:
                 try:
                     time_value = float(time_elem.attrib['Value'])
-                except ValueError as exc:  # pragma: no cover - only triggered on malformed files
-                    raise RuntimeError(f"Invalid time value '{time_elem.attrib['Value']}' in grid '{grid_name}'.") from exc
+                except ValueError as exc:  # pragma: no cover - malformed files
+                    raise RuntimeError(
+                        f"Invalid time value '{time_elem.attrib['Value']}' in grid '{grid_name}'."
+                    ) from exc
                 step_id = f"time:{time_value}"
             elif step_id is None:
                 step_id = current_path
@@ -423,23 +496,76 @@ class XdmfSeries:
                 for child in grid.findall('Grid'):
                     walk(child, child_context, current_path_items)
             else:
-                builder = get_builder(step_id, time_value)
+                step = get_step(step_id, time_value)
                 uniform = self._parse_uniform_grid(grid, current_path)
                 if len(uniform.node_dims) != self.mesh.ndim:
                     raise RuntimeError(f"Grid '{current_path}' dimensionality mismatch.")
-                offset = self._offset_resolver.resolve(uniform.name, uniform.node_dims, uniform.origin)
-                builder.add_grid(uniform, offset)
+                step.grids.append(uniform)
 
         for top_grid in self.domain.findall('Grid'):
             walk(top_grid, TraverseContext(time_value=None, step_id=None), [])
-        return [builders[key].build() for key in order]
+        return [steps[key] for key in order]
+
+    def list_steps(self) -> List[Tuple[int, Optional[float], str]]:
+        """Return (index, time_value, step_id) for each timestep."""
+        return [(step.index, step.time_value, step.step_id) for step in self.steps]
 
     @property
     def has_explicit_times(self) -> bool:
-        return all(snapshot.time_value is not None for snapshot in self.snapshots)
+        return all(step.time_value is not None for step in self.steps)
+
+    def load_snapshot(self,
+                      step_index: Optional[int] = None,
+                      time_value: Optional[float] = None,
+                      step_id: Optional[str] = None,
+                      centers: Sequence[str] = ('Cell', 'Node')) -> Snapshot:
+        """Load a single timestep into a merged Snapshot."""
+        step = None
+        if step_id is not None:
+            for candidate in self.steps:
+                if candidate.step_id == step_id:
+                    step = candidate
+                    break
+        elif step_index is not None:
+            if step_index < 0 or step_index >= len(self.steps):
+                raise RuntimeError(f"Step index {step_index} is out of range.")
+            step = self.steps[step_index]
+        elif time_value is not None:
+            for candidate in self.steps:
+                if candidate.time_value is not None and math.isclose(candidate.time_value, time_value, rel_tol=1e-9, abs_tol=1e-12):
+                    step = candidate
+                    break
+        else:
+            raise RuntimeError("Must provide step_index, time_value, or step_id.")
+
+        if step is None:
+            raise RuntimeError("Unable to locate requested timestep in XDMF.")
+
+        builder = SnapshotBuilder(self.mesh, step.step_id, step.index, step.time_value)
+        for grid in step.grids:
+            attributes: List[AttributeData] = []
+            for attr in grid.attributes:
+                if attr.center not in centers:
+                    continue
+                values = self._read_data_array(attr.data_item)
+                attributes.append(AttributeData(name=attr.name, center=attr.center, values=values))
+            if not attributes:
+                continue
+            uniform = UniformGridData(
+                name=grid.name,
+                path=grid.path,
+                node_dims=grid.node_dims,
+                origin=grid.origin,
+                spacing=grid.spacing,
+                attributes=attributes,
+            )
+            offset = self._offset_resolver.resolve(uniform.name, uniform.node_dims, uniform.origin)
+            builder.add_grid(uniform, offset)
+        return builder.build()
 
 
 def _ensure_mesh_compatibility(mesh_a: MeshInfo, mesh_b: MeshInfo) -> None:
+    """Validate that two meshes have matching topology and geometry."""
     if mesh_a.topology_type != mesh_b.topology_type:
         raise RuntimeError("Topology types differ between the two files.")
     if mesh_a.node_shape != mesh_b.node_shape:
@@ -450,31 +576,35 @@ def _ensure_mesh_compatibility(mesh_a: MeshInfo, mesh_b: MeshInfo) -> None:
         raise RuntimeError("Grid spacing differs between the two files.")
 
 
-def _align_snapshots(series_a: XdmfSeries, series_b: XdmfSeries) -> List[Tuple[Snapshot, Snapshot]]:
-    if len(series_a.snapshots) != len(series_b.snapshots):
+def _align_steps(series_a: XdmfSeries, series_b: XdmfSeries) -> List[Tuple[StepSpec, StepSpec]]:
+    """Match timestep ordering between two series (by time when present)."""
+    if len(series_a.steps) != len(series_b.steps):
         raise RuntimeError("The two files contain a different number of time steps.")
     if series_a.has_explicit_times and series_b.has_explicit_times:
-        pairs: List[Tuple[Snapshot, Snapshot]] = []
+        pairs: List[Tuple[StepSpec, StepSpec]] = []
         used: set[int] = set()
-        for snap_a in series_a.snapshots:
+        for step_a in series_a.steps:
             match_idx = None
-            for idx, snap_b in enumerate(series_b.snapshots):
+            for idx, step_b in enumerate(series_b.steps):
                 if idx in used:
                     continue
-                if math.isclose(snap_a.time_value, snap_b.time_value, rel_tol=1e-9, abs_tol=1e-12):
+                if step_a.time_value is None or step_b.time_value is None:
+                    continue
+                if math.isclose(step_a.time_value, step_b.time_value, rel_tol=1e-9, abs_tol=1e-12):
                     match_idx = idx
                     break
             if match_idx is None:
-                raise RuntimeError(f"No matching time value found for step at {snap_a.time_value}.")
+                raise RuntimeError(f"No matching time value found for step at {step_a.time_value}.")
             used.add(match_idx)
-            pairs.append((snap_a, series_b.snapshots[match_idx]))
+            pairs.append((step_a, series_b.steps[match_idx]))
         return pairs
     if series_a.has_explicit_times != series_b.has_explicit_times:
         raise RuntimeError("Only one file defines explicit times; cannot align snapshots.")
-    return list(zip(series_a.snapshots, series_b.snapshots))
+    return list(zip(series_a.steps, series_b.steps))
 
 
 def _compare_fields(time_label: str, center_label: str, fields_a: Dict[str, np.ndarray], fields_b: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
+    """Compute diffs and norms for matching fields."""
     diffs: Dict[str, np.ndarray] = {}
     common = sorted(set(fields_a.keys()) & set(fields_b.keys()))
     if not common:
@@ -495,6 +625,7 @@ def _compare_fields(time_label: str, center_label: str, fields_a: Dict[str, np.n
 
 
 def _write_diff_series(output_path: str, mesh: MeshInfo, snapshots: List[Snapshot]) -> None:
+    """Write a diff XDMF/HDF5 series from per-step difference fields."""
     snapshots_with_data = [snap for snap in snapshots if snap.cell_fields or snap.node_fields]
     if not snapshots_with_data:
         print("No difference fields available to write.")
@@ -551,40 +682,78 @@ def _write_diff_series(output_path: str, mesh: MeshInfo, snapshots: List[Snapsho
     print(f"Wrote difference series to {xmf_path} (with data in {h5_path}).")
 
 
-def compare_series(path_a: str, path_b: str, diff_out: Optional[str]) -> None:
+def compare_series(path_a: str,
+                   path_b: str,
+                   diff_out: Optional[str],
+                   step_index: Optional[int] = None,
+                   time_value: Optional[float] = None,
+                   centers: Sequence[str] = ('Cell',)) -> None:
+    """Compare two XDMF series and optionally emit a diff file."""
     series_a = XdmfSeries(path_a)
     series_b = XdmfSeries(path_b)
-    _ensure_mesh_compatibility(series_a.mesh, series_b.mesh)
-    print('Mesh topology matches - safe to compare fields.')
-    pairs = _align_snapshots(series_a, series_b)
-    diff_snapshots: List[Snapshot] = []
-    for snap_a, snap_b in pairs:
-        label = snap_a.label
-        diff_snapshot = Snapshot(step_id=snap_a.step_id, index=snap_a.index, time_value=snap_a.time_value)
-        node_diff = _compare_fields(label, 'point', snap_a.node_fields, snap_b.node_fields)
-        cell_diff = _compare_fields(label, 'cell', snap_a.cell_fields, snap_b.cell_fields)
-        diff_snapshot.node_fields = node_diff
-        diff_snapshot.cell_fields = cell_diff
-        if node_diff or cell_diff:
-            diff_snapshots.append(diff_snapshot)
-    if diff_out and diff_snapshots:
-        _write_diff_series(diff_out, series_a.mesh, diff_snapshots)
-    elif diff_out:
-        print('No overlapping fields were found; skipping diff file export.')
+    try:
+        _ensure_mesh_compatibility(series_a.mesh, series_b.mesh)
+        print('Mesh topology matches - safe to compare fields.')
+        diff_snapshots: List[Snapshot] = []
+        if step_index is not None or time_value is not None:
+            snap_a = series_a.load_snapshot(step_index=step_index, time_value=time_value, centers=centers)
+            snap_b = series_b.load_snapshot(step_index=step_index, time_value=time_value, centers=centers)
+            label = snap_a.label
+            diff_snapshot = Snapshot(step_id=snap_a.step_id, index=snap_a.index, time_value=snap_a.time_value)
+            node_diff = _compare_fields(label, 'point', snap_a.node_fields, snap_b.node_fields)
+            cell_diff = _compare_fields(label, 'cell', snap_a.cell_fields, snap_b.cell_fields)
+            diff_snapshot.node_fields = node_diff
+            diff_snapshot.cell_fields = cell_diff
+            if node_diff or cell_diff:
+                diff_snapshots.append(diff_snapshot)
+        else:
+            for step_a, step_b in _align_steps(series_a, series_b):
+                snap_a = series_a.load_snapshot(step_index=step_a.index, centers=centers)
+                snap_b = series_b.load_snapshot(step_index=step_b.index, centers=centers)
+                label = snap_a.label
+                diff_snapshot = Snapshot(step_id=snap_a.step_id, index=snap_a.index, time_value=snap_a.time_value)
+                node_diff = _compare_fields(label, 'point', snap_a.node_fields, snap_b.node_fields)
+                cell_diff = _compare_fields(label, 'cell', snap_a.cell_fields, snap_b.cell_fields)
+                diff_snapshot.node_fields = node_diff
+                diff_snapshot.cell_fields = cell_diff
+                if node_diff or cell_diff:
+                    diff_snapshots.append(diff_snapshot)
+        if diff_out and diff_snapshots:
+            _write_diff_series(diff_out, series_a.mesh, diff_snapshots)
+        elif diff_out:
+            print('No overlapping fields were found; skipping diff file export.')
+    finally:
+        series_a.close()
+        series_b.close()
 
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
+    """Parse CLI args for xdmfdiff."""
     parser = argparse.ArgumentParser(description='Compare fields stored in XDMF files.')
     parser.add_argument('file_a', help='Reference XDMF file (e.g., serial output).')
     parser.add_argument('file_b', help='XDMF file to compare (e.g., parallel output).')
     parser.add_argument('diff_out', nargs='?', help='Optional XDMF path for writing field differences.')
+    parser.add_argument('--step', type=int, default=None, help='Compare only a single timestep by index.')
+    parser.add_argument('--time', type=float, default=None, help='Compare only a single timestep by time value.')
+    parser.add_argument('--centers',
+                        choices=('cell', 'node', 'both'),
+                        default='cell',
+                        help='Which attribute centers to compare.')
     return parser.parse_args(argv)
 
 
 def main() -> None:
+    """CLI entrypoint."""
     args = parse_args(sys.argv[1:])
+    centers: Tuple[str, ...]
+    if args.centers == 'both':
+        centers = ('Cell', 'Node')
+    elif args.centers == 'node':
+        centers = ('Node',)
+    else:
+        centers = ('Cell',)
     try:
-        compare_series(args.file_a, args.file_b, args.diff_out)
+        compare_series(args.file_a, args.file_b, args.diff_out, args.step, args.time, centers)
     except Exception as exc:  # pragma: no cover - CLI safeguard
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
