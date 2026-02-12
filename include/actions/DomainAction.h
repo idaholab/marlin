@@ -22,6 +22,15 @@
 class DomainAction : public Action
 {
 public:
+  enum class ParallelMode
+  {
+    NONE,
+    REAL_SPACE,
+    FFT_SLAB,
+    FFT_PENCIL,
+    FFT_AUTO
+  };
+
   static InputParameters validParams();
 
   DomainAction(const InputParameters & parameters);
@@ -138,7 +147,6 @@ protected:
   } _floating_precision;
 
   /// parallelization mode
-  const enum class ParallelMode { NONE, REAL_SPACE, FFT_SLAB, FFT_PENCIL } _parallel_mode;
   const std::array<bool, 3> _periodic;
 
   /// host local ranks of all procs
@@ -248,6 +256,9 @@ protected:
   torch::Tensor pencilStage2Forward(const torch::Tensor & input) const;
   torch::Tensor pencilStage2Inverse(const torch::Tensor & input) const;
   torch::Tensor pencilStage1Inverse(const torch::Tensor & input) const;
+
+private:
+  ParallelMode _parallel_mode;
 };
 
 template <typename T>

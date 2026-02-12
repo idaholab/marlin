@@ -1,0 +1,81 @@
+<?xml version="1.0"?>
+<Xdmf xmlns:xi="http://www.w3.org/2003/XInclude" Version="2.2">
+	<Domain>
+		<Topology TopologyType="2DCoRectMesh" Dimensions="33 33" />
+		<Geometry Type="ORIGIN_DXDY">
+			<DataItem Format="XML" Dimensions="2">0 0</DataItem>
+			<DataItem Format="XML" Dimensions="2">0.19635 0.19635</DataItem>
+		</Geometry>
+		<Grid Name="TimeSeries" GridType="Collection" CollectionType="Temporal">
+			<Grid Name="T0" GridType="Uniform">
+				<Time Value="0.02" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="F_0" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_0.0</DataItem>
+				</Attribute>
+				<Attribute Name="F_1" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_1.0</DataItem>
+				</Attribute>
+				<Attribute Name="F_2" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_2.0</DataItem>
+				</Attribute>
+				<Attribute Name="F_3" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_3.0</DataItem>
+				</Attribute>
+				<Attribute Name="phase" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/phase.0</DataItem>
+				</Attribute>
+				<Attribute Name="sV" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/sV.0</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T1" GridType="Uniform">
+				<Time Value="0.040000000000000001" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="F_0" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_0.1</DataItem>
+				</Attribute>
+				<Attribute Name="F_1" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_1.1</DataItem>
+				</Attribute>
+				<Attribute Name="F_2" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_2.1</DataItem>
+				</Attribute>
+				<Attribute Name="F_3" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_3.1</DataItem>
+				</Attribute>
+				<Attribute Name="phase" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/phase.1</DataItem>
+				</Attribute>
+				<Attribute Name="sV" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/sV.1</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T2" GridType="Uniform">
+				<Time Value="0.059999999999999998" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="F_0" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_0.2</DataItem>
+				</Attribute>
+				<Attribute Name="F_1" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_1.2</DataItem>
+				</Attribute>
+				<Attribute Name="F_2" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_2.2</DataItem>
+				</Attribute>
+				<Attribute Name="F_3" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/F_3.2</DataItem>
+				</Attribute>
+				<Attribute Name="phase" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/phase.2</DataItem>
+				</Attribute>
+				<Attribute Name="sV" Center="Cell">
+					<DataItem DataType="Float" Dimensions="32 32" Format="HDF">mech_parallel.h5:/sV.2</DataItem>
+				</Attribute>
+			</Grid>
+		</Grid>
+	</Domain>
+</Xdmf>

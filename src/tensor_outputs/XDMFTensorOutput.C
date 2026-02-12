@@ -63,7 +63,8 @@ XDMFTensorOutput::XDMFTensorOutput(const InputParameters & parameters)
     _rank(_domain.comm().rank()),
     _n_rank(_domain.comm().size()),
     _is_parallel(_n_rank > 1),
-    _transpose(getParam<bool>("transpose"))
+    _transpose(getParam<bool>("transpose")),
+    _has_cached_domain(false)
 #ifdef LIBMESH_HAVE_HDF5
     ,
     _enable_hdf5(getParam<bool>("enable_hdf5")),
@@ -234,6 +235,10 @@ XDMFTensorOutput::prepareForOutput()
     _domain.getLocalBounds(r, begin, end);
     _cached_local_bounds[r] = {begin, end};
   }
+
+  _cached_domain_min = _domain.getDomainMin();
+  _cached_grid_spacing = _domain.getGridSpacing();
+  _has_cached_domain = true;
 }
 
 void
@@ -709,13 +714,19 @@ XDMFTensorOutput::localOrigin(unsigned int rank) const
 {
   std::array<int64_t, 3> begin = {0, 0, 0};
   std::array<int64_t, 3> end = {0, 0, 0};
-  _domain.getLocalBounds(rank, begin, end);
+  if (_cached_local_bounds.size() > rank && !_cached_local_bounds.empty())
+    begin = _cached_local_bounds[rank].first;
+  else
+    _domain.getLocalBounds(rank, begin, end);
+
+  const auto & domain_min = _has_cached_domain ? _cached_domain_min : _domain.getDomainMin();
+  const auto & spacing = _has_cached_domain ? _cached_grid_spacing : _domain.getGridSpacing();
 
   std::vector<Real> origin(_dim, 0.0);
   for (const auto i : make_range(_dim))
   {
     const auto axis = mappedAxis(i);
-    origin[i] = _domain.getDomainMin()(axis) + begin[axis] * _domain.getGridSpacing()(axis);
+    origin[i] = domain_min(axis) + begin[axis] * spacing(axis);
   }
   return origin;
 }
@@ -723,13 +734,14 @@ XDMFTensorOutput::localOrigin(unsigned int rank) const
 std::vector<Real>
 XDMFTensorOutput::localSpacing() const
 {
-  std::vector<Real> spacing(_dim, 0.0);
+  const auto & spacing = _has_cached_domain ? _cached_grid_spacing : _domain.getGridSpacing();
+  std::vector<Real> local_spacing(_dim, 0.0);
   for (const auto i : make_range(_dim))
   {
     const auto axis = mappedAxis(i);
-    spacing[i] = _domain.getGridSpacing()(axis);
+    local_spacing[i] = spacing(axis);
   }
-  return spacing;
+  return local_spacing;
 }
 
 std::string

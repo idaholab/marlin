@@ -14,13 +14,11 @@ from typing import Dict, List, Optional, Sequence, Tuple
 import h5py
 import numpy as np
 
-
 def _parse_int_tuple(text: Optional[str]) -> Tuple[int, ...]:
     """Parse a whitespace-separated dimension string into a tuple of ints."""
     if not text:
         raise RuntimeError("Missing integer dimensions in XDMF file.")
     return tuple(int(v) for v in text.split())
-
 
 def _read_numeric_text(element: ET.Element, dtype=float) -> np.ndarray:
     """Read numeric values from an XML DataItem element."""
@@ -28,7 +26,6 @@ def _read_numeric_text(element: ET.Element, dtype=float) -> np.ndarray:
     if not text:
         raise RuntimeError("Empty DataItem encountered while parsing XDMF.")
     return np.fromstring(text, sep=' ', dtype=dtype)
-
 
 def _normalize_center(value: Optional[str]) -> Optional[str]:
     """Normalize XDMF center labels to 'Cell' or 'Node' (or return None)."""
@@ -39,7 +36,6 @@ def _normalize_center(value: Optional[str]) -> Optional[str]:
         return 'Cell'
     return None
 
-
 def _xdmf_datatype(array: np.ndarray) -> str:
     """Map numpy dtype to XDMF DataType strings."""
     if np.issubdtype(array.dtype, np.integer):
@@ -48,16 +44,13 @@ def _xdmf_datatype(array: np.ndarray) -> str:
         return 'Int'
     return 'Float'
 
-
 def _format_dims(shape: Sequence[int]) -> str:
     """Format dimensions for XDMF output attributes."""
     return ' '.join(str(v) for v in shape)
 
-
 def _sanitize_name(name: str) -> str:
     """Return a filesystem-safe field name."""
     return re.sub(r'[^0-9A-Za-z_.-]', '_', name)
-
 
 class HDFDataStore:
     """Cache HDF5 file handles and provide dataset reads."""
@@ -86,7 +79,6 @@ class HDFDataStore:
             handle.close()
         self._handles.clear()
 
-
 @dataclass
 class MeshInfo:
     """Global mesh metadata extracted from the XDMF Domain."""
@@ -108,14 +100,12 @@ class MeshInfo:
     def cell_shape(self) -> Tuple[int, ...]:
         return tuple(max(d - 1, 0) for d in self.node_dims)
 
-
 @dataclass
 class AttributeData:
     """Concrete attribute payload loaded into memory."""
     name: str
     center: str
     values: np.ndarray
-
 
 @dataclass
 class DataItemSpec:
@@ -125,14 +115,12 @@ class DataItemSpec:
     dims: Optional[Tuple[int, ...]]
     dtype: Optional[str]
 
-
 @dataclass
 class AttributeSpec:
     """Deferred attribute metadata for lazy dataset loading."""
     name: str
     center: str
     data_item: DataItemSpec
-
 
 @dataclass
 class UniformGridSpec:
@@ -144,7 +132,6 @@ class UniformGridSpec:
     spacing: np.ndarray
     attributes: List[AttributeSpec]
 
-
 @dataclass
 class StepSpec:
     """Collection of grids that belong to a single timestep."""
@@ -152,7 +139,6 @@ class StepSpec:
     index: int
     time_value: Optional[float]
     grids: List[UniformGridSpec] = field(default_factory=list)
-
 
 @dataclass
 class UniformGridData:
@@ -170,7 +156,6 @@ class UniformGridData:
         if center == 'Cell':
             return tuple(max(d - 1, 0) for d in self.node_dims)
         raise RuntimeError(f"Unsupported attribute center '{center}'.")
-
 
 class FieldAccumulator:
     """Accumulate per-rank grid blocks into a single global array."""
@@ -194,7 +179,6 @@ class FieldAccumulator:
         self.data[slices + (slice(None),) * len(comp_shape)] = block
         self.mask[slices] = True
 
-
 @dataclass
 class Snapshot:
     """Merged field data for a single timestep."""
@@ -209,7 +193,6 @@ class Snapshot:
         if self.time_value is not None:
             return f"t={self.time_value:g}"
         return f"step={self.index}"
-
 
 class SnapshotBuilder:
     """Build a Snapshot by inserting per-grid blocks at computed offsets."""
@@ -271,7 +254,6 @@ class SnapshotBuilder:
                 target[name] = accumulator.data
         return Snapshot(step_id=self.step_id, index=self.index, time_value=self.time_value, cell_fields=cell_fields, node_fields=node_fields)
 
-
 class OffsetResolver:
     """Compute grid offsets from origin/spacing and validate coverage."""
     def __init__(self, mesh: MeshInfo):
@@ -316,12 +298,13 @@ class OffsetResolver:
                 continue
             rel = (ori - base) / spacing
             rounded = int(round(rel))
-            if not math.isclose(rel, rounded, rel_tol=0.0, abs_tol=1e-5):
+            if not math.isclose(rel, rounded, rel_tol=0.0, abs_tol=1e-4):
                 return None
             offsets.append(rounded)
         offsets_array = np.array(offsets, dtype=float)
         reconstructed = self.mesh.origin + offsets_array * self.mesh.spacing
-        if not np.allclose(reconstructed, origin, rtol=0.0, atol=1e-5):
+        tol = np.maximum(1e-6, np.abs(self.mesh.spacing) * 1e-4)
+        if not np.allclose(reconstructed, origin, rtol=0.0, atol=tol):
             return None
         return tuple(offsets)
 
@@ -331,12 +314,10 @@ class OffsetResolver:
                 return False
         return True
 
-
 @dataclass
 class TraverseContext:
     time_value: Optional[float]
     step_id: Optional[str]
-
 
 class XdmfSeries:
     """Parse an XDMF series and load timesteps on demand."""
@@ -510,6 +491,28 @@ class XdmfSeries:
         """Return (index, time_value, step_id) for each timestep."""
         return [(step.index, step.time_value, step.step_id) for step in self.steps]
 
+    def _find_step(self,
+                  step_index: Optional[int] = None,
+                  time_value: Optional[float] = None,
+                  step_id: Optional[str] = None) -> StepSpec:
+        """Locate a StepSpec without loading data."""
+        if step_id is not None:
+            for candidate in self.steps:
+                if candidate.step_id == step_id:
+                    return candidate
+            raise RuntimeError(f"Step id '{step_id}' not found in XDMF.")
+        if step_index is not None:
+            if step_index < 0 or step_index >= len(self.steps):
+                raise RuntimeError(f"Step index {step_index} is out of range.")
+            return self.steps[step_index]
+        if time_value is not None:
+            for candidate in self.steps:
+                if candidate.time_value is not None and math.isclose(candidate.time_value, time_value, rel_tol=1e-9, abs_tol=1e-12):
+                    return candidate
+            raise RuntimeError(f"No step found at time {time_value}.")
+        raise RuntimeError("Must provide step_index, time_value, or step_id.")
+
+
     @property
     def has_explicit_times(self) -> bool:
         return all(step.time_value is not None for step in self.steps)
@@ -563,7 +566,6 @@ class XdmfSeries:
             builder.add_grid(uniform, offset)
         return builder.build()
 
-
 def _ensure_mesh_compatibility(mesh_a: MeshInfo, mesh_b: MeshInfo) -> None:
     """Validate that two meshes have matching topology and geometry."""
     if mesh_a.topology_type != mesh_b.topology_type:
@@ -574,7 +576,6 @@ def _ensure_mesh_compatibility(mesh_a: MeshInfo, mesh_b: MeshInfo) -> None:
         raise RuntimeError("Origin vectors differ between the two files.")
     if not np.allclose(mesh_a.spacing, mesh_b.spacing):
         raise RuntimeError("Grid spacing differs between the two files.")
-
 
 def _align_steps(series_a: XdmfSeries, series_b: XdmfSeries) -> List[Tuple[StepSpec, StepSpec]]:
     """Match timestep ordering between two series (by time when present)."""
@@ -602,9 +603,53 @@ def _align_steps(series_a: XdmfSeries, series_b: XdmfSeries) -> List[Tuple[StepS
         raise RuntimeError("Only one file defines explicit times; cannot align snapshots.")
     return list(zip(series_a.steps, series_b.steps))
 
+def _collect_attr_centers(step: StepSpec) -> Dict[str, str]:
+    """Collect attribute centers by name; error if inconsistent within a file."""
+    centers: Dict[str, str] = {}
+    for grid in step.grids:
+        for attr in grid.attributes:
+            name = attr.name
+            center = attr.center
+            if name in centers and centers[name] != center:
+                raise RuntimeError(
+                    f"{step.step_id}: attribute '{name}' appears with multiple centers ({centers[name]} vs {center})."
+                )
+            centers[name] = center
+    return centers
 
-def _compare_fields(time_label: str, center_label: str, fields_a: Dict[str, np.ndarray], fields_b: Dict[str, np.ndarray]) -> Dict[str, np.ndarray]:
-    """Compute diffs and norms for matching fields."""
+def _ensure_step_centers_match(step_a: StepSpec, step_b: StepSpec) -> None:
+    """Ensure both files use the same centers for shared attributes and overall presence."""
+    centers_a = _collect_attr_centers(step_a)
+    centers_b = _collect_attr_centers(step_b)
+
+    for name in sorted(set(centers_a.keys()) & set(centers_b.keys())):
+        if centers_a[name] != centers_b[name]:
+            raise RuntimeError(
+                f"{step_a.step_id}: center mismatch for '{name}' (fileA {centers_a[name]} vs fileB {centers_b[name]})."
+            )
+
+    has_cell_a = any(c == 'Cell' for c in centers_a.values())
+    has_cell_b = any(c == 'Cell' for c in centers_b.values())
+    if has_cell_a != has_cell_b:
+        raise RuntimeError(
+            f"{step_a.step_id}: center mismatch for 'Cell' (fileA has={has_cell_a}, fileB has={has_cell_b})."
+        )
+
+    has_node_a = any(c == 'Node' for c in centers_a.values())
+    has_node_b = any(c == 'Node' for c in centers_b.values())
+    if has_node_a != has_node_b:
+        raise RuntimeError(
+            f"{step_a.step_id}: center mismatch for 'Node' (fileA has={has_node_a}, fileB has={has_node_b})."
+        )
+
+def _compare_fields(time_label: str,
+                    center_label: str,
+                    fields_a: Dict[str, np.ndarray],
+                    fields_b: Dict[str, np.ndarray],
+                    abs_error: float,
+                    rel_error: float,
+                    abs_zero: float) -> Dict[str, np.ndarray]:
+    """Compute diffs and report only when abs/rel thresholds are exceeded."""
     diffs: Dict[str, np.ndarray] = {}
     common = sorted(set(fields_a.keys()) & set(fields_b.keys()))
     if not common:
@@ -617,12 +662,17 @@ def _compare_fields(time_label: str, center_label: str, fields_a: Dict[str, np.n
             print(f"{time_label}: skipping {center_label} field '{name}' (shape mismatch {a.shape} vs {b.shape}).")
             continue
         diff = a - b
-        l2 = float(np.linalg.norm(diff.ravel(), ord=2))
-        linf = float(np.max(np.abs(diff))) if diff.size else 0.0
-        print(f"{time_label}: {center_label} field '{name}': L2={l2:.6e}, Linf={linf:.6e}")
-        diffs[name] = diff
+        max_abs = float(np.max(np.abs(diff))) if diff.size else 0.0
+        ref_max = float(np.max(np.abs(a))) if a.size else 0.0
+        denom = max(ref_max, abs_zero)
+        rel = max_abs / denom if denom > 0.0 else (0.0 if max_abs == 0.0 else float('inf'))
+        if max_abs > abs_error or rel > rel_error:
+            print(
+                f"{time_label}: {center_label} field '{name}': "
+                f"max_abs={max_abs:.6e}, rel={rel:.6e}, ref_max={ref_max:.6e}"
+            )
+            diffs[name] = diff
     return diffs
-
 
 def _write_diff_series(output_path: str, mesh: MeshInfo, snapshots: List[Snapshot]) -> None:
     """Write a diff XDMF/HDF5 series from per-step difference fields."""
@@ -681,13 +731,15 @@ def _write_diff_series(output_path: str, mesh: MeshInfo, snapshots: List[Snapsho
     tree.write(xmf_path, encoding='utf-8', xml_declaration=True)
     print(f"Wrote difference series to {xmf_path} (with data in {h5_path}).")
 
-
 def compare_series(path_a: str,
                    path_b: str,
                    diff_out: Optional[str],
                    step_index: Optional[int] = None,
                    time_value: Optional[float] = None,
-                   centers: Sequence[str] = ('Cell',)) -> None:
+                   centers: Sequence[str] = ('Cell',),
+                   abs_error: float = 0.0,
+                   rel_error: float = 0.0,
+                   abs_zero: float = 0.0) -> bool:
     """Compare two XDMF series and optionally emit a diff file."""
     series_a = XdmfSeries(path_a)
     series_b = XdmfSeries(path_b)
@@ -696,24 +748,28 @@ def compare_series(path_a: str,
         print('Mesh topology matches - safe to compare fields.')
         diff_snapshots: List[Snapshot] = []
         if step_index is not None or time_value is not None:
-            snap_a = series_a.load_snapshot(step_index=step_index, time_value=time_value, centers=centers)
-            snap_b = series_b.load_snapshot(step_index=step_index, time_value=time_value, centers=centers)
+            step_a = series_a._find_step(step_index=step_index, time_value=time_value)
+            step_b = series_b._find_step(step_index=step_index, time_value=time_value)
+            _ensure_step_centers_match(step_a, step_b)
+            snap_a = series_a.load_snapshot(step_index=step_a.index, time_value=step_a.time_value, centers=centers)
+            snap_b = series_b.load_snapshot(step_index=step_b.index, time_value=step_b.time_value, centers=centers)
             label = snap_a.label
             diff_snapshot = Snapshot(step_id=snap_a.step_id, index=snap_a.index, time_value=snap_a.time_value)
-            node_diff = _compare_fields(label, 'point', snap_a.node_fields, snap_b.node_fields)
-            cell_diff = _compare_fields(label, 'cell', snap_a.cell_fields, snap_b.cell_fields)
+            node_diff = _compare_fields(label, 'point', snap_a.node_fields, snap_b.node_fields, abs_error, rel_error, abs_zero)
+            cell_diff = _compare_fields(label, 'cell', snap_a.cell_fields, snap_b.cell_fields, abs_error, rel_error, abs_zero)
             diff_snapshot.node_fields = node_diff
             diff_snapshot.cell_fields = cell_diff
             if node_diff or cell_diff:
                 diff_snapshots.append(diff_snapshot)
         else:
             for step_a, step_b in _align_steps(series_a, series_b):
+                _ensure_step_centers_match(step_a, step_b)
                 snap_a = series_a.load_snapshot(step_index=step_a.index, centers=centers)
                 snap_b = series_b.load_snapshot(step_index=step_b.index, centers=centers)
                 label = snap_a.label
                 diff_snapshot = Snapshot(step_id=snap_a.step_id, index=snap_a.index, time_value=snap_a.time_value)
-                node_diff = _compare_fields(label, 'point', snap_a.node_fields, snap_b.node_fields)
-                cell_diff = _compare_fields(label, 'cell', snap_a.cell_fields, snap_b.cell_fields)
+                node_diff = _compare_fields(label, 'point', snap_a.node_fields, snap_b.node_fields, abs_error, rel_error, abs_zero)
+                cell_diff = _compare_fields(label, 'cell', snap_a.cell_fields, snap_b.cell_fields, abs_error, rel_error, abs_zero)
                 diff_snapshot.node_fields = node_diff
                 diff_snapshot.cell_fields = cell_diff
                 if node_diff or cell_diff:
@@ -722,10 +778,10 @@ def compare_series(path_a: str,
             _write_diff_series(diff_out, series_a.mesh, diff_snapshots)
         elif diff_out:
             print('No overlapping fields were found; skipping diff file export.')
+        return bool(diff_snapshots)
     finally:
         series_a.close()
         series_b.close()
-
 
 def parse_args(argv: Sequence[str]) -> argparse.Namespace:
     """Parse CLI args for xdmfdiff."""
@@ -739,8 +795,13 @@ def parse_args(argv: Sequence[str]) -> argparse.Namespace:
                         choices=('cell', 'node', 'both'),
                         default='cell',
                         help='Which attribute centers to compare.')
+    parser.add_argument('--abs-error', type=float, default=0.0, help='Absolute error threshold.')
+    parser.add_argument('--rel-error', type=float, default=0.0, help='Relative error threshold.')
+    parser.add_argument('--abs-zero',
+                        type=float,
+                        default=0.0,
+                        help='Absolute floor used for relative error denominator.')
     return parser.parse_args(argv)
-
 
 def main() -> None:
     """CLI entrypoint."""
@@ -753,11 +814,20 @@ def main() -> None:
     else:
         centers = ('Cell',)
     try:
-        compare_series(args.file_a, args.file_b, args.diff_out, args.step, args.time, centers)
+        has_diff = compare_series(args.file_a,
+                                  args.file_b,
+                                  args.diff_out,
+                                  args.step,
+                                  args.time,
+                                  centers,
+                                  args.abs_error,
+                                  args.rel_error,
+                                  args.abs_zero)
+        if has_diff:
+            sys.exit(1)
     except Exception as exc:  # pragma: no cover - CLI safeguard
         print(f"Error: {exc}", file=sys.stderr)
         sys.exit(1)
-
 
 if __name__ == '__main__':
     main()

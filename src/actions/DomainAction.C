@@ -35,8 +35,9 @@ DomainAction::validParams()
   MooseEnum dims("1=1 2 3");
   params.addRequiredParam<MooseEnum>("dim", dims, "Problem dimension");
 
-  MooseEnum parmode("NONE REAL_SPACE FFT_SLAB FFT_PENCIL", "NONE");
+  MooseEnum parmode("NONE REAL_SPACE FFT_SLAB FFT_PENCIL FFT_AUTO", "FFT_AUTO");
   parmode.addDocumentation("NONE", "Serial execution without domain decomposition.");
+  parmode.addDocumentation("FFT_AUTO", "Pick best possible FFT decomposition.");
   parmode.addDocumentation("REAL_SPACE", "Real-space domain decomposition with halo exchanges.");
   parmode.addDocumentation("FFT_SLAB",
                            "Slab decomposition with X-Z slabs stacked along the Y direction in "
@@ -96,7 +97,6 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _device_names(getParam<std::vector<std::string>>("device_names")),
     _device_weights(getParam<std::vector<unsigned int>>("device_weights")),
     _floating_precision(getParam<MooseEnum>("floating_precision").getEnum<FloatingPrecision>()),
-    _parallel_mode(getParam<MooseEnum>("parallel_mode").getEnum<ParallelMode>()),
     _periodic(
         [&]()
         {
@@ -125,7 +125,8 @@ DomainAction::DomainAction(const InputParameters & parameters)
     _send_tensor(_n_rank),
     _recv_tensor(_n_rank),
     _debug(getParam<bool>("debug")),
-    _gpu_aware_mpi(getParam<bool>("gpu_aware_mpi"))
+    _gpu_aware_mpi(getParam<bool>("gpu_aware_mpi")),
+    _parallel_mode(getParam<MooseEnum>("parallel_mode").getEnum<ParallelMode>())
 {
   for (const auto d : make_range(3u))
   {
@@ -139,6 +140,16 @@ DomainAction::DomainAction(const InputParameters & parameters)
 
   if (_parallel_mode == ParallelMode::NONE && _n_rank > 1)
     paramError("parallel_mode", "NONE requires the application to run in serial.");
+
+  if (_parallel_mode == ParallelMode::FFT_AUTO)
+  {
+    if (_n_rank == 1)
+      _parallel_mode = ParallelMode::NONE;
+    else if (_n_rank < 6) // this is heuristic - confirm using scaling study
+      _parallel_mode = ParallelMode::FFT_SLAB;
+    else
+      _parallel_mode = ParallelMode::FFT_PENCIL;
+  }
 
   // TODO: Implement non-periodic BCs
   if (_parallel_mode == ParallelMode::REAL_SPACE)
@@ -285,6 +296,8 @@ DomainAction::gridChanged()
         case ParallelMode::FFT_PENCIL:
           use_rfft = (dim == 0);
           break;
+        default:
+          mooseError("Unexpected parallel mode");
       }
       const auto freq = use_rfft ? torch::fft::rfftfreq(_n_global[dim], _grid_spacing(dim), options)
                                  : torch::fft::fftfreq(_n_global[dim], _grid_spacing(dim), options);
@@ -322,6 +335,9 @@ DomainAction::gridChanged()
     case ParallelMode::FFT_PENCIL:
       partitionPencils();
       break;
+
+    default:
+      mooseError("Unexpected parallel mode");
   }
 
   // get local reciprocal axis size
@@ -890,8 +906,10 @@ DomainAction::fft(const torch::Tensor & t) const
 
     case ParallelMode::FFT_PENCIL:
       return fftPencil(t);
+
+    default:
+      mooseError("Unexpected parallel mode");
   }
-  mooseError("Not implemented");
 }
 
 torch::Tensor
@@ -1124,8 +1142,10 @@ DomainAction::ifft(const torch::Tensor & t) const
 
     case ParallelMode::FFT_PENCIL:
       return ifftPencil(t);
+
+    default:
+      mooseError("Unexpected parallel mode");
   }
-  mooseError("Not implemented");
 }
 
 MPI_Comm
