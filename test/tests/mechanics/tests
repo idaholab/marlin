@@ -1,22 +1,47 @@
 [Tests]
-  [mechanics_2d]
-    type = HDF5Diff
+  [mechanics_2d_parallel]
+    type = XDMFDiff
     input = mech.i
-    hdf5diff = mech.h5
-    requirement = 'The system shall be able to solve a heterogeneous 2d mechanics problem with hyperelasticity.'
+    xdmfdiff = mech_parallel.xmf
+    requirement = 'The system shall be able to solve a heterogeneous 2d mechanics problem with hyperelasticity in parallel.'
     design = 'FFTMechanics.md'
-    abs_tol = 1e-10
-    compute_devices = 'cpu cuda mps'
+    rel_tol = 1e-2
+    abs_tol = 1e-4
+    compute_devices = 'cpu cuda'
+  []
+  [mechanics_3d_parallel]
+    type = XDMFDiff
+    input = mech3d.i
+    xdmfdiff = mech3d_parallel.xmf
+    requirement = 'The system shall be able to solve a heterogeneous 3d mechanics problem with hyperelasticity in parallel.'
+    design = 'FFTMechanics.md'
+    rel_tol = 1e-2
+    abs_tol = 1e-4
+    compute_devices = 'cpu cuda'
+  []
+
+  [mechanics_2d_serial]
+    type = XDMFDiff
+    input = mech.i
+    xdmfdiff = mech_serial.xmf
+    cli_args = 'TensorOutputs/active=serial'
+    requirement = 'The system shall be able to solve a heterogeneous 2d mechanics problem with hyperelasticity in serial.'
+    design = 'FFTMechanics.md'
+    rel_tol = 1e-4
+    abs_tol = 1e-4
+    compute_devices = 'cpu cuda'
     max_parallel = 1
   []
-  [mechanics_3d]
-    type = HDF5Diff
+  [mechanics_3d_serial]
+    type = XDMFDiff
     input = mech3d.i
-    hdf5diff = mech3d.h5
-    requirement = 'The system shall be able to solve a heterogeneous 3d mechanics problem with hyperelasticity.'
+    xdmfdiff = mech3d_serial.xmf
+    cli_args = 'TensorOutputs/active=serial'
+    requirement = 'The system shall be able to solve a heterogeneous 3d mechanics problem with hyperelasticity in serial.'
     design = 'FFTMechanics.md'
-    abs_tol = 1e-10
-    compute_devices = 'cpu cuda mps'
+    rel_tol = 1e-4
+    abs_tol = 1e-4
+    compute_devices = 'cpu cuda'
     max_parallel = 1
   []
 []

@@ -83,7 +83,7 @@ LBMBoundaryCondition::maskBoundary()
   // Align the views
   auto owned_mesh = (_domain.comm().size() > 1) ? ownedView(_binary_mesh) : _binary_mesh;
 
-  auto boundary_mask = (owned_mesh == 1) & (has_zero_neighbor > 0);
+  auto boundary_mask = (owned_mesh > 0) & (has_zero_neighbor > 0);
   owned_mesh.copy_(torch::where(boundary_mask, torch::full_like(owned_mesh, -1), owned_mesh));
 }
 

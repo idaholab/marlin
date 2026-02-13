@@ -83,6 +83,9 @@ private:
   std::string _node_grid;
   std::string _geometry_type;
   std::vector<std::pair<std::array<int64_t, 3>, std::array<int64_t, 3>>> _cached_local_bounds;
+  bool _has_cached_domain;
+  RealVectorValue _cached_domain_min;
+  RealVectorValue _cached_grid_spacing;
 
   /// xml document references (root rank only in parallel)
   pugi::xml_document _doc;

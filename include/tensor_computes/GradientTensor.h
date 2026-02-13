@@ -11,6 +11,7 @@
 #include "TensorOperator.h"
 
 #ifdef NEML2_ENABLED
+#include "neml2/tensors/Scalar.h"
 #include "neml2/tensors/Vec.h"
 using GradientTensorType = neml2::Vec;
 #else
