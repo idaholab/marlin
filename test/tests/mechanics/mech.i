@@ -6,6 +6,7 @@
   ymax = ${fparse 2*pi}
   zmax = ${fparse 2*pi}
   mesh_mode = DUMMY
+  parallel_mode = FFT_AUTO
 []
 
 [TensorComputes]
@@ -93,14 +94,27 @@
 []
 
 [TensorOutputs]
-  [deformation_tensor]
+  active = 'parallel' # serial
+
+  [serial]
     type = XDMFTensorOutput
+    file_base = mech_serial
     buffer = 'disp sV F phase'
     output_mode = 'OVERSIZED_NODAL CELL CELL NODE'
     enable_hdf5 = true
     execute_on = 'TIMESTEP_END'
   []
+  [parallel]
+    # NODE and OVERSIZED_NODAL are not yet available in parallel output
+    type = XDMFTensorOutput
+    file_base = mech_parallel
+    buffer = 'sV F phase'
+    output_mode = 'CELL CELL CELL'
+    enable_hdf5 = true
+    execute_on = 'TIMESTEP_END'
+  []
 []
+
 
 [Executioner]
   type = Transient

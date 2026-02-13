@@ -22,6 +22,15 @@
 class DomainAction : public Action
 {
 public:
+  enum class ParallelMode
+  {
+    NONE,
+    REAL_SPACE,
+    FFT_SLAB,
+    FFT_PENCIL,
+    FFT_AUTO
+  };
+
   static InputParameters validParams();
 
   DomainAction(const InputParameters & parameters);
@@ -85,6 +94,8 @@ public:
   torch::Tensor sum(const torch::Tensor & t) const;
   /// compute the average of a tensor, reduced over the spatial dimensions
   torch::Tensor average(const torch::Tensor & t) const;
+  /// allreduce sum of a contiguous tensor (same numel on all ranks), honors gpu_aware_mpi
+  torch::Tensor allreduceSum(const torch::Tensor & t) const;
 
   /// align a 1d tensor in a specific dimension
   torch::Tensor align(torch::Tensor t, unsigned int dim) const;
@@ -136,7 +147,6 @@ protected:
   } _floating_precision;
 
   /// parallelization mode
-  const enum class ParallelMode { NONE, REAL_SPACE, FFT_SLAB, FFT_PENCIL } _parallel_mode;
   const std::array<bool, 3> _periodic;
 
   /// host local ranks of all procs
@@ -158,10 +168,14 @@ protected:
   /// local number of grid points in real space
   std::array<int64_t, 3> _n_reciprocal_local;
 
-  /// local begin/end indixes along each direction for slabs/pencils
+  /// local begin/end indices along each direction in real space
   std::array<std::vector<int64_t>, 3> _local_begin;
   std::array<std::vector<int64_t>, 3> _local_end;
   std::array<std::vector<int64_t>, 3> _n_local_all;
+  /// local begin/end indices along each direction in reciprocal space
+  std::array<std::vector<int64_t>, 3> _local_reciprocal_begin;
+  std::array<std::vector<int64_t>, 3> _local_reciprocal_end;
+  std::array<std::vector<int64_t>, 3> _n_reciprocal_all;
 
   ///@{ global domain length in each dimension
   const RealVectorValue _min_global;
@@ -242,6 +256,9 @@ protected:
   torch::Tensor pencilStage2Forward(const torch::Tensor & input) const;
   torch::Tensor pencilStage2Inverse(const torch::Tensor & input) const;
   torch::Tensor pencilStage1Inverse(const torch::Tensor & input) const;
+
+private:
+  ParallelMode _parallel_mode;
 };
 
 template <typename T>

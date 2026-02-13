@@ -12,6 +12,7 @@
 #include "NEML2Utils.h"
 
 #ifdef NEML2_ENABLED
+#include "neml2/neml2.h"
 #include "neml2/models/map_types_fwd.h"
 #include "neml2/tensors/Scalar.h"
 #include "neml2/tensors/Vec.h"
@@ -103,11 +104,11 @@ NEML2TensorCompute::computeBuffer()
     // convert tensors on the fly at runtime
     auto sizes = tensor_ptr->sizes();
     if (sizes.size() == _dim)
-      in[label] = neml2::Scalar(*tensor_ptr);
+      in[label] = neml2::Scalar(*tensor_ptr, _domain.getShape(), 0);
     else if (sizes.size() == _dim + 1)
-      in[label] = neml2::Vec(*tensor_ptr, _domain.getShape());
+      in[label] = neml2::Vec(*tensor_ptr, _domain.getShape(), 0);
     else if (sizes.size() == _dim + 3)
-      in[label] = neml2::R2(*tensor_ptr, _domain.getShape());
+      in[label] = neml2::R2(*tensor_ptr, _domain.getShape(), 0);
     else
       mooseError("Unsupported tensor dimension");
   }

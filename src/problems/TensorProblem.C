@@ -629,7 +629,7 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
                  d,
                  ".");
 
-  const bool use_gpu = _domain.gpuAwareMPI() && tensor.is_cuda();
+  const bool use_device_ptrs = _domain.gpuAwareMPI();
   const auto device_options = tensor.options();
   const auto cpu_options = tensor.options().device(torch::kCPU);
 
@@ -709,8 +709,8 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
         return;
       }
 
-      auto send_buf = use_gpu ? send_slice : send_slice.to(cpu_options);
-      auto recv_buf = torch::empty_like(send_buf, use_gpu ? device_options : cpu_options);
+      auto send_buf = use_device_ptrs ? send_slice : send_slice.to(cpu_options);
+      auto recv_buf = torch::empty_like(send_buf, use_device_ptrs ? device_options : cpu_options);
 
       const int send_tag = 200 + d * 2 + (lower ? 0 : 1);
       const int recv_tag = 200 + d * 2 + (lower ? 1 : 0);
@@ -765,7 +765,7 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
 
       for (auto & ex : exchanges)
       {
-        if (!use_gpu)
+        if (!use_device_ptrs)
           ex.recv_buf = ex.recv_buf.to(device_options);
         ex.recv_view.copy_(ex.recv_buf);
       }

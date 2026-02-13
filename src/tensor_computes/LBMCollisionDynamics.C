@@ -172,7 +172,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
 
       // mean density
       auto density = torch::sum(ownedView(_f), 3);
-      auto sum_density = torch::sum(density, {0, 1, 2}).item<double>();
+      auto sum_density = torch::sum(density, {0, 1, 2}).template item<double>();
       auto num_points = density.numel();
       _domain.comm().sum(sum_density);
       _domain.comm().sum(num_points);
