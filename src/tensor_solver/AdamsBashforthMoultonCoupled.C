@@ -74,7 +74,7 @@ AdamsBashforthMoultonCoupled::AdamsBashforthMoultonCoupled(const InputParameters
   {
     if (i >= N)
       paramError("linear_offdiag_rows", "Off-diagonal indices out of range.");
-    if (i >= N)
+    if (j >= N)
       paramError("linear_offdiag_cols", "Off-diagonal indices out of range.");
   }
 
@@ -114,6 +114,8 @@ AdamsBashforthMoultonCoupled::substep()
     return;
 
   // basic shape/dtype/device helpers from the first variable
+  if (_variables[0]._linear_reciprocal == nullptr)
+    mooseError("First variable must have a linear operator.");
   const auto & base_ubar = *_variables[0]._linear_reciprocal;
   const auto base_opts = base_ubar.options();
   const auto base_dtype = base_ubar.scalar_type();
