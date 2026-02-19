@@ -24,8 +24,6 @@ public:
 protected:
   void substep();
 
-  unsigned int _substep;
-  unsigned int _substeps;
   unsigned int _max_iterations;
 
   const Real _relative_tolerance;

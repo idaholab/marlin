@@ -285,7 +285,8 @@ bool
 TensorProblem::hasBuffer(const std::string & buffer_name)
 {
   auto it = _tensor_buffer.find(buffer_name);
-  return (it != _tensor_buffer.end() && !dynamic_cast<TensorBuffer<T> *>(it->second.get()));
+  return (it != _tensor_buffer.end() &&
+          dynamic_cast<TensorBuffer<T> *>(it->second.get()) != nullptr);
 }
 
 template <typename T>
@@ -449,9 +450,6 @@ TensorProblem::getCompute(const std::string & name) const
       if (const auto ptr = std::dynamic_pointer_cast<T>(tcb); ptr)
         return *ptr;
 
-  mooseError("No compute with name '",
-             name,
-             "' of type ",
-             libMesh::demangle(typeid(T).name()),
-             " found.");
+  mooseError(
+      "No compute with name '", name, "' of type ", libMesh::demangle(typeid(T).name()), " found.");
 }

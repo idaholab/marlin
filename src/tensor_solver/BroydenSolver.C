@@ -17,7 +17,6 @@ BroydenSolver::validParams()
 {
   InputParameters params = SplitOperatorBase::validParams();
   params.addClassDescription("Implicit secant solver time integration.");
-  params.addParam<unsigned int>("substeps", 1, "secant solver substeps per time step.");
   params.addParam<unsigned int>("max_iterations", 5, "Maximum number of secant solver iteration.");
   params.addParam<Real>("relative_tolerance", 1e-9, "Convergence tolerance.");
   params.addParam<Real>("absolute_tolerance", 1e-9, "Convergence tolerance.");
@@ -26,7 +25,6 @@ BroydenSolver::validParams()
       "initial_jacobian_guess", 1.0, "Factor for the initial inverse jacobian guess.");
   params.addParam<Real>(
       "dt_epsilon", 1e-4, "Semi-implicit stable timestep to bootstrap secant solve.");
-  params.set<unsigned int>("substeps") = 0;
   params.addParam<bool>("verbose", false, "Show convergence history.");
   return params;
 }
@@ -34,7 +32,6 @@ BroydenSolver::validParams()
 BroydenSolver::BroydenSolver(const InputParameters & parameters)
   : SplitOperatorBase(parameters),
     IterativeTensorSolverInterface(),
-    _substeps(getParam<unsigned int>("substeps")),
     _max_iterations(getParam<unsigned int>("max_iterations")),
     _relative_tolerance(getParam<Real>("relative_tolerance")),
     _absolute_tolerance(getParam<Real>("absolute_tolerance")),
