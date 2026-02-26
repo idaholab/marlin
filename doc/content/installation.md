@@ -126,5 +126,5 @@ source ./venv/bin/activate
 ### Grab an interactive node for testing
 
 ```
-qsub -I -A your_project -l walltime=0:10:00 -l filesystems=home
+qsub -I -A your_project -l select=1 -q debug -l walltime=0:10:00 -l filesystems=home
 ```
