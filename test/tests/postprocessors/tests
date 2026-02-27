@@ -7,7 +7,7 @@
     requirement = 'The system shall be able to determine the minimum and maximum item value in a tensor.'
     issues = '#6'
     design = 'TensorExtremeValuePostprocessor.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 
@@ -19,7 +19,7 @@
     requirement = 'The system shall be able to determine the average value in a tensor.'
     issues = '#6'
     design = 'TensorAveragePostprocessor.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 
@@ -31,7 +31,7 @@
     requirement = 'The system shall be able to compute the integral over a simulation cell tensor.'
     issues = '#6'
     design = 'TensorIntegralPostprocessor.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 
@@ -43,7 +43,7 @@
     requirement = 'The system shall be able to compute the integral over a simulation cell tensor using the zero k vector in reciprocal space.'
     issues = '#6'
     design = 'ReciprocalIntegral.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 
@@ -54,7 +54,7 @@
     requirement = 'The system shall be able to measure the maximum interfacial velocity for a given tensor.'
     issues = '#6'
     design = 'TensorInterfaceVelocityPostprocessor.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 
@@ -66,7 +66,7 @@
     requirement = 'The system shall be able to output the execution count for a given compute group.'
     issues = '#80'
     design = 'ComputeGroupExecutionCount.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 []

@@ -8,7 +8,7 @@
     capabilities = neml2
     requirement = 'The system shall be able to output a vector valued tensor to XDMF'
     design = 'XDMFTensorOutput.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 []
