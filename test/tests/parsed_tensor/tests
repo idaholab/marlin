@@ -6,7 +6,7 @@
     requirement = 'The system shall correctly differentiate expressions containing local variable assignments using the := operator.'
     issues = '#TBD'
     design = 'ParsedCompute.md MarlinExpressionParser.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 []

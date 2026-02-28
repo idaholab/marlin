@@ -7,7 +7,7 @@
     design = NEML2TensorCompute.md
     capabilities = neml2
     requirement = 'The system shall be able to use NEML2 models as tensor computes'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 []

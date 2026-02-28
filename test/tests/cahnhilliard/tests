@@ -7,7 +7,7 @@
     issues = '#6'
     requirement = 'The system shall be able to map a tensor directly to an aux variable solution vector in 2d'
     design = 'TensorProblem.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
   [map_to_aux_3d]
@@ -18,7 +18,7 @@
     issues = '#6'
     requirement = 'The system shall be able to map a tensor directly to an aux variable solution vector in 3d'
     design = 'TensorProblem.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
   [project_tensor]
@@ -29,7 +29,7 @@
     issues = '#6'
     requirement = 'The system shall be able to project a tensor onto an aux variable using an aux kernel'
     design = 'ProjectTensorAux.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
   [xdmf_output_xml]
@@ -40,7 +40,7 @@
     issues = '#6'
     requirement = 'The system shall be able to output a tensor in XDMF format'
     design = 'XDMFTensorOutput.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
   [xdmf_output_hdf5]
@@ -52,7 +52,7 @@
     issues = '#6'
     requirement = 'The system shall be able to output a tensor in XDMF format using a HDF5 data file'
     design = 'XDMFTensorOutput.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
   [xdmf_output_hdf5_parallel]
@@ -117,7 +117,7 @@
     issues = '#29'
     requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly.'
     design = 'ForwardEulerSolver.md'
-    compute_devices = 'cpu cuda mps'
+    compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
 
@@ -130,7 +130,7 @@
       issues = '#29'
       requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly with a 2/3 de-aliasing.'
       design = 'DeAliasingTensor.md'
-      compute_devices = 'cpu cuda mps'
+      compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
     []
     [hou-li]
@@ -141,7 +141,7 @@
       issues = '#29'
       requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly with Hou-Li de-aliasing.'
       design = 'DeAliasingTensor.md'
-      compute_devices = 'cpu cuda mps'
+      compute_devices = 'cpu cuda mps xpu'
      max_parallel = 1
     []
   []
