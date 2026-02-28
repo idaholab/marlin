@@ -125,6 +125,8 @@ source ./venv/bin/activate
 
 ### Grab an interactive node for testing
 
+[Auroa queues](https://docs.alcf.anl.gov/aurora/running-jobs-aurora/) and their respective min/max nodes.
+
 ```
-qsub -I -A your_project -l select=1 -q debug -l walltime=0:10:00 -l filesystems=home
+qsub -q debug -I -l select=1 -l walltime=0:10:00 -l filesystems=home -A your_project
 ```
