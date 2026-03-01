@@ -178,7 +178,7 @@ void
 LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t, const Real & value)
 {
   const auto tensor_shape = t.sizes();
-  if (_is_binary_media && _binary_media_owned.sum().item<int64_t>() > 0)
+  if (_is_binary_media)
   {
     if (t.dim() == _binary_media_owned.dim())
     {
