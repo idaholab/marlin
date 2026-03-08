@@ -220,4 +220,64 @@
     min_parallel = 1
     max_parallel = 4
   []
+  [nee_2d_channel]
+    type = CSVDiff
+    input = nee_2d_channel.i
+    csvdiff = nee_2d_channel.csv
+    requirement = 'The system shall be able to apply Non-Equilibrium Extrapolation BC on left (velocity) and right (density) boundaries in 2D with first-order extrapolation.'
+    design = 'LBMNonEquilibriumExtrapolation.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [nee_2d_all_walls]
+    type = CSVDiff
+    input = nee_2d_all_walls.i
+    csvdiff = nee_2d_all_walls.csv
+    requirement = 'The system shall be able to apply Non-Equilibrium Extrapolation BC on all four 2D boundaries (top, bottom, left, right) with velocity prescription and second-order extrapolation.'
+    design = 'LBMNonEquilibriumExtrapolation.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [nee_3d_box_first]
+    type = CSVDiff
+    input = nee_3d_box_first.i
+    csvdiff = nee_3d_box_first.csv
+    requirement = 'The system shall be able to apply Non-Equilibrium Extrapolation BC on all six 3D boundaries (left, right, top, bottom, front, back) with velocity prescription and first-order extrapolation using D3Q19.'
+    design = 'LBMNonEquilibriumExtrapolation.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [nee_3d_box_second]
+    type = CSVDiff
+    input = nee_3d_box_second.i
+    csvdiff = nee_3d_box_second.csv
+    requirement = 'The system shall be able to apply Non-Equilibrium Extrapolation BC on all six 3D boundaries with mixed velocity and density prescription and second-order extrapolation using D3Q19.'
+    design = 'LBMNonEquilibriumExtrapolation.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_2d]
+    type = CSVDiff
+    input = convective_outflow_2d.i
+    csvdiff = convective_outflow_2d.csv
+    requirement = 'The system shall be able to apply convective outflow BC with auto-computed convection velocity on a 2D channel outlet.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_3d]
+    type = CSVDiff
+    input = convective_outflow_3d.i
+    csvdiff = convective_outflow_3d.csv
+    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on a 3D channel outlet using D3Q19.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
 []
