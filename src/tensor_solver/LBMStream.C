@@ -107,6 +107,11 @@ LBMStream::computeBuffer()
 
     for (auto & [u, f_old] : _variables)
     {
+      // detach from old state (advanceState does a shallow copy, so u and
+      // u_old share storage; cloning prevents in-place streaming from
+      // corrupting the old state that boundary conditions may still need)
+      u = u.clone();
+
       // define the owned region of u
       auto u_owned = u;
       for (unsigned int d = 0; d < _dim; d++)

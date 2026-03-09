@@ -29,11 +29,14 @@ public:
   void computeBuffer() override;
 
 protected:
-  void applyConvectiveOutflow(int dim, int64_t b_idx, int64_t n_idx, int normal_component);
-  torch::Tensor computeMeanNormalVelocity(const torch::Tensor & f_slice, int normal_component);
+  void applyConvectiveOutflow(int dim, int64_t b_idx, int64_t n_idx);
+  void precomputeConvectionVelocity();
 
   const std::vector<torch::Tensor> & _f_old;
   torch::Tensor _f_old_owned;
   const bool _auto_velocity;
   const Real _uc_value;
+
+  /// Pre-computed convection velocity (global mean), computed before boundary dispatch
+  torch::Tensor _uc_computed;
 };

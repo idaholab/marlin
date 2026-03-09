@@ -41,9 +41,9 @@ It supports domain faces (`left`, `right`, `top`, `bottom`, `front`, `back`).
 
 ## Example Input File Syntax
 
-!listing test/tests/lbm/convective_outflow_2d.i block=TensorComputes/Boundary/right
+!listing test/tests/lbm/convective_outflow_2d_right.i block=TensorComputes/Boundary/right
 
-!listing test/tests/lbm/convective_outflow_3d.i block=TensorComputes/Boundary/right
+!listing test/tests/lbm/convective_outflow_3d_bottom.i block=TensorComputes/Boundary/bottom
 
 !syntax parameters /TensorComputes/Boundary/LBMConvectiveOutflow
 

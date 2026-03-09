@@ -9,6 +9,7 @@
 #include "LBMConvectiveOutflow.h"
 #include "LatticeBoltzmannProblem.h"
 #include "LatticeBoltzmannStencilBase.h"
+#include "DomainAction.h"
 
 using namespace torch::indexing;
 
@@ -46,38 +47,87 @@ LBMConvectiveOutflow::LBMConvectiveOutflow(const InputParameters & parameters)
 {
 }
 
-torch::Tensor
-LBMConvectiveOutflow::computeMeanNormalVelocity(const torch::Tensor & f_slice, int normal_component)
+void
+LBMConvectiveOutflow::precomputeConvectionVelocity()
 {
-  auto rho = f_slice.sum(-1, /*keepdim=*/true);
+  Real local_sum = 0.0;
+  Real local_count = 0.0;
 
-  // Select the appropriate stencil velocity component
-  torch::Tensor e_normal;
-  switch (normal_component)
+  // Only boundary-owning ranks contribute to the sum
+  const uint8_t bit = (1 << static_cast<int>(_boundary));
+  if (_boundary_rank & bit)
   {
-    case 0:
-      e_normal = _ex;
-      break;
-    case 1:
-      e_normal = _ey;
-      break;
-    case 2:
-      e_normal = _ez;
-      break;
-    default:
-      mooseError("Invalid normal component for convective outflow");
+    int dim = -1, normal_component = -1;
+    int64_t n_idx = -1;
+    switch (_boundary)
+    {
+      case Boundary::left:
+        dim = 0;
+        n_idx = 1;
+        normal_component = 0;
+        break;
+      case Boundary::right:
+        dim = 0;
+        n_idx = _shape[0] - 2;
+        normal_component = 0;
+        break;
+      case Boundary::bottom:
+        dim = 1;
+        n_idx = 1;
+        normal_component = 1;
+        break;
+      case Boundary::top:
+        dim = 1;
+        n_idx = _shape[1] - 2;
+        normal_component = 1;
+        break;
+      case Boundary::front:
+        dim = 2;
+        n_idx = 1;
+        normal_component = 2;
+        break;
+      case Boundary::back:
+        dim = 2;
+        n_idx = _shape[2] - 2;
+        normal_component = 2;
+        break;
+      default:
+        mooseError("Unsupported boundary for convective outflow auto velocity");
+    }
+
+    auto f_neighbor = _u_owned.select(dim, n_idx).unsqueeze(dim);
+    auto rho = f_neighbor.sum(-1, /*keepdim=*/true);
+
+    torch::Tensor e_normal;
+    switch (normal_component)
+    {
+      case 0:
+        e_normal = _ex;
+        break;
+      case 1:
+        e_normal = _ey;
+        break;
+      case 2:
+        e_normal = _ez;
+        break;
+      default:
+        mooseError("Invalid normal component for convective outflow");
+    }
+
+    auto u_normal = (f_neighbor * e_normal).sum(-1, /*keepdim=*/true) / rho;
+    local_sum = torch::abs(u_normal).sum().item<Real>();
+    local_count = static_cast<Real>(u_normal.numel());
   }
 
-  auto u_normal = (f_slice * e_normal).sum(-1, /*keepdim=*/true) / rho;
+  // Global reduction - ALL ranks participate regardless of boundary ownership
+  _domain.comm().sum(local_sum);
+  _domain.comm().sum(local_count);
 
-  return torch::abs(u_normal.mean());
+  _uc_computed = torch::tensor(local_sum / local_count, MooseTensor::floatTensorOptions());
 }
 
 void
-LBMConvectiveOutflow::applyConvectiveOutflow(int dim,
-                                             int64_t b_idx,
-                                             int64_t n_idx,
-                                             int normal_component)
+LBMConvectiveOutflow::applyConvectiveOutflow(int dim, int64_t b_idx, int64_t n_idx)
 {
   // f(x_n, t): interior neighbor from the current (post-stream) distribution
   auto f_neighbor = _u_owned.select(dim, n_idx).unsqueeze(dim);
@@ -85,15 +135,9 @@ LBMConvectiveOutflow::applyConvectiveOutflow(int dim,
   // f(x_b, t-1): boundary node from the old state
   auto f_old_boundary = _f_old_owned.select(dim, b_idx).unsqueeze(dim);
 
-  // convection velocity
-  torch::Tensor uc;
-  if (_auto_velocity)
-  {
-    // Compute mean normal velocity from the interior neighbor slice
-    uc = computeMeanNormalVelocity(f_neighbor, normal_component);
-  }
-  else
-    uc = torch::tensor(_uc_value, MooseTensor::floatTensorOptions());
+  // convection velocity (pre-computed in computeBuffer for auto, constant otherwise)
+  torch::Tensor uc =
+      _auto_velocity ? _uc_computed : torch::tensor(_uc_value, MooseTensor::floatTensorOptions());
 
   // Convective outflow:  f(x_b, t) = (f(x_b, t-1) + U_c * f(x_n, t)) / (1 + U_c)
   auto result = (f_old_boundary + uc * f_neighbor) / (1.0 + uc);
@@ -104,43 +148,43 @@ LBMConvectiveOutflow::applyConvectiveOutflow(int dim,
 void
 LBMConvectiveOutflow::leftBoundary()
 {
-  // x = 0; interior neighbor at x = 1; normal is x-direction
-  applyConvectiveOutflow(0, 0, 1, 0);
+  // x = 0; interior neighbor at x = 1
+  applyConvectiveOutflow(0, 0, 1);
 }
 
 void
 LBMConvectiveOutflow::rightBoundary()
 {
-  // x = Nx-1; interior neighbor at Nx-2; normal is x-direction
-  applyConvectiveOutflow(0, _shape[0] - 1, _shape[0] - 2, 0);
+  // x = Nx-1; interior neighbor at Nx-2
+  applyConvectiveOutflow(0, _shape[0] - 1, _shape[0] - 2);
 }
 
 void
 LBMConvectiveOutflow::bottomBoundary()
 {
-  // y = 0; interior neighbor at y = 1; normal is y-direction
-  applyConvectiveOutflow(1, 0, 1, 1);
+  // y = 0; interior neighbor at y = 1
+  applyConvectiveOutflow(1, 0, 1);
 }
 
 void
 LBMConvectiveOutflow::topBoundary()
 {
-  // y = Ny-1; interior neighbor at Ny-2; normal is y-direction
-  applyConvectiveOutflow(1, _shape[1] - 1, _shape[1] - 2, 1);
+  // y = Ny-1; interior neighbor at Ny-2
+  applyConvectiveOutflow(1, _shape[1] - 1, _shape[1] - 2);
 }
 
 void
 LBMConvectiveOutflow::frontBoundary()
 {
-  // z = 0; interior neighbor at z = 1; normal is z-direction
-  applyConvectiveOutflow(2, 0, 1, 2);
+  // z = 0; interior neighbor at z = 1
+  applyConvectiveOutflow(2, 0, 1);
 }
 
 void
 LBMConvectiveOutflow::backBoundary()
 {
-  // z = Nz-1; interior neighbor at Nz-2; normal is z-direction
-  applyConvectiveOutflow(2, _shape[2] - 1, _shape[2] - 2, 2);
+  // z = Nz-1; interior neighbor at Nz-2
+  applyConvectiveOutflow(2, _shape[2] - 1, _shape[2] - 2);
 }
 
 void
@@ -149,6 +193,13 @@ LBMConvectiveOutflow::computeBuffer()
   _f_old_owned = _f_old[0];
   for (unsigned int d = 0; d < _dim; d++)
     _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
+
+  // Pre-compute convection velocity with global MPI reduction BEFORE the
+  // parent dispatches to boundary-specific methods. This ensures ALL ranks
+  // participate in the collective, avoiding deadlock when only a subset of
+  // ranks own the boundary.
+  if (_auto_velocity)
+    precomputeConvectionVelocity();
 
   LBMBoundaryCondition::computeBuffer();
   _lb_problem.maskedFillSolids(_u_owned, 0);

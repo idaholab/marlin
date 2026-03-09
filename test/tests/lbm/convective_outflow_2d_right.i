@@ -165,6 +165,6 @@
 []
 
 [Outputs]
-  file_base = convective_outflow_2d
+  file_base = convective_outflow_2d_right
   csv = true
 []

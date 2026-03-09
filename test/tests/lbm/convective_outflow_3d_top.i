@@ -95,34 +95,34 @@
     []
   []
   [Boundary]
-    [left]
+    [bottom]
       type = LBMNonEquilibriumExtrapolation
       buffer = f
       prescribe_type = velocity
-      ux = 0.005
-      uy = 0.0
+      ux = 0.0
+      uy = 0.005
       uz = 0.0
       order = first
-      boundary = left
+      boundary = bottom
     []
-    [right]
+    [top]
       type = LBMConvectiveOutflow
       buffer = f
       f_old = f
       convection_velocity = Uc
-      boundary = right
-    []
-    [top]
-      type = LBMBounceBack
-      buffer = f
-      f_old = fpc
       boundary = top
     []
-    [bottom]
+    [left]
       type = LBMBounceBack
       buffer = f
       f_old = fpc
-      boundary = bottom
+      boundary = left
+    []
+    [right]
+      type = LBMBounceBack
+      buffer = f
+      f_old = fpc
+      boundary = right
     []
     [front]
       type = LBMBounceBack
@@ -181,6 +181,6 @@
 []
 
 [Outputs]
-  file_base = convective_outflow_3d
+  file_base = convective_outflow_3d_top
   csv = true
 []

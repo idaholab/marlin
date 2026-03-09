@@ -260,21 +260,101 @@
     min_parallel = 1
     max_parallel = 4
   []
-  [convective_outflow_2d]
+  [convective_outflow_2d_right]
     type = CSVDiff
-    input = convective_outflow_2d.i
-    csvdiff = convective_outflow_2d.csv
-    requirement = 'The system shall be able to apply convective outflow BC with auto-computed convection velocity on a 2D channel outlet.'
+    input = convective_outflow_2d_right.i
+    csvdiff = convective_outflow_2d_right.csv
+    requirement = 'The system shall be able to apply convective outflow BC with auto-computed convection velocity on the right boundary of a 2D channel outlet.'
     design = 'LBMConvectiveOutflow.md'
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
   []
-  [convective_outflow_3d]
+  [convective_outflow_3d_right]
     type = CSVDiff
-    input = convective_outflow_3d.i
-    csvdiff = convective_outflow_3d.csv
-    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on a 3D channel outlet using D3Q19.'
+    input = convective_outflow_3d_right.i
+    csvdiff = convective_outflow_3d_right.csv
+    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on the right boundary of a 3D channel outlet using D3Q19.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_2d_left]
+    type = CSVDiff
+    input = convective_outflow_2d_left.i
+    csvdiff = convective_outflow_2d_left.csv
+    requirement = 'The system shall be able to apply convective outflow BC with auto-computed convection velocity on the left boundary of a 2D channel.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_2d_top]
+    type = CSVDiff
+    input = convective_outflow_2d_top.i
+    csvdiff = convective_outflow_2d_top.csv
+    requirement = 'The system shall be able to apply convective outflow BC with auto-computed convection velocity on the top boundary of a 2D channel.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_2d_bottom]
+    type = CSVDiff
+    input = convective_outflow_2d_bottom.i
+    csvdiff = convective_outflow_2d_bottom.csv
+    requirement = 'The system shall be able to apply convective outflow BC with auto-computed convection velocity on the bottom boundary of a 2D channel.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_3d_left]
+    type = CSVDiff
+    input = convective_outflow_3d_left.i
+    csvdiff = convective_outflow_3d_left.csv
+    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on the left boundary of a 3D channel using D3Q19.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_3d_top]
+    type = CSVDiff
+    input = convective_outflow_3d_top.i
+    csvdiff = convective_outflow_3d_top.csv
+    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on the top boundary of a 3D channel using D3Q19.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_3d_bottom]
+    type = CSVDiff
+    input = convective_outflow_3d_bottom.i
+    csvdiff = convective_outflow_3d_bottom.csv
+    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on the bottom boundary of a 3D channel using D3Q19.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_3d_front]
+    type = CSVDiff
+    input = convective_outflow_3d_front.i
+    csvdiff = convective_outflow_3d_front.csv
+    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on the front boundary of a 3D channel using D3Q19.'
+    design = 'LBMConvectiveOutflow.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
+  [convective_outflow_3d_back]
+    type = CSVDiff
+    input = convective_outflow_3d_back.i
+    csvdiff = convective_outflow_3d_back.csv
+    requirement = 'The system shall be able to apply convective outflow BC with fixed convection velocity on the back boundary of a 3D channel using D3Q19.'
     design = 'LBMConvectiveOutflow.md'
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
