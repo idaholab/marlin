@@ -123,7 +123,10 @@ LBMConvectiveOutflow::precomputeConvectionVelocity()
   _domain.comm().sum(local_sum);
   _domain.comm().sum(local_count);
 
-  _uc_computed = torch::tensor(local_sum / local_count, MooseTensor::floatTensorOptions());
+  if (local_count > 0)
+    _uc_computed = torch::tensor(local_sum / local_count, MooseTensor::floatTensorOptions());
+  else
+    _uc_computed = torch::zeros({}, MooseTensor::floatTensorOptions());
 }
 
 void
