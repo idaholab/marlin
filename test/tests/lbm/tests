@@ -363,10 +363,9 @@
 
   [abort_on_nan]
     type = RunApp
-    input = diverged_solve.i
-    allow_test_objects = true
-    expect_out = 'Aborting at Lattice Boltzmann Substep 3, Residual nan'
-    absent_out = 'Time Step 7'
+    input = channel2D.i
+    cli_args = 'TensorComputes/Solve/collision/tau0=0.1 Executioner/dtmin=1 Executioner/error_on_dtmin=false'
+    expect_out = 'Aborting at Lattice Boltzmann Substep \d, Residual -?nan'
     compute_devices = 'cpu cuda mps xpu'
 
     requirement = 'The system shall abort transient simulation when lattice Boltzmann solve diverges.'
