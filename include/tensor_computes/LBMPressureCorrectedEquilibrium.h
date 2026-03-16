@@ -5,24 +5,24 @@
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
-
 #pragma once
 
 #include "LatticeBoltzmannOperator.h"
 
 /**
- * Compute LB equilibrium distribution for phase field parameter
+ * Compute object for correcting the equilibrium distribution function for phase field model. 
  */
-class LBMPhaseEquilibrium : public LatticeBoltzmannOperator
+class LBMPressureCorrectedEquilibrium : public LatticeBoltzmannOperator
 {
 public:
   static InputParameters validParams();
 
-  LBMPhaseEquilibrium(const InputParameters & parameters);
+  LBMPressureCorrectedEquilibrium(const InputParameters & parameters);
 
   virtual void computeBuffer() override;
 
 protected:
-  const torch::Tensor & _phi;
-  const torch::Tensor & _velocity;
+    const torch::Tensor & _rho;
+    const torch::Tensor & _velocity;
+    const torch::Tensor & _pressure;
 };

@@ -65,14 +65,14 @@ LBMIsotropicGradient::padScalarField()
       _scalar_field.slice(1, _scalar_field.size(1) - _padding, _scalar_field.size(1));
   torch::Tensor left_pad_slice = _scalar_field.slice(1, 0, _padding);
 
-  torch::Tensor padded_width = torch::cat({left_pad_slice, _scalar_field, right_pad_slice}, 1);
+  torch::Tensor padded_width = torch::cat({right_pad_slice, _scalar_field, left_pad_slice}, 1);
 
   torch::Tensor bottom_pad_slice =
       padded_width.slice(0, padded_width.size(0) - _padding, padded_width.size(0));
   torch::Tensor top_pad_slice = padded_width.slice(0, 0, _padding);
 
   torch::Tensor fully_padded_tensor =
-      torch::cat({top_pad_slice, padded_width, bottom_pad_slice}, 0);
+      torch::cat({bottom_pad_slice, padded_width, top_pad_slice}, 0);
 
   return fully_padded_tensor;
 }

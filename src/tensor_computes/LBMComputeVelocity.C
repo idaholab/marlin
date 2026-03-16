@@ -66,6 +66,9 @@ LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
 void
 LBMComputeVelocity::computeBuffer()
 {
+  if (_rho.dim() < 3)
+    _rho.unsqueeze_(-1);
+
   _u.index({Slice(), Slice(), Slice(), 0}) = torch::sum(_f * _stencil._ex, 3) / _rho;
 
   if (_dim > 1)

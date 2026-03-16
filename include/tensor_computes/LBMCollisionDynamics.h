@@ -40,6 +40,7 @@ protected:
   const torch::Tensor & _input_relaxation_matrix;
   /// non-equilibrium distribution function
   torch::Tensor _fneq;
+  const torch::Tensor & _tau_tensor;
   /// local shear stress relaxation tau_s
   torch::Tensor _local_relaxation_parameter;
   /// local relaxation matrix [Nx, Ny, Nz, Q] (internally computed for Smagorinsky)
