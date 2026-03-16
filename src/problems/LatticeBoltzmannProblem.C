@@ -17,6 +17,8 @@
 #include "MarlinUtils.h"
 #include "DependencyResolverInterface.h"
 
+#include "Executioner.h"
+
 registerMooseObject("MarlinApp", LatticeBoltzmannProblem);
 
 InputParameters
@@ -138,6 +140,15 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
       // run computes
       for (auto & cmp : _computes)
         cmp->computeBuffer();
+
+      if (std::isnan(_convergence_residual))
+      {
+        _console << COLOR_RED << "Aborting at Lattice Boltzmann Substep " << substep
+                 << ", Residual " << _convergence_residual << COLOR_DEFAULT << std::endl;
+        getMooseApp().getExecutioner()->fixedPointSolve().failStep();
+        break;
+      }
+
       _console << COLOR_WHITE << "Lattice Boltzmann Substep " << substep << ", Residual "
                << _convergence_residual << COLOR_DEFAULT << std::endl;
 

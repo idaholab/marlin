@@ -360,4 +360,17 @@
     min_parallel = 1
     max_parallel = 4
   []
+
+  [abort_on_nan]
+    type = RunApp
+    input = diverged_solve.i
+    allow_test_objects = true
+    expect_out = 'Aborting at Lattice Boltzmann Substep 3, Residual nan'
+    absent_out = 'Time Step 7'
+    compute_devices = 'cpu cuda mps xpu'
+
+    requirement = 'The system shall abort transient simulation when lattice Boltzmann solve diverges.'
+    issues = '#149'
+    design = 'LatticeBoltzmannProblem.md'
+  []
 []
