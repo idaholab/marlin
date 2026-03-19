@@ -360,4 +360,16 @@
     min_parallel = 1
     max_parallel = 4
   []
+
+  [abort_on_nan]
+    type = RunApp
+    input = channel2D.i
+    cli_args = 'TensorComputes/Solve/collision/tau0=0.1 Executioner/dtmin=1 Executioner/error_on_dtmin=false'
+    expect_out = 'Aborting at Lattice Boltzmann Substep \d, Residual -?nan'
+    compute_devices = 'cpu cuda mps xpu'
+
+    requirement = 'The system shall abort transient simulation when lattice Boltzmann solve diverges.'
+    issues = '#149'
+    design = 'LatticeBoltzmannProblem.md'
+  []
 []
