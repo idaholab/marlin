@@ -360,4 +360,14 @@
     min_parallel = 1
     max_parallel = 4
   []
+  [rarefied_gas_flow]
+    type = CSVDiff
+    input = rarefied_gas.i
+    csvdiff = rarefied_gas.csv
+    requirement = 'The system shall be able to solve high Knudsen number gas transport in nano channels.'
+    design = 'LBMSpecularReflectionBoundary.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+  []
 []
