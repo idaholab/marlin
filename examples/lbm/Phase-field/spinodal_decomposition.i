@@ -1,6 +1,6 @@
 #
 # Spinodal decomposition
-# PHYSICAL REVIEW E 97, 033309 (2018)
+# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.C
 #
 
 # Domain

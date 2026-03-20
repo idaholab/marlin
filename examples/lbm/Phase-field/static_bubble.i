@@ -1,6 +1,6 @@
 #
 # Static bubble test case
-# PHYSICAL REVIEW E 97, 033309 (2018)
+# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.A
 # Intended outcome is to have (spurious) velocity magnitude around 1.0e-10 
 #
 
