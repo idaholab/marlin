@@ -142,4 +142,10 @@ LBMD3Q27::LBMD3Q27(const InputParameters & parameters) : LatticeBoltzmannStencil
   _neutral_x_neg_y = _op.index({_neutral_x_pos_y});
   _neutral_x_pos_z = torch::tensor({5, 15, 17}, MooseTensor::intTensorOptions());
   _neutral_x_neg_z = _op.index({_neutral_x_pos_z});
+
+  // Reorder stencil directions into a 3x3x3 cube for conv3d cross-correlation kernels.
+  // Grid position (ix, iy, iz) maps to lattice direction (ex=ix-1, ey=iy-1, ez=iz-1).
+  _reorder_indices = torch::tensor({25, 10, 24, 14, 2,  13, 26, 9,  23, 18, 4,  17, 6, 0,
+                                    5,  16, 3,  15, 21, 8,  20, 12, 1,  11, 22, 7,  19},
+                                   MooseTensor::intTensorOptions());
 }

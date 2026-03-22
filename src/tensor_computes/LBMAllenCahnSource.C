@@ -19,10 +19,8 @@ LBMAllenCahnSource::validParams()
 {
   InputParameters params = LatticeBoltzmannOperator::validParams();
   params.addClassDescription("Compute Allen-Cahn source term for phase field model.");
-  params.addRequiredParam<TensorInputBufferName>("phi",
-                                                 "LBM phase field parameter");
-  params.addRequiredParam<TensorInputBufferName>("velocity",
-                                                 "LBM fluid velocity");
+  params.addRequiredParam<TensorInputBufferName>("phi", "LBM phase field parameter");
+  params.addRequiredParam<TensorInputBufferName>("velocity", "LBM fluid velocity");
   params.addRequiredParam<TensorInputBufferName>("grad_phi",
                                                  "Gradient of LBM phase field parameter");
   params.addRequiredParam<std::string>("tau", "Relaxation parameter for LBM phase field");
@@ -66,7 +64,7 @@ LBMAllenCahnSource::computeSourceTerm()
   // Unit normal from gradient of phi
   auto mag = torch::norm(_grad_phi, 2, -1);
   auto unit_normal = _grad_phi / (mag.unsqueeze(-1) + 1.0e-16);
-  
+
   // Anti-diffusion coefficient: lambda = 4*phi*(1-phi)/D
   torch::Tensor lambda = 4.0 / _D * phi_unsqueezed * (1.0 - phi_unsqueezed);
   // Combined vector: A = d(phi*u)/dt + cs2 * lambda * n

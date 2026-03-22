@@ -23,15 +23,15 @@ LBMCollisionDynamicsTempl<coll_dyn>::validParams()
   params.addRequiredParam<TensorInputBufferName>("f", "Input buffer distribution function");
   params.addRequiredParam<TensorInputBufferName>("feq",
                                                  "Input buffer equilibrium distribution function");
-  params.addParam<std::string>("tau0", "1.0", "Relaxation parameter");
+  params.addParam<TensorInputBufferName>(
+      "local_relaxation_matrix", "S", "Locally computed diagonal relaxation matrix");
   params.addParam<TensorInputBufferName>("tau_tensor", "tau_tensor", "Relaxation tensor");
+  params.addParam<std::string>("tau0", "1.0", "Relaxation parameter");
   params.addParam<std::string>("Cs", "0.1", "Smagorinsky constant");
   params.addParam<bool>(
       "projection", false, "Whether or not to project non-equilibrium onto Hermite space.");
   params.addParam<bool>(
       "is_dynamic_relaxation", false, "Whether or not to use dynamic relaxation.");
-  params.addParam<TensorInputBufferName>(
-      "local_relaxation_matrix", "S", "Locally computed diagonal relaxation matrix");
   return params;
 }
 
@@ -41,8 +41,8 @@ LBMCollisionDynamicsTempl<coll_dyn>::LBMCollisionDynamicsTempl(const InputParame
     _f(getInputBuffer("f", _radius)),
     _feq(getInputBuffer("feq", _radius)),
     _input_relaxation_matrix(getInputBuffer("local_relaxation_matrix", _radius)),
-    _tau_0(_lb_problem.getConstant<Real>(getParam<std::string>("tau0"))),
     _tau_tensor(getInputBuffer("tau_tensor", _radius)),
+    _tau_0(_lb_problem.getConstant<Real>(getParam<std::string>("tau0"))),
     _C_s(_lb_problem.getConstant<Real>(getParam<std::string>("Cs"))),
     _delta_x(1.0),
     _projection(getParam<bool>("projection")),
@@ -254,7 +254,7 @@ void
 LBMCollisionDynamicsTempl<0>::BGKDynamics()
 {
   /* LBM BGK collision */
-  if (! _is_dynamic_relaxation)
+  if (!_is_dynamic_relaxation)
     _u = _feq + _fneq - 1.0 / _tau_0 * _fneq;
   else
   {

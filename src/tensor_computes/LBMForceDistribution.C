@@ -48,7 +48,6 @@ LBMForceDistribution::LBMForceDistribution(const InputParameters & parameters)
   if (_dim == 3)
     shape_q_with_ghost[2] += 2 * _radius;
   _source_term = torch::zeros(shape_q_with_ghost, MooseTensor::floatTensorOptions());
-
 }
 
 void
@@ -96,7 +95,8 @@ LBMForceDistribution::computeSourceTerm()
     // (rho_l - rho_g) * (u ⊗ grad_phi) : (c_i ⊗ c_i) / cs2
     // = (rho_l - rho_g) * sum_{a,b} u_a * dphi_db * c_ia * c_ib / cs2
     auto ci_dot_u = _stencil._ex[ic] * ux + _stencil._ey[ic] * uy + _stencil._ez[ic] * uz;
-    auto ci_dot_grad_phi = _stencil._ex[ic] * dphi_dx + _stencil._ey[ic] * dphi_dy + _stencil._ez[ic] * dphi_dz;
+    auto ci_dot_grad_phi =
+        _stencil._ex[ic] * dphi_dx + _stencil._ey[ic] * dphi_dy + _stencil._ez[ic] * dphi_dz;
     auto tensor_term = drho * (ci_dot_u * ci_dot_grad_phi).squeeze(-1) / _lb_problem._cs2;
 
     _source_term.index_put_({Slice(), Slice(), Slice(), ic},
@@ -109,7 +109,7 @@ LBMForceDistribution::computeBuffer()
 {
   computeSourceTerm();
 
-  if (! _is_dynamic_relaxation)
+  if (!_is_dynamic_relaxation)
     _u += (1.0 - 1.0 / (2.0 * _tau)) * _source_term;
   else
   {

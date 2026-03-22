@@ -36,11 +36,12 @@ public:
 protected:
   const torch::Tensor & _f;
   const torch::Tensor & _feq;
-  /// reference to externally provided relaxation matrix input buffer
+  /// reference to externally provided relaxation matrix [Nx, Ny, Nz, Q] input buffer
   const torch::Tensor & _input_relaxation_matrix;
+  /// reference to externally provided relaxation tensor [Nx, Ny, Nz] input buffer
+  const torch::Tensor & _tau_tensor;
   /// non-equilibrium distribution function
   torch::Tensor _fneq;
-  const torch::Tensor & _tau_tensor;
   /// local shear stress relaxation tau_s
   torch::Tensor _local_relaxation_parameter;
   /// local relaxation matrix [Nx, Ny, Nz, Q] (internally computed for Smagorinsky)

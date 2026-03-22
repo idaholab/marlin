@@ -1,7 +1,7 @@
-# 
+#
 # Droplet Impact on a Thin Liquid Film
 # PHYSICAL REVIEW E 97, 033309 (2018) - Section III.D
-# 
+#
 
 # Domain
 Nx = 1500
@@ -17,7 +17,7 @@ nu_g = 0.2
 sigma = 0.0625
 
 # Phase field parameters
-tau_h = 0.8 
+tau_h = 0.8
 D = 5
 
 [Domain]
@@ -57,7 +57,7 @@ D = 5
     type = LBMTensorBuffer
     buffer_type = mv
   []
-  
+
   [grad_phi]
     type = LBMTensorBuffer
     buffer_type = mv
@@ -141,8 +141,8 @@ D = 5
     buffer = pressure
     constants = 0.3
   []
-  
-  # Equilibrium 
+
+  # Equilibrium
   [h_eq_init]
     type = LBMPhaseEquilibrium
     buffer = h_eq

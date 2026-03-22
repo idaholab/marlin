@@ -22,11 +22,11 @@ public:
   virtual void computeBuffer() override;
 
 protected:
-    const torch::Tensor & _f;
-    const torch::Tensor & _velocity;
-    const torch::Tensor & _grad_phi;
-    const torch::Tensor & _rho;
+  const torch::Tensor & _f;
+  const torch::Tensor & _velocity;
+  const torch::Tensor & _grad_phi;
+  const torch::Tensor & _rho;
 
-    const Real _rho_l;
-    const Real _rho_g;
+  const Real _rho_l;
+  const Real _rho_g;
 };

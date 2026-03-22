@@ -14,7 +14,8 @@ InputParameters
 LBMPhaseEquilibrium::validParams()
 {
   InputParameters params = LatticeBoltzmannOperator::validParams();
-  params.addClassDescription("Compute LB equilibrium distribution object for phase field parameter.");
+  params.addClassDescription(
+      "Compute LB equilibrium distribution object for phase field parameter.");
   params.addRequiredParam<TensorInputBufferName>("phi", "LBM phase field parameter");
   params.addRequiredParam<TensorInputBufferName>("velocity", "LBM fluid velocity");
 
@@ -50,7 +51,7 @@ LBMPhaseEquilibrium::computeBuffer()
     default:
       mooseError("Unsupported dimension for LBMPhaseEquilibrium");
   }
-  
+
   torch::Tensor ci_dot_u = _ex * ux + _ey * uy + _ez * uz;
   _u = _w * phi_unsqueezed * (1.0 + ci_dot_u / _lb_problem._cs2);
 

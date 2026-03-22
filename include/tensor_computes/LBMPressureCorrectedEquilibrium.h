@@ -10,7 +10,7 @@
 #include "LatticeBoltzmannOperator.h"
 
 /**
- * Compute object for correcting the equilibrium distribution function for phase field model. 
+ * Compute object for correcting the equilibrium distribution function for phase field model.
  */
 class LBMPressureCorrectedEquilibrium : public LatticeBoltzmannOperator
 {
@@ -22,7 +22,7 @@ public:
   virtual void computeBuffer() override;
 
 protected:
-    const torch::Tensor & _rho;
-    const torch::Tensor & _velocity;
-    const torch::Tensor & _pressure;
+  const torch::Tensor & _rho;
+  const torch::Tensor & _velocity;
+  const torch::Tensor & _pressure;
 };

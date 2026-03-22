@@ -1,37 +1,35 @@
-#
-# Spinodal decomposition
-# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.C
-#
-
 # Domain
-Nx = 200
-Ny = 200
+Nx = 20
+Ny = 20
+Nz = 20
 
 # Fluid properties
-rho_l = 1000.0
+rho_l = 5.0
 rho_g = 1.0
 nu_l = 0.1
 nu_g = 1.0
 sigma = 0.2
 
 # Phase field parameters
-tau_h = 0.67
+tau_h = 1.0
 D = 4
 
 [Domain]
-  dim = 2
+  dim = 3
   nx = '${Nx}'
   ny = '${Ny}'
+  nz = '${Nz}'
   xmax = '${Nx}'
   ymax = '${Ny}'
+  zmax = '${Nz}'
   device_names='cpu'
   parallel_mode = REAL_SPACE
-  periodic_directions = 'X Y'
+  periodic_directions = 'X Y Z'
 []
 
 [Stencil]
-  [d2q9]
-    type = LBMD2Q9
+  [d3q27]
+    type = LBMD3Q27
   []
 []
 
@@ -111,10 +109,10 @@ D = 4
 
 [TensorComputes/Initialize]
   [phi_init]
-    type = RandomTensor
+    type = ParsedCompute
     buffer = phi
-    min = 0.3233
-    max = 0.3433
+    extra_symbols = true
+    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y + 43.12*z)*2*pi)'
   []
   [grad_phi_init]
     type = LBMIsotropicGradient
@@ -309,26 +307,53 @@ D = 4
   f_old = 'h_post_collision f_post_collision'
 []
 
+[Postprocessors]
+  [phi_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = phi
+    value_type = MIN
+  []
+  [phi_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = phi
+    value_type = MAX
+  []
+  [density_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = rho
+    value_type = MIN
+  []
+  [density_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = rho
+    value_type = MAX
+  []
+  [velocity_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MIN
+  []
+  [velocity_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MAX
+  []
+[]
+
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 500
+  substeps = 5
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
-  log_interval = 100
 []
 
 [Executioner]
   type = Transient
-  num_steps = 100
+  num_steps = 5
 []
 
-[TensorOutputs]
-  [xdmf]
-    type = XDMFTensorOutput
-    buffer = 'phi rho velocity'
-    output_mode = 'Cell Cell Cell'
-    enable_hdf5 = true
-    # transpose = false
-  []
+[Outputs]
+  file_base = phase_3D
+  csv = true
 []

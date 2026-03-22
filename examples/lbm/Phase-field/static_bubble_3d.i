@@ -1,37 +1,47 @@
 #
-# Spinodal decomposition
-# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.C
+# 3D Static bubble test case
+# Based on the 2D static bubble (PHYSICAL REVIEW E 97, 033309 - Section III.A)
+# Small domain to verify 3D gradient/laplacian correctness
 #
 
-# Domain
-Nx = 200
-Ny = 200
+# Domain (small for quick testing)
+Nx = 40
+Ny = 40
+Nz = 40
+
+# Bubble parameters
+Cx = '${Nx}/2.0'
+Cy = '${Ny}/2.0'
+Cz = '${Nz}/2.0'
+R = 12
 
 # Fluid properties
 rho_l = 1000.0
 rho_g = 1.0
 nu_l = 0.1
-nu_g = 1.0
-sigma = 0.2
+nu_g = 0.1
+sigma = 0.001
 
 # Phase field parameters
-tau_h = 0.67
+tau_h = 0.7
 D = 4
 
 [Domain]
-  dim = 2
+  dim = 3
   nx = '${Nx}'
   ny = '${Ny}'
+  nz = '${Nz}'
   xmax = '${Nx}'
   ymax = '${Ny}'
-  device_names='cpu'
+  zmax = '${Nz}'
+  device_names = 'cpu'
   parallel_mode = REAL_SPACE
-  periodic_directions = 'X Y'
+  periodic_directions = 'X Y Z'
 []
 
 [Stencil]
-  [d2q9]
-    type = LBMD2Q9
+  [d3q27]
+    type = LBMD3Q27
   []
 []
 
@@ -72,7 +82,7 @@ D = 4
     buffer_type = ms
   []
 
-  # LBM phase field variabels
+  # LBM phase field variables
   [h]
     type = LBMTensorBuffer
     buffer_type = df
@@ -91,10 +101,6 @@ D = 4
   []
 
   # LBM hydrodynamic variables
-  [fdummy]
-    type = LBMTensorBuffer
-    buffer_type = df
-  []
   [f]
     type = LBMTensorBuffer
     buffer_type = df
@@ -111,10 +117,12 @@ D = 4
 
 [TensorComputes/Initialize]
   [phi_init]
-    type = RandomTensor
+    type = ParsedCompute
     buffer = phi
-    min = 0.3233
-    max = 0.3433
+    expression = '0.5 + 0.5 * tanh(2*(R - sqrt((x - Cx)^2 + (y - Cy)^2 + (z - Cz)^2)) / D)'
+    constant_names = 'Cx Cy Cz R D'
+    constant_expressions = '${Cx} ${Cy} ${Cz} ${R} ${D}'
+    extra_symbols = true
   []
   [grad_phi_init]
     type = LBMIsotropicGradient
@@ -135,7 +143,6 @@ D = 4
     buffer = pressure
     constants = 0.3
   []
-  # Phase field equilibrium distribution initialization
   [h_eq_init]
     type = LBMPhaseEquilibrium
     buffer = h_eq
@@ -154,7 +161,6 @@ D = 4
     phi = phi
     velocity = velocity
   []
-  # Hydrodynamic equilibrium distribution initialization
   [f_eq_init]
     type = LBMPressureCorrectedEquilibrium
     buffer = f_eq
@@ -225,7 +231,6 @@ D = 4
     enable_forces = true
     forces = forces
   []
-  # Phase-field
   [h_eq]
     type = LBMPhaseEquilibrium
     buffer = h_eq
@@ -248,7 +253,6 @@ D = 4
     tau = tau_h
     thickness = D
   []
-  # Hydrodynamics
   [relaxation_tensor]
     type = ParsedCompute
     buffer = relaxation_tensor
@@ -283,7 +287,7 @@ D = 4
     tau0 = 1.0
     is_dynamic_relaxation = true
     tau_tensor = relaxation_tensor
-   []
+  []
   [apply_forces_hydro]
     type = LBMForceDistribution
     buffer = f_post_collision
@@ -309,25 +313,47 @@ D = 4
   f_old = 'h_post_collision f_post_collision'
 []
 
+[Postprocessors]
+  [velocity_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MIN
+  []
+  [velocity_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MAX
+  []
+  [density_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = rho
+    value_type = MIN
+  []
+  [density_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = rho
+    value_type = MAX
+  []
+[]
+
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 500
+  substeps = 10
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
-  log_interval = 100
 []
 
 [Executioner]
   type = Transient
-  num_steps = 100
+  num_steps = 50
 []
 
 [TensorOutputs]
   [xdmf]
     type = XDMFTensorOutput
-    buffer = 'phi rho velocity'
-    output_mode = 'Cell Cell Cell'
+    buffer = 'phi rho velocity forces'
+    output_mode = 'Cell Cell Cell Cell'
     enable_hdf5 = true
     # transpose = false
   []

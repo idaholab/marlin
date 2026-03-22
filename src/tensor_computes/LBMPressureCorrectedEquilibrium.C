@@ -44,7 +44,7 @@ LBMPressureCorrectedEquilibrium::computeBuffer()
 
   if (_rho.dim() < 3)
     _rho.unsqueeze_(2);
-  
+
   // Compute s_i(u) inline
   torch::Tensor rho_unsqueezed = _rho.unsqueeze(-1);
   torch::Tensor ux = _velocity.select(-1, 0).unsqueeze(-1);
@@ -76,7 +76,7 @@ LBMPressureCorrectedEquilibrium::computeBuffer()
 
   // g_i^eq = p / cs2 * w_i + rho_s_i  for all i
   _u = _pressure.unsqueeze(-1) / _lb_problem._cs2 * _w + rho_s_i;
-  
+
   // Correct i = 0: subtract p / cs2 to get p / cs2 * (w_0 - 1) instead of p / cs2 * w_0
   _u.select(-1, 0) -= _pressure / _lb_problem._cs2;
 

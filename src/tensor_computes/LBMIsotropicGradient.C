@@ -34,15 +34,30 @@ LBMIsotropicGradient::LBMIsotropicGradient(const InputParameters & parameters)
   if (_stencil._q == 19)
     mooseError("Isotropic gradient cannot be computed for D3Q19 stencil");
 
-  _kernel = torch::zeros({3, 3, _domain.getDim()}, MooseTensor::floatTensorOptions());
-
   switch (dim)
   {
     case 3:
-      mooseError("LBMIsotropicGradient is not implemented for 3D");
+    {
+      _kernel = torch::zeros({3, 3, 3, (int64_t)dim}, MooseTensor::floatTensorOptions());
+      auto kernel_of_kernel =
+          torch::index_select(_stencil._weights, 0, _stencil._reorder_indices).reshape({3, 3, 3});
+      auto ex3x3x3 =
+          torch::index_select(_stencil._ex, 0, _stencil._reorder_indices).reshape({3, 3, 3});
+      auto ey3x3x3 =
+          torch::index_select(_stencil._ey, 0, _stencil._reorder_indices).reshape({3, 3, 3});
+      auto ez3x3x3 =
+          torch::index_select(_stencil._ez, 0, _stencil._reorder_indices).reshape({3, 3, 3});
+
+      _kernel.index_put_({Slice(), Slice(), Slice(), 0}, kernel_of_kernel * ex3x3x3);
+      _kernel.index_put_({Slice(), Slice(), Slice(), 1}, kernel_of_kernel * ey3x3x3);
+      _kernel.index_put_({Slice(), Slice(), Slice(), 2}, kernel_of_kernel * ez3x3x3);
+
+      _conv3d_options.bias(torch::Tensor()).stride({1, 1, 1}).padding(0);
       break;
+    }
     case 2:
     {
+      _kernel = torch::zeros({3, 3, (int64_t)dim}, MooseTensor::floatTensorOptions());
       auto kernel_of_kernel =
           torch::index_select(_stencil._weights, 0, _stencil._reorder_indices).reshape({3, 3});
       auto ex3x3 = torch::index_select(_stencil._ex, 0, _stencil._reorder_indices).reshape({3, 3});
@@ -51,70 +66,110 @@ LBMIsotropicGradient::LBMIsotropicGradient(const InputParameters & parameters)
       _kernel.index_put_({Slice(), Slice(), 0}, kernel_of_kernel * ex3x3);
       _kernel.index_put_({Slice(), Slice(), 1}, kernel_of_kernel * ey3x3);
 
-      _conv_options.bias(torch::Tensor()).stride({1, 1}).padding(0);
+      _conv2d_options.bias(torch::Tensor()).stride({1, 1}).padding(0);
       break;
     }
   }
+
+  // determine the position of partition
+  const auto real_space_index = _domain.getRealSpaceIndex();
+  const auto real_space_parts = _domain.getRealSpacePartitions();
+
+  _is_interior = true;
+  for (unsigned int d = 0; d < dim; d++)
+    if (real_space_index[d] == 0 || real_space_index[d] == real_space_parts[d] - 1)
+      _is_interior = false;
 }
 
 torch::Tensor
 LBMIsotropicGradient::padScalarField()
 {
-  // because torch sucks at padding
-  torch::Tensor right_pad_slice =
-      _scalar_field.slice(1, _scalar_field.size(1) - _padding, _scalar_field.size(1));
-  torch::Tensor left_pad_slice = _scalar_field.slice(1, 0, _padding);
+  auto field = _scalar_field;
+  for (int d = field.dim() - 1; d >= 0; d--)
+  {
+    auto first_slice = field.slice(d, 0, _padding);
+    auto last_slice = field.slice(d, field.size(d) - _padding, field.size(d));
+    field = torch::cat({first_slice, field, last_slice}, d);
+  }
+  return field;
+}
 
-  torch::Tensor padded_width = torch::cat({left_pad_slice, _scalar_field, right_pad_slice}, 1);
+torch::Tensor
+LBMIsotropicGradient::prepareInputField()
+{
+  const unsigned int dim = _domain.getDim();
 
-  torch::Tensor bottom_pad_slice =
-      padded_width.slice(0, padded_width.size(0) - _padding, padded_width.size(0));
-  torch::Tensor top_pad_slice = padded_width.slice(0, 0, _padding);
+  // 2D scalar buffers have a trailing dim of 1 that must be removed for conv2d
+  if (dim == 2 && _scalar_field.dim() > 2)
+    _scalar_field.squeeze_(-1);
 
-  torch::Tensor fully_padded_tensor =
-      torch::cat({top_pad_slice, padded_width, bottom_pad_slice}, 0);
+  // Serial: replicate-edge pad on all sides
+  if (_domain.comm().size() == 1)
+    return padScalarField();
 
-  return fully_padded_tensor;
+  // Parallel boundary partitions: replicate ghost edges
+  if (!_is_interior)
+  {
+    const auto & idx = _domain.getRealSpaceIndex();
+    const auto & parts = _domain.getRealSpacePartitions();
+    auto field = _scalar_field.clone();
+
+    for (unsigned int d = 0; d < dim; d++)
+    {
+      std::vector<TensorIndex> lo(dim, Slice()), lo_src(dim, Slice());
+      std::vector<TensorIndex> hi(dim, Slice()), hi_src(dim, Slice());
+      lo[d] = (int64_t)0;
+      lo_src[d] = (int64_t)1;
+      hi[d] = (int64_t)-1;
+      hi_src[d] = (int64_t)-2;
+
+      if (idx[d] == 0)
+        field.index_put_(lo, field.index(lo_src));
+      if (idx[d] == parts[d] - 1)
+        field.index_put_(hi, field.index(hi_src));
+    }
+    return field;
+  }
+
+  // Interior partition: ghost data already exchanged
+  return _scalar_field;
 }
 
 void
 LBMIsotropicGradient::computeBuffer()
 {
-  // check output buffer shape
   if ((unsigned int)_u.size(-1) != _domain.getDim())
     mooseError("Output buffer must have the same number of dimensions as the domain.");
 
-  const unsigned int & dim = _domain.getDim();
-  torch::Tensor kernel = _kernel.permute({2, 0, 1});
-  kernel = kernel.unsqueeze(1);
+  const unsigned int dim = _domain.getDim();
+  _lb_problem.exchangeGhostLayers(getParam<TensorInputBufferName>("scalar_field"), _radius);
 
-  switch (dim)
+  torch::Tensor input_field = prepareInputField().unsqueeze(0).unsqueeze(0);
+
+  // Convolve
+  torch::Tensor result;
+  if (dim == 3)
   {
-    case 3:
-      mooseError("LBMIsotropicGradient is not implemented for 3D");
-      break;
-    case 2:
-    {
-      if (_scalar_field.dim() > 2)
-        _scalar_field.squeeze_(-1);
-
-      torch::Tensor input_field = padScalarField();
-
-      input_field = input_field.unsqueeze(0).unsqueeze(0);
-
-      torch::Tensor isotropic_gradient =
-          torch::nn::functional::conv2d(input_field, kernel, _conv_options);
-
-      isotropic_gradient = isotropic_gradient.squeeze(0);
-
-      _u.index_put_({Slice(), Slice(), Slice(), 0},
-                    isotropic_gradient.index({0, Slice(), Slice()}).unsqueeze(-1));
-      _u.index_put_({Slice(), Slice(), Slice(), 1},
-                    isotropic_gradient.index({1, Slice(), Slice()}).unsqueeze(-1));
-      _u = _u / _lb_problem._cs2;
-      break;
-    }
+    auto kernel = _kernel.permute({3, 0, 1, 2}).unsqueeze(1);
+    result = torch::nn::functional::conv3d(input_field, kernel, _conv3d_options);
   }
+  else
+  {
+    auto kernel = _kernel.permute({2, 0, 1}).unsqueeze(1);
+    result = torch::nn::functional::conv2d(input_field, kernel, _conv2d_options);
+  }
+
+  // result: [1, dim, Nx, Ny(, Nz)] -> [dim, Nx, Ny(, Nz)]
+  result = result.squeeze(0);
+
   _u_owned = ownedView(_u);
+  for (unsigned int d = 0; d < dim; d++)
+  {
+    auto component = result.select(0, d);
+    if (dim == 2)
+      component = component.unsqueeze(-1);
+    _u_owned.index_put_({Slice(), Slice(), Slice(), (int64_t)d}, component);
+  }
+  _u_owned.div_(_lb_problem._cs2);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

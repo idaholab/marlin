@@ -22,15 +22,15 @@ public:
   virtual void computeBuffer() override;
 
 protected:
-    void computeSourceTerm();
+  void computeSourceTerm();
 
-    const torch::Tensor & _phi;
-    const torch::Tensor & _velocity;
-    const torch::Tensor & _grad_phi;
+  const torch::Tensor & _phi;
+  const torch::Tensor & _velocity;
+  const torch::Tensor & _grad_phi;
 
-    torch::Tensor _phi_u_old;
-    torch::Tensor _source_term;
+  torch::Tensor _phi_u_old;
+  torch::Tensor _source_term;
 
-    const Real _tau;
-    const Real _D;
+  const Real _tau;
+  const Real _D;
 };

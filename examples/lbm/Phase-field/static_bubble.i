@@ -1,7 +1,7 @@
 #
 # Static bubble test case
 # PHYSICAL REVIEW E 97, 033309 (2018) - Section III.A
-# Intended outcome is to have (spurious) velocity magnitude around 1.0e-10 
+# Intended outcome is to have (spurious) velocity magnitude around 1.0e-10
 #
 
 # Domain
@@ -77,7 +77,7 @@ D = 5
     type = LBMTensorBuffer
     buffer_type = ms
   []
-  
+
   # LBM phase field variabels
   [h]
     type = LBMTensorBuffer
@@ -99,11 +99,11 @@ D = 5
   # LBM hydrodynamic variables
   [fdummy]
     type = LBMTensorBuffer
-    buffer_type = df 
+    buffer_type = df
   []
   [f]
     type = LBMTensorBuffer
-    buffer_type = df 
+    buffer_type = df
   []
   [f_post_collision]
     type = LBMTensorBuffer
@@ -230,7 +230,7 @@ D = 5
     buffer = velocity
     f = f
     rho = rho
-    enable_forces = true  
+    enable_forces = true
     forces = forces
   []
   # Phase-field

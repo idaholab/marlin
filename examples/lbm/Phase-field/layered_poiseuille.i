@@ -1,7 +1,7 @@
-# 
+#
 # Layered Poiseuille Flow
 # PHYSICAL REVIEW E 97, 033309 (2018) - Section III.B
-# 
+#
 
 # Domain
 Nx = 10
@@ -13,7 +13,7 @@ rho_g = 1.0
 # nu_l = 0.1
 # nu_g = 1.0
 sigma = 0.001
-mu_l = 100.0 # rho_l * nu_l 
+mu_l = 100.0 # rho_l * nu_l
 mu_g = 1.0   # rho_g * nu_g
 
 # Phase field parameters
