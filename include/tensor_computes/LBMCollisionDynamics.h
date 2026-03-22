@@ -36,9 +36,15 @@ public:
 protected:
   const torch::Tensor & _f;
   const torch::Tensor & _feq;
+  /// reference to externally provided relaxation matrix input buffer
+  const torch::Tensor & _input_relaxation_matrix;
+  /// non-equilibrium distribution function
   torch::Tensor _fneq;
-  torch::Tensor _relaxation_parameter;
+  /// local shear stress relaxation tau_s
+  torch::Tensor _local_relaxation_parameter;
+  /// local relaxation matrix [Nx, Ny, Nz, Q] (internally computed for Smagorinsky)
   torch::Tensor _local_relaxation_matrix;
+  /// global relaxation matrix [Q]
   torch::Tensor _global_relaxation_matrix;
 
   std::vector<int64_t> _shape_with_ghost;
@@ -47,6 +53,7 @@ protected:
   const Real _C_s;     // Smagorinsky constant
   const Real _delta_x; // grid resolution
   const bool _projection;
+  const bool _is_dynamic_relaxation;
   Real _mean_density;
 };
 

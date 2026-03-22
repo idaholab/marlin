@@ -38,10 +38,6 @@ public:
 
   const LatticeBoltzmannStencilBase & getStencil() const { return *_stencil; }
 
-  const bool & isSlipEnabled() const { return _enable_slip; }
-
-  const torch::Tensor & getSlipRelaxationMatrix() const { return _slip_relaxation_matrix; }
-
   const int & getTotalSteps() const { return _t_total; }
 
   const unsigned int & getGhostRadius() const { return _ghost_radius; }
@@ -52,9 +48,6 @@ public:
 
   const std::vector<int64_t> & getExtendedShape() { return _shape_extended; }
   const std::vector<int64_t> & getExtendedShapeQ() { return _shape_extended_to_q; }
-
-  /// sets up slip model
-  void enableSlipModel();
 
   /// sets convergence residual
   void setSolverResidual(const Real & residual) { _convergence_residual = residual; };
@@ -81,15 +74,8 @@ protected:
   /// radius of ghost layers
   unsigned int _ghost_radius = 0;
 
-  /// enables slip models
-  bool _enable_slip;
-
-  /// slip coefficient
   const Real _A_1 = 0.6;
   const Real _A_2 = 0.9;
-
-  /// relaxation matrix as a funcion of Kn and local pore size in slip model
-  torch::Tensor _slip_relaxation_matrix;
 
   /// used to restrict construction of lbm stencils to only one
   unsigned int _stencil_counter = 0;
