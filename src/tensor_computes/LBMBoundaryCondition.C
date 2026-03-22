@@ -66,17 +66,13 @@ LBMBoundaryCondition::maskBoundary()
 
   torch::Tensor has_zero_neighbor;
   if (_domain.getDim() == 2)
-  {
     has_zero_neighbor = torch::max_pool3d(zeros_mask, {3, 3, 1}, {1, 1, 1}, {p, p, 0});
-  }
+
   else if (_domain.getDim() == 3)
-  {
     has_zero_neighbor = torch::max_pool3d(zeros_mask, {3, 3, 3}, {1, 1, 1}, {p, p, p});
-  }
+
   else
-  {
     mooseError("Domain dimension not supported.");
-  }
 
   has_zero_neighbor = has_zero_neighbor.squeeze(0).squeeze(0);
 

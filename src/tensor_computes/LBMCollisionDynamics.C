@@ -23,11 +23,14 @@ LBMCollisionDynamicsTempl<coll_dyn>::validParams()
   params.addRequiredParam<TensorInputBufferName>("f", "Input buffer distribution function");
   params.addRequiredParam<TensorInputBufferName>("feq",
                                                  "Input buffer equilibrium distribution function");
-  params.addRequiredParam<std::string>("tau0", "Relaxation parameter");
-  params.addParam<std::string>("Cs", "0.1", "Relaxation parameter");
+  params.addParam<std::string>("tau0", "1.0", "Relaxation parameter");
+  params.addParam<std::string>("Cs", "0.1", "Smagorinsky constant");
   params.addParam<bool>(
       "projection", false, "Whether or not to project non-equilibrium onto Hermite space.");
-
+  params.addParam<bool>(
+      "is_dynamic_relaxation", false, "Whether or not to use dynamic relaxation.");
+  params.addParam<TensorInputBufferName>(
+      "local_relaxation_matrix", "S", "Locally computed diagonal relaxation matrix");
   return params;
 }
 
@@ -36,10 +39,12 @@ LBMCollisionDynamicsTempl<coll_dyn>::LBMCollisionDynamicsTempl(const InputParame
   : LatticeBoltzmannOperator(parameters),
     _f(getInputBuffer("f", _radius)),
     _feq(getInputBuffer("feq", _radius)),
+    _input_relaxation_matrix(getInputBuffer("local_relaxation_matrix", _radius)),
     _tau_0(_lb_problem.getConstant<Real>(getParam<std::string>("tau0"))),
     _C_s(_lb_problem.getConstant<Real>(getParam<std::string>("Cs"))),
     _delta_x(1.0),
-    _projection(getParam<bool>("projection"))
+    _projection(getParam<bool>("projection")),
+    _is_dynamic_relaxation(getParam<bool>("is_dynamic_relaxation"))
 {
   //
   _shape_with_ghost = _shape;
@@ -195,11 +200,11 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
   // relaxation parameter
   auto relaxation_owned = _tau_0 + _C_s * _delta_x * _delta_x * S / _lb_problem._cs2;
   relaxation_owned = relaxation_owned.reshape({nx, ny, nz, 1});
-  _relaxation_parameter =
+  _local_relaxation_parameter =
       torch::ones({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], 1},
                   MooseTensor::floatTensorOptions()) *
       _tau_0;
-  auto relaxation_owned_view = ownedView(_relaxation_parameter);
+  auto relaxation_owned_view = ownedView(_local_relaxation_parameter);
   relaxation_owned_view.copy_(relaxation_owned);
 }
 
@@ -226,7 +231,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeLocalRelaxationMatrix()
                                          Slice(),
                                          _stencil._id_kinematic_visc[sh_id],
                                          _stencil._id_kinematic_visc[sh_id]},
-                                        1.0 / _relaxation_parameter.squeeze(-1));
+                                        1.0 / _local_relaxation_parameter.squeeze(-1));
 }
 
 template <int coll_dyn>
@@ -256,15 +261,24 @@ template <>
 void
 LBMCollisionDynamicsTempl<1>::MRTDynamics()
 {
-  computeGlobalRelaxationMatrix();
-
-  /* LBM MRT collision */
+  // LBM MRT collision
   // f = M^{-1} x S x M x (f - feq)
-  auto m_neq = torch::einsum("ab,ijkb->ijka", {_stencil._M, _fneq});
-  auto m_neq_relaxed = torch::einsum("ab,ijkb->ijka", {_global_relaxation_matrix, m_neq});
-  auto f = torch::einsum("ab,ijkb->ijka", {_stencil._M_inv, m_neq_relaxed});
-
-  _u = _feq + _fneq - f;
+  if (!_is_dynamic_relaxation)
+  {
+    computeGlobalRelaxationMatrix();
+    auto m_neq = torch::einsum("ab,ijkb->ijka", {_stencil._M, _fneq});
+    auto m_neq_relaxed = torch::einsum("ab,ijkb->ijka", {_global_relaxation_matrix, m_neq});
+    auto f = torch::einsum("ab,ijkb->ijka", {_stencil._M_inv, m_neq_relaxed});
+    _u = _feq + _fneq - f;
+  }
+  else
+  {
+    torch::Tensor relaxation_matrix = torch::diag_embed(_input_relaxation_matrix);
+    auto m_neq = torch::einsum("ab,ijkb->ijka", {_stencil._M, _fneq});
+    auto m_neq_relaxed = torch::einsum("ijkab,ijkb->ijka", {relaxation_matrix, m_neq});
+    auto f = torch::einsum("ab,ijkb->ijka", {_stencil._M_inv, m_neq_relaxed});
+    _u = _feq + _fneq - f;
+  }
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
@@ -275,7 +289,7 @@ LBMCollisionDynamicsTempl<2>::SmagorinskyDynamics()
 {
   computeRelaxationParameter();
   // BGK collision
-  _u = _feq + _fneq - 1.0 / _relaxation_parameter * _fneq;
+  _u = _feq + _fneq - 1.0 / _local_relaxation_parameter * _fneq;
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
