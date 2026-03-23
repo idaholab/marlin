@@ -49,6 +49,24 @@ protected:
   /// global relaxation matrix [Q]
   torch::Tensor _global_relaxation_matrix;
 
+  /// Precomputed Matrices for Hermite Projection
+  /// Lattice velocity outer products [Q, 9]
+  torch::Tensor _C_mat;
+  /// Scaled Hermite basis projection operator [9, Q]
+  torch::Tensor _P_mat;
+  /// Pre-allocated flat buffer for non-equilibrium stress tensor [N, 9]
+  torch::Tensor _pi_neq_flat;
+
+  /// MRT Specific Caches
+  /// Precomputed static MRT collision matrix [Q, Q]
+  torch::Tensor _MSM_t;
+  /// Flat buffer for MRT moment space [N, Q]
+  torch::Tensor _m_neq_flat;
+
+  /// Smagorinsky Specific Caches
+  /// Flattened outer products of lattice velocities [Q, 27]
+  torch::Tensor _outer_flat;
+
   std::vector<int64_t> _shape_with_ghost;
 
   const Real _tau_0;

@@ -42,19 +42,27 @@ LBMPhaseFieldPressure::LBMPhaseFieldPressure(const InputParameters & parameters)
 void
 LBMPhaseFieldPressure::computeBuffer()
 {
-  // p = \frac{c_s^2}{(1 - \omega_0)} \left[ \sum_{i \neq 0} g_i +
-  // \frac{\delta_t}{2}(\rho_l - \rho_g)\mathbf{u} \cdot \nabla\phi +
-  // \rho s_0(\mathbf{u}) \right]
-  if (_rho.dim() < 3)
-    _rho.unsqueeze_(2);
+  const int64_t N = _u.numel();
+  const int Q = _f.size(-1);
 
-  auto f_nonzero_sum = torch::sum(_f.slice(-1, 1, _f.size(-1)), -1);
-  auto u_dot_grad_phi = torch::sum(_velocity * _grad_phi, -1);
-  auto usqr = torch::sum(_velocity * _velocity, -1);
-  auto rho_s_0 = _stencil._weights[0].item<Real>() * _rho * (-0.5 * usqr / _lb_problem._cs2);
+  auto f_flat = _f.view({N, Q});
+  auto vel_flat = _velocity.view({N, _velocity.size(-1)});
+  auto grad_phi_flat = _grad_phi.view({N, _grad_phi.size(-1)});
+  auto rho_flat = _rho.view({N});
+  auto u_flat = _u.view({N});
 
-  _u = (f_nonzero_sum + 0.5 * (_rho_l - _rho_g) * u_dot_grad_phi + rho_s_0) * _lb_problem._cs2 /
-       (1.0 - _stencil._weights[0]);
+  auto f_nonzero_sum = torch::sum(f_flat.slice(-1, 1, Q), -1);
+  auto u_dot_grad_phi = torch::sum(vel_flat * grad_phi_flat, -1);
+  auto usqr = vel_flat.square().sum(-1);
+
+  auto w0 = _stencil._weights[0].item<Real>();
+
+  // assembly
+  u_flat.copy_(f_nonzero_sum);
+  u_flat.add_(u_dot_grad_phi, /*alpha=*/0.5 * (_rho_l - _rho_g));
+  usqr.mul_(rho_flat); // [N] * [N] -> [N]
+  u_flat.add_(usqr, /*alpha=*/-0.5 * w0 / _lb_problem._cs2);
+  u_flat.mul_(_lb_problem._cs2 / (1.0 - w0));
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);

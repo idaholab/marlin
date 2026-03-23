@@ -35,11 +35,20 @@ LBMComputeChemicalPotential::LBMComputeChemicalPotential(const InputParameters &
 void
 LBMComputeChemicalPotential::computeBuffer()
 {
-  if (_phi.dim() < 3)
-    _phi.unsqueeze_(-1);
-  const auto part_1 = 48.0 * _sigma / _D * _phi * (_phi - 1.0) * (_phi - 0.5);
-  const auto part_2 = 1.5 * _D * _sigma * _laplacian_phi;
-  _u = part_1 - part_2;
+  const int64_t N = _u.numel();
+  auto u_flat = _u.view({N});
+  auto phi_flat = _phi.view({N});
+  auto lap_flat = _laplacian_phi.view({N});
+
+  u_flat.copy_(phi_flat);                // u = phi
+  u_flat.square_();                      // u = phi^2
+  u_flat.add_(phi_flat, /*alpha=*/-1.5); // u = phi^2 - 1.5*phi
+  u_flat.mul_(phi_flat);                 // u = phi^3 - 1.5*phi^2
+  u_flat.add_(phi_flat, /*alpha=*/0.5);  // u = phi^3 - 1.5*phi^2 + 0.5*phi
+
+  u_flat.mul_(48.0 * _sigma / _D);                    // Scale by 48*sigma/D
+  u_flat.sub_(lap_flat, /*alpha=*/1.5 * _D * _sigma); // u = u - 1.5*D*sigma*laplacian_phi
+
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

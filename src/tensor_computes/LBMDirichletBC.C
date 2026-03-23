@@ -8,6 +8,8 @@
 /**********************************************************************/
 
 #include "LBMDirichletBC.h"
+#include "LatticeBoltzmannProblem.h"
+#include "LatticeBoltzmannStencilBase.h"
 
 using namespace torch::indexing;
 
@@ -44,7 +46,6 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
   if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
     _region_id = getParam<int>("region_id");
-    // mark 7 (128 in decimal) for regional boundary ownership
     if (isBoundaryOwned(_region_id))
       _boundary_rank |= (1 << 7);
   }
@@ -55,107 +56,98 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
 void
 LBMDirichletBC::computeBoundaryEquilibrium()
 {
-  const int dim = _domain.getDim();
-  auto rho_unsqueezed = torch::full_like(_feq, _boundary_value);
-  torch::Tensor ux = _velocity.select(3, 0).unsqueeze(3);
-  torch::Tensor uy = _velocity.select(3, 1).unsqueeze(3);
-  torch::Tensor uz;
+  const unsigned int dim = _domain.getDim();
+  auto vel_owned = ownedView(_velocity);
 
-  switch (dim)
-  {
-    case 3:
-      uz = _velocity.select(3, 2).unsqueeze(3);
-      break;
-    case 2:
-      uz = torch::zeros_like(rho_unsqueezed, MooseTensor::floatTensorOptions());
-      break;
-    default:
-      mooseError("Unsupported dimensions for buffer _u");
-  }
+  const int64_t N = vel_owned.numel() / vel_owned.size(-1);
+  auto vel_flat = vel_owned.slice(-1, 0, dim).reshape({N, dim});
 
-  torch::Tensor second_order;
-  torch::Tensor third_order;
-  {
-    auto edotu = _ex * ux + _ey * uy + _ez * uz;
-    auto edotu_sqr = edotu * edotu;
-    auto usqr = ux * ux + uy * uy + uz * uz;
-    second_order = edotu / _lb_problem._cs2 + 0.5 * edotu_sqr / _lb_problem._cs4;
-    third_order = 0.5 * usqr / _lb_problem._cs2;
-  }
-  auto feq_boundary = _w * rho_unsqueezed * (1.0 + second_order - third_order);
-  _feq_boundary = ownedView(feq_boundary);
+  // macroscopic variables
+  auto usqr = vel_flat.square().sum(-1, /*keepdim=*/true);
+  auto edotu = torch::mm(vel_flat, _e_mat.t());
+
+  auto edotu_spatial = edotu.reshape_as(_feq_boundary_owned);
+
+  auto usqr_shape = _feq_boundary_owned.sizes().vec();
+  usqr_shape.back() = 1;
+  auto usqr_spatial = usqr.reshape(usqr_shape);
+
+  // In-place polynomial: feq_b = w * rho_bc * (1 + edotu/cs2 + edotu^2/2cs4 - usqr/2cs2)
+  _feq_boundary_owned.copy_(edotu_spatial).square_().div_(2.0 * _lb_problem._cs4);
+  _feq_boundary_owned.add_(edotu_spatial, 1.0 / _lb_problem._cs2);
+  _feq_boundary_owned.sub_(usqr_spatial, 1.0 / (2.0 * _lb_problem._cs2));
+  _feq_boundary_owned.add_(1.0);
+  _feq_boundary_owned.mul_(_w);
+
+  // Multiply by the scalar boundary density
+  _feq_boundary_owned.mul_(_boundary_value);
 }
 
 void
 LBMDirichletBC::topBoundary()
 {
-  for (int64_t i = 0; i < _stencil._q; i++)
-  {
-    _u_owned.index_put_({Slice(), _shape[1] - 1, Slice(), i},
-                        _feq_boundary.index({Slice(), _shape[1] - 1, Slice(), i}) +
-                            (_f_old_owned.index({Slice(), _shape[1] - 1, Slice(), i}) -
-                             ownedView(_feq).index({Slice(), _shape[1] - 1, Slice(), i})));
-  }
+  // select() completely eliminates the loop over Q. It applies to all velocities instantly.
+  auto u_face = _u_owned.select(1, _shape[1] - 1);
+  auto feq_b_face = _feq_boundary_owned.select(1, _shape[1] - 1);
+  auto f_old_face = _f_old_owned.select(1, _shape[1] - 1);
+  auto feq_face = _feq_owned.select(1, _shape[1] - 1);
+
+  u_face.copy_(feq_b_face + f_old_face - feq_face);
 }
 
 void
 LBMDirichletBC::bottomBoundary()
 {
-  for (int64_t i = 0; i < _stencil._q; i++)
-  {
-    _u_owned.index_put_({Slice(), 0, Slice(), i},
-                        _feq_boundary.index({Slice(), 0, Slice(), i}) +
-                            (_f_old_owned.index({Slice(), 0, Slice(), i}) -
-                             ownedView(_feq).index({Slice(), 0, Slice(), i})));
-  }
+  auto u_face = _u_owned.select(1, 0);
+  auto feq_b_face = _feq_boundary_owned.select(1, 0);
+  auto f_old_face = _f_old_owned.select(1, 0);
+  auto feq_face = _feq_owned.select(1, 0);
+
+  u_face.copy_(feq_b_face + f_old_face - feq_face);
 }
 
 void
 LBMDirichletBC::leftBoundary()
 {
-  for (int64_t i = 0; i < _stencil._q; i++)
-  {
-    _u_owned.index_put_({0, Slice(), Slice(), i},
-                        _feq_boundary.index({0, Slice(), Slice(), i}) +
-                            (_f_old_owned.index({0, Slice(), Slice(), i}) -
-                             ownedView(_feq).index({0, Slice(), Slice(), i})));
-  }
+  auto u_face = _u_owned.select(0, 0);
+  auto feq_b_face = _feq_boundary_owned.select(0, 0);
+  auto f_old_face = _f_old_owned.select(0, 0);
+  auto feq_face = _feq_owned.select(0, 0);
+
+  u_face.copy_(feq_b_face + f_old_face - feq_face);
 }
 
 void
 LBMDirichletBC::rightBoundary()
 {
-  for (int64_t i = 0; i < _stencil._q; i++)
-  {
-    _u_owned.index_put_({_shape[0] - 1, Slice(), Slice(), i},
-                        _feq_boundary.index({_shape[0] - 1, Slice(), Slice(), i}) +
-                            (_f_old_owned.index({_shape[0] - 1, Slice(), Slice(), i}) -
-                             ownedView(_feq).index({_shape[0] - 1, Slice(), Slice(), i})));
-  }
+  auto u_face = _u_owned.select(0, _shape[0] - 1);
+  auto feq_b_face = _feq_boundary_owned.select(0, _shape[0] - 1);
+  auto f_old_face = _f_old_owned.select(0, _shape[0] - 1);
+  auto feq_face = _feq_owned.select(0, _shape[0] - 1);
+
+  u_face.copy_(feq_b_face + f_old_face - feq_face);
 }
 
 void
 LBMDirichletBC::frontBoundary()
 {
-  for (int64_t i = 0; i < _stencil._q; i++)
-  {
-    _u_owned.index_put_({Slice(), Slice(), 0, i},
-                        _feq_boundary.index({Slice(), Slice(), 0, i}) +
-                            (_f_old_owned.index({Slice(), Slice(), 0, i}) -
-                             ownedView(_feq).index({Slice(), Slice(), 0, i})));
-  }
+  auto u_face = _u_owned.select(2, 0);
+  auto feq_b_face = _feq_boundary_owned.select(2, 0);
+  auto f_old_face = _f_old_owned.select(2, 0);
+  auto feq_face = _feq_owned.select(2, 0);
+
+  u_face.copy_(feq_b_face + f_old_face - feq_face);
 }
 
 void
 LBMDirichletBC::backBoundary()
 {
-  for (int64_t i = 0; i < _stencil._q; i++)
-  {
-    _u_owned.index_put_({Slice(), Slice(), _shape[2] - 1, i},
-                        _feq_boundary.index({Slice(), Slice(), _shape[2] - 1, i}) +
-                            (_f_old_owned.index({Slice(), Slice(), _shape[2] - 1, i}) -
-                             ownedView(_feq).index({Slice(), Slice(), _shape[2] - 1, i})));
-  }
+  auto u_face = _u_owned.select(2, _shape[2] - 1);
+  auto feq_b_face = _feq_boundary_owned.select(2, _shape[2] - 1);
+  auto f_old_face = _f_old_owned.select(2, _shape[2] - 1);
+  auto feq_face = _feq_owned.select(2, _shape[2] - 1);
+
+  u_face.copy_(feq_b_face + f_old_face - feq_face);
 }
 
 void
@@ -166,10 +158,12 @@ LBMDirichletBC::wallBoundary()
     _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u_owned.index_put_(
-      {_boundary_mask},
-      _feq_boundary.index({_boundary_mask}) +
-          (_f_old_owned.index({_boundary_mask}) - ownedView(_feq).index({_boundary_mask})));
+
+  // Computed in a single vectorized pass
+  _u_owned.index_put_({_boundary_mask},
+                      _feq_boundary_owned.index({_boundary_mask}) +
+                          _f_old_owned.index({_boundary_mask}) -
+                          _feq_owned.index({_boundary_mask}));
 }
 
 void
@@ -180,19 +174,25 @@ LBMDirichletBC::regionalBoundary()
     _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == _region_id);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u_owned.index_put_(
-      {_boundary_mask},
-      _feq_boundary.index({_boundary_mask}) +
-          (_f_old_owned.index({_boundary_mask}) - ownedView(_feq).index({_boundary_mask})));
+
+  _u_owned.index_put_({_boundary_mask},
+                      _feq_boundary_owned.index({_boundary_mask}) +
+                          _f_old_owned.index({_boundary_mask}) -
+                          _feq_owned.index({_boundary_mask}));
 }
 
 void
 LBMDirichletBC::computeBuffer()
 {
+  // Prepare f_old for active domain
   _f_old_owned = _f_old[0];
   for (unsigned int d = 0; d < _dim; d++)
     _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
 
+  // Cache owned views for the step to avoid repeated allocations in the loops
+  _feq_owned = ownedView(_feq);
+  _feq_boundary_owned = ownedView(_feq_boundary);
+
   computeBoundaryEquilibrium();
-  LBMBoundaryCondition::computeBuffer();
+  LBMBoundaryCondition::computeBuffer(); // Executes the boundary assignments
 }
