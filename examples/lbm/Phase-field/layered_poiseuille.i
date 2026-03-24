@@ -1,17 +1,31 @@
+#
+# Layered Poiseuille Flow
+# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.B
+#
+
 # Domain
-Nx = 20
-Ny = 20
+Nx = 10
+Ny = 400
 
 # Fluid properties
-rho_l = 5.0
+rho_l = 1000.0
 rho_g = 1.0
-nu_l = 0.1
-nu_g = 1.0
-sigma = 0.2
+# nu_l = 0.1
+# nu_g = 1.0
+sigma = 0.001
+mu_l = 100.0 # rho_l * nu_l
+mu_g = 1.0   # rho_g * nu_g
 
 # Phase field parameters
-tau_h = 1.0
-D = 4
+# M = 0.1
+# cs2 = 0.333333333333
+tau_h = 0.8 # 0.5 + '${M}' / '${cs2}'
+D = 5
+
+# Driving force: Gx = uc * (mu_l + mu_g) / h^2
+# uc = 1e-4
+# h = # '${Ny} / 2'
+Gx = 2.53e-07 #  '${uc} * (${mu_l}  + ${mu_g}) / (${h}^2)'
 
 [Domain]
   dim = 2
@@ -19,7 +33,7 @@ D = 4
   ny = '${Ny}'
   xmax = '${Nx}'
   ymax = '${Ny}'
-  device_names='cpu'
+  device_names = 'cpu'
   parallel_mode = REAL_SPACE
   periodic_directions = 'X Y'
 []
@@ -35,6 +49,7 @@ D = 4
   [phi]
     type = LBMTensorBuffer
     buffer_type = ms
+    file = phi_init.h5
   []
   [grad_phi]
     type = LBMTensorBuffer
@@ -52,11 +67,19 @@ D = 4
     type = LBMTensorBuffer
     buffer_type = mv
   []
+  [body_force]
+    type = LBMTensorBuffer
+    buffer_type = mv
+  []
 
   # Macroscopic hydrodynamic variables
   [velocity]
     type = LBMTensorBuffer
     buffer_type = mv
+  []
+  [speed]
+    type = LBMTensorBuffer
+    buffer_type = ms
   []
   [pressure]
     type = LBMTensorBuffer
@@ -67,7 +90,7 @@ D = 4
     buffer_type = ms
   []
 
-  # LBM phase field variabels
+  # LBM phase field variables
   [h]
     type = LBMTensorBuffer
     buffer_type = df
@@ -86,10 +109,6 @@ D = 4
   []
 
   # LBM hydrodynamic variables
-  [fdummy]
-    type = LBMTensorBuffer
-    buffer_type = df
-  []
   [f]
     type = LBMTensorBuffer
     buffer_type = df
@@ -105,12 +124,6 @@ D = 4
 []
 
 [TensorComputes/Initialize]
-  [phi_init]
-    type = ParsedCompute
-    buffer = phi
-    extra_symbols = true
-    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y)*2*pi)'
-  []
   [grad_phi_init]
     type = LBMIsotropicGradient
     buffer = grad_phi
@@ -119,8 +132,7 @@ D = 4
   [rho_init]
     type = ParsedCompute
     buffer = rho
-    extra_symbols = true
-    expression = 'phi*(rho_l - rho_g) + rho_g'
+    expression = 'phi * (rho_l - rho_g) + rho_g'
     constant_names = 'rho_l rho_g'
     constant_expressions = '${rho_l} ${rho_g}'
     inputs = phi
@@ -129,6 +141,11 @@ D = 4
     type = LBMConstantTensor
     buffer = pressure
     constants = 0.3
+  []
+  [body_force_init]
+    type = LBMConstantTensor
+    buffer = body_force
+    constants = '${Gx} 0.00'
   []
   # Phase field equilibrium distribution initialization
   [h_eq_init]
@@ -196,18 +213,23 @@ D = 4
     thickness = D
     sigma = sigma
   []
-  [forces]
+  [compute_forces]
     type = LBMComputeSurfaceForces
     buffer = forces
     chemical_potential = mu
     grad_phi = grad_phi
   []
+  [add_body_force]
+    type = ParsedCompute
+    buffer = forces
+    expression = 'forces + body_force'
+    inputs = 'forces body_force'
+  []
   # Hydrodynamics
   [density]
     type = ParsedCompute
     buffer = rho
-    extra_symbols = true
-    expression = 'phi*(rho_l - rho_g) + rho_g'
+    expression = 'phi * (rho_l - rho_g) + rho_g'
     constant_names = 'rho_l rho_g'
     constant_expressions = '${rho_l} ${rho_g}'
     inputs = phi
@@ -219,6 +241,8 @@ D = 4
     rho = rho
     enable_forces = true
     forces = forces
+    # add_body_force = true
+    # body_force_x = '${Gx}'
   []
   # Phase-field
   [h_eq]
@@ -247,11 +271,11 @@ D = 4
   [relaxation_tensor]
     type = ParsedCompute
     buffer = relaxation_tensor
-    extra_symbols = true
-    expression = '(phi*(nu_l - nu_g) + nu_g)/cs2+0.5'
-    constant_names = 'nu_l nu_g cs2'
-    constant_expressions = '${nu_l} ${nu_g} 0.3333'
-    inputs = phi
+    # Implements Eq 26: Sharp step-function for dynamic viscosity
+    expression = '(if(phi >= 0.5, mu_l, mu_g) / rho) / cs2 + 0.5'
+    constant_names = 'mu_l mu_g cs2'
+    constant_expressions = '${mu_l} ${mu_g} 0.333333333333'
+    inputs = 'phi rho'
   []
   [pressure]
     type = LBMPhaseFieldPressure
@@ -278,7 +302,7 @@ D = 4
     tau0 = 1.0
     is_dynamic_relaxation = true
     tau_tensor = relaxation_tensor
-   []
+  []
   [apply_forces_hydro]
     type = LBMForceDistribution
     buffer = f_post_collision
@@ -291,10 +315,42 @@ D = 4
     rho_g = '${rho_g}'
     is_dynamic_relaxation = true
   []
+  [speed]
+    type = LBMComputeVelocityMagnitude
+    buffer = speed
+    velocity = velocity
+  []
   [residual]
     type = LBMComputeResidual
-    buffer = phi
-    speed = phi
+    buffer = speed
+    speed = speed
+  []
+[]
+
+[TensorComputes/Boundary]
+  [top_fluid]
+    type = LBMBounceBack
+    buffer = f
+    f_old = f_post_collision
+    boundary = top
+  []
+  [bottom_fluid]
+    type = LBMBounceBack
+    buffer = f
+    f_old = f_post_collision
+    boundary = bottom
+  []
+  [top_phase]
+    type = LBMBounceBack
+    buffer = h
+    f_old = h_post_collision
+    boundary = top
+  []
+  [bottom_phase]
+    type = LBMBounceBack
+    buffer = h
+    f_old = h_post_collision
+    boundary = bottom
   []
 []
 
@@ -304,32 +360,10 @@ D = 4
   f_old = 'h_post_collision f_post_collision'
 []
 
-[Postprocessors]
-  [phi_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MIN
-  []
-  [phi_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MAX
-  []
-  [density_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MIN
-  []
-  [density_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MAX
-  []
-[]
-
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 5
+  # Keep this low for this setup: high substeps with top/bottom bounce-back can blow up to NaN.
+  substeps = 100000
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
@@ -337,10 +371,15 @@ D = 4
 
 [Executioner]
   type = Transient
-  num_steps = 5
+  num_steps = 2
 []
 
-[Outputs]
-  file_base = phase
-  csv = true
+[TensorOutputs]
+  [xdmf]
+    type = XDMFTensorOutput
+    buffer = 'phi velocity rho'
+    output_mode = 'Cell Cell Cell'
+    enable_hdf5 = true
+    transpose = false
+  []
 []

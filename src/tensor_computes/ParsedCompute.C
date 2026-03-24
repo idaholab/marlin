@@ -148,6 +148,7 @@ ParsedCompute::ParsedCompute(const InputParameters & parameters)
     variables_vec.insert(variables_vec.end(), tensor_symbols.begin(), tensor_symbols.end());
 
     // Add tensor variable parameters
+    _axis_params_offset = _params.size();
     for (const auto dim : make_range(3u))
     {
       auto & axis = _domain.getAxis(dim);
@@ -195,7 +196,7 @@ ParsedCompute::computeBuffer()
     {
       if (g == 0)
       {
-        _params[2 * d] = _axis_params[d];
+        _params[_axis_params_offset + 2 * d] = _axis_params[d];
         continue;
       }
 
@@ -208,7 +209,7 @@ ParsedCompute::computeBuffer()
       auto lower = axis.index(lower_idx);
       auto upper = axis.index(upper_idx);
       _axis_padded[d] = torch::cat({lower, axis, upper}, d);
-      _params[2 * d] = &_axis_padded[d];
+      _params[_axis_params_offset + 2 * d] = &_axis_padded[d];
     }
   }
 
@@ -253,11 +254,12 @@ ParsedCompute::computeBuffer()
       const auto target = desired[d];
       if (target < cur)
         mooseError("ParsedCompute output larger than target shape along dim ", d);
-      const auto p = (target - cur) / 2;
-      if (p > 0)
+      const auto left_p = (target - cur) / 2;
+      const auto right_p = target - cur - left_p;
+      if (left_p > 0 || right_p > 0)
         needs_pad = true;
-      pad.push_back(p);
-      pad.push_back(p);
+      pad.push_back(left_p);
+      pad.push_back(right_p);
     }
     if (needs_pad)
       _u = torch::constant_pad_nd(_u, pad, 0.0);

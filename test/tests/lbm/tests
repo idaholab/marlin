@@ -43,11 +43,21 @@
     type = CSVDiff
     input = phase.i
     csvdiff = phase.csv
-    requirement = 'The system shall be able to solve Cahn-Hillard equation for phase evolution from random initial condition using LBM.'
-    design = 'LBMComputeChemicalPotential.md'
+    requirement = 'The system shall be able to solve 2D conservative Allen-Cahn equation for phase evolution from initial condition using LBM.'
+    design = 'LBMIsotropicGradient.md'
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
-    max_parallel = 1
+    max_parallel = 4
+  []
+  [phase-field-3D]
+    type = CSVDiff
+    input = phase_3D.i
+    csvdiff = phase_3D.csv
+    requirement = 'The system shall be able to solve 3D conservative Allen-Cahn equation for phase evolution from initial condition using LBM.'
+    design = 'LBMComputeChemicalPotential.md'
+    compute_devices = 'cpu'
+    min_parallel = 1
+    max_parallel = 4
   []
   [dirichlet_box]
     type = CSVDiff

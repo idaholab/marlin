@@ -14,12 +14,10 @@ InputParameters
 LBMPhaseEquilibrium::validParams()
 {
   InputParameters params = LatticeBoltzmannOperator::validParams();
-  params.addClassDescription("Compute LB equilibrium distribution object.");
+  params.addClassDescription(
+      "Compute LB equilibrium distribution object for phase field parameter.");
   params.addRequiredParam<TensorInputBufferName>("phi", "LBM phase field parameter");
-  params.addRequiredParam<TensorInputBufferName>("grad_phi",
-                                                 "Gradient of LBM phase field parameter");
-  params.addRequiredParam<std::string>("tau_phi", "Relaxation parameter for LBM phase field");
-  params.addRequiredParam<std::string>("thickness", "Interface thickness");
+  params.addRequiredParam<TensorInputBufferName>("velocity", "LBM fluid velocity");
 
   return params;
 }
@@ -27,9 +25,7 @@ LBMPhaseEquilibrium::validParams()
 LBMPhaseEquilibrium::LBMPhaseEquilibrium(const InputParameters & parameters)
   : LatticeBoltzmannOperator(parameters),
     _phi(getInputBuffer("phi", _radius)),
-    _grad_phi(getInputBuffer("grad_phi", _radius)),
-    _tau_phi(_lb_problem.getConstant<Real>(getParam<std::string>("tau_phi"))),
-    _D(_lb_problem.getConstant<Real>(getParam<std::string>("thickness")))
+    _velocity(getInputBuffer("velocity", _radius))
 {
 }
 
@@ -37,55 +33,28 @@ void
 LBMPhaseEquilibrium::computeBuffer()
 {
   const unsigned int & dim = _domain.getDim();
-
   if (_phi.dim() < 3)
     _phi.unsqueeze_(2);
 
-  torch::Tensor _phi_unsqueezed = _phi.unsqueeze(3);
-
-  // in the future when phase field is coupled with NS this will be extended to include fluid
-  // velocity and density
-  auto gamma_eq = _w * _phi_unsqueezed;
-
+  torch::Tensor phi_unsqueezed = _phi.unsqueeze(-1);
+  torch::Tensor ux = _velocity.select(-1, 0).unsqueeze(-1);
+  torch::Tensor uy = _velocity.select(-1, 1).unsqueeze(-1);
+  torch::Tensor uz;
   switch (dim)
   {
     case 3:
-      mooseError("Not implemented fo 3D yet!");
+      uz = _velocity.select(-1, 2).unsqueeze(-1);
       break;
     case 2:
-    {
-      torch::Tensor phase_eq_2;
-      {
-        torch::Tensor phase_eq;
-        torch::Tensor e_dot_n;
-        {
-          auto mag = torch::norm(_grad_phi, 2, -1);
-          // _lb_problem.printBuffer(mag, 10, 0);
-
-          auto unit_normal = _grad_phi / (mag.unsqueeze(-1) + 1.0e-16);
-          unit_normal.unsqueeze_(3);
-          // _lb_problem.printBuffer(unit_normal, 10, 0);
-
-          auto e_xyz = torch::stack(
-                           {
-                               _ex,
-                               _ey,
-                           },
-                           -1)
-                           .to(MooseTensor::floatTensorOptions());
-          e_dot_n = torch::einsum("ijklm,abcdm->abcl", {e_xyz, unit_normal});
-          // _lb_problem.printBuffer(e_dot_n, 10, 1);
-          phase_eq = 4.0 / _D * _phi_unsqueezed * (1.0 - _phi_unsqueezed) * e_dot_n;
-        }
-        phase_eq_2 = _w * (_tau_phi)*phase_eq;
-      }
-      _u = gamma_eq; // + phase_eq_2;
-      // _lb_problem.printBuffer(_u, 10, 1);
+      uz = torch::zeros_like(phi_unsqueezed, MooseTensor::floatTensorOptions());
       break;
-    }
     default:
-      mooseError("Unsupported dimension for buffer _u");
+      mooseError("Unsupported dimension for LBMPhaseEquilibrium");
   }
+
+  torch::Tensor ci_dot_u = _ex * ux + _ey * uy + _ez * uz;
+  _u = _w * phi_unsqueezed * (1.0 + ci_dot_u / _lb_problem._cs2);
+
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

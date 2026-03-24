@@ -1,17 +1,28 @@
+#
+# Static bubble test case
+# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.A
+# Intended outcome is to have (spurious) velocity magnitude around 1.0e-10
+#
+
 # Domain
-Nx = 20
-Ny = 20
+Nx = 200
+Ny = 200
+
+# Bubble parameters
+Cx = '${Nx}/2.0'
+Cy = '${Ny}/2.0'
+R = 50
 
 # Fluid properties
-rho_l = 5.0
+rho_l = 1000.0
 rho_g = 1.0
 nu_l = 0.1
-nu_g = 1.0
-sigma = 0.2
+nu_g = 0.1
+sigma = 0.001
 
 # Phase field parameters
-tau_h = 1.0
-D = 4
+tau_h = 0.7
+D = 5
 
 [Domain]
   dim = 2
@@ -108,8 +119,10 @@ D = 4
   [phi_init]
     type = ParsedCompute
     buffer = phi
+    expression = '0.5 + 0.5 * tanh(2*(R - sqrt((x - Cx)^2 + (y - Cy)^2)) / D)'
+    constant_names = 'Cx Cy R D'
+    constant_expressions = '${Cx} ${Cy} ${R} ${D}'
     extra_symbols = true
-    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y)*2*pi)'
   []
   [grad_phi_init]
     type = LBMIsotropicGradient
@@ -304,32 +317,9 @@ D = 4
   f_old = 'h_post_collision f_post_collision'
 []
 
-[Postprocessors]
-  [phi_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MIN
-  []
-  [phi_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MAX
-  []
-  [density_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MIN
-  []
-  [density_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MAX
-  []
-[]
-
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 5
+  substeps = 50
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
@@ -337,10 +327,15 @@ D = 4
 
 [Executioner]
   type = Transient
-  num_steps = 5
+  num_steps = 100
 []
 
-[Outputs]
-  file_base = phase
-  csv = true
+[TensorOutputs]
+  [xdmf]
+    type = XDMFTensorOutput
+    buffer = 'phi rho velocity forces'
+    output_mode = 'Cell Cell Cell Cell'
+    enable_hdf5 = true
+    # transpose = false
+  []
 []

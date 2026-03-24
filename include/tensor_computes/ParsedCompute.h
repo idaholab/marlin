@@ -40,6 +40,7 @@ protected:
 
   torch::Tensor _time_tensor;
   std::vector<const torch::Tensor *> _params;
+  std::size_t _axis_params_offset;
   std::array<const torch::Tensor *, 3> _axis_params;
   std::array<torch::Tensor, 3> _axis_padded;
   enum class ExpandEnum
