@@ -1,17 +1,24 @@
-# Domain
-Nx = 20
-Ny = 20
+#
+# Droplet Impact on a Thin Liquid Film
+# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.D
+#
 
-# Fluid properties
-rho_l = 5.0
+# Domain
+Nx = 1500
+Ny = 500
+
+# Fluid properties (Re=500, We=8000, 1000:1)
+rho_l = 1000.0
 rho_g = 1.0
-nu_l = 0.1
-nu_g = 1.0
-sigma = 0.2
+# mu_l = 20.0
+# mu_g = 0.2
+nu_l = 0.02
+nu_g = 0.2
+sigma = 0.0625
 
 # Phase field parameters
-tau_h = 1.0
-D = 4
+tau_h = 0.8
+D = 5
 
 [Domain]
   dim = 2
@@ -19,7 +26,7 @@ D = 4
   ny = '${Ny}'
   xmax = '${Nx}'
   ymax = '${Ny}'
-  device_names='cpu'
+  device_names = 'cuda'
   parallel_mode = REAL_SPACE
   periodic_directions = 'X Y'
 []
@@ -31,11 +38,26 @@ D = 4
 []
 
 [TensorBuffers]
-  # Macroscopic phase field variables
   [phi]
     type = LBMTensorBuffer
     buffer_type = ms
+    file = phi.h5
   []
+  [ux]
+    type = LBMTensorBuffer
+    buffer_type = ms
+    file = ux.h5
+  []
+  [uy]
+    type = LBMTensorBuffer
+    buffer_type = ms
+    file = uy.h5
+  []
+  [velocity]
+    type = LBMTensorBuffer
+    buffer_type = mv
+  []
+
   [grad_phi]
     type = LBMTensorBuffer
     buffer_type = mv
@@ -52,11 +74,9 @@ D = 4
     type = LBMTensorBuffer
     buffer_type = mv
   []
-
-  # Macroscopic hydrodynamic variables
-  [velocity]
+  [speed]
     type = LBMTensorBuffer
-    buffer_type = mv
+    buffer_type = ms
   []
   [pressure]
     type = LBMTensorBuffer
@@ -66,8 +86,6 @@ D = 4
     type = LBMTensorBuffer
     buffer_type = ms
   []
-
-  # LBM phase field variabels
   [h]
     type = LBMTensorBuffer
     buffer_type = df
@@ -84,12 +102,6 @@ D = 4
     type = LBMTensorBuffer
     buffer_type = ms
   []
-
-  # LBM hydrodynamic variables
-  [fdummy]
-    type = LBMTensorBuffer
-    buffer_type = df
-  []
   [f]
     type = LBMTensorBuffer
     buffer_type = df
@@ -105,12 +117,12 @@ D = 4
 []
 
 [TensorComputes/Initialize]
-  [phi_init]
-    type = ParsedCompute
-    buffer = phi
-    extra_symbols = true
-    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y)*2*pi)'
+  [u_stack]
+    type = LBMStackTensors
+    buffer = velocity
+    inputs = 'ux uy'
   []
+
   [grad_phi_init]
     type = LBMIsotropicGradient
     buffer = grad_phi
@@ -119,8 +131,7 @@ D = 4
   [rho_init]
     type = ParsedCompute
     buffer = rho
-    extra_symbols = true
-    expression = 'phi*(rho_l - rho_g) + rho_g'
+    expression = 'phi * (rho_l - rho_g) + rho_g'
     constant_names = 'rho_l rho_g'
     constant_expressions = '${rho_l} ${rho_g}'
     inputs = phi
@@ -130,26 +141,26 @@ D = 4
     buffer = pressure
     constants = 0.3
   []
-  # Phase field equilibrium distribution initialization
+
+  # Equilibrium
   [h_eq_init]
     type = LBMPhaseEquilibrium
     buffer = h_eq
     phi = phi
     velocity = velocity
   []
-  [h_post_collision_init]
-    type = LBMPhaseEquilibrium
-    buffer = h_post_collision
-    phi = phi
-    velocity = velocity
-  []
   [h_init]
-    type = LBMPhaseEquilibrium
+    type = ParsedCompute
     buffer = h
-    phi = phi
-    velocity = velocity
+    expression = 'h_eq'
+    inputs = h_eq
   []
-  # Hydrodynamic equilibrium distribution initialization
+  [h_post_collision_init]
+    type = ParsedCompute
+    buffer = h_post_collision
+    expression = 'h_eq'
+    inputs = h_eq
+  []
   [f_eq_init]
     type = LBMPressureCorrectedEquilibrium
     buffer = f_eq
@@ -157,22 +168,21 @@ D = 4
     velocity = velocity
     pressure = pressure
   []
-  [f_post_collision_init]
-    type = ParsedCompute
-    buffer = f_post_collision
-    expression = 'f_eq'
-    inputs = f_eq
-  []
   [f_init]
     type = ParsedCompute
     buffer = f
     expression = 'f_eq'
     inputs = f_eq
   []
+  [f_post_collision_init]
+    type = ParsedCompute
+    buffer = f_post_collision
+    expression = 'f_eq'
+    inputs = f_eq
+  []
 []
 
 [TensorComputes/Solve]
-  # Phase Field
   [compute_phi]
     type = LBMComputeDensity
     buffer = phi
@@ -196,18 +206,16 @@ D = 4
     thickness = D
     sigma = sigma
   []
-  [forces]
+  [compute_forces]
     type = LBMComputeSurfaceForces
     buffer = forces
     chemical_potential = mu
     grad_phi = grad_phi
   []
-  # Hydrodynamics
   [density]
     type = ParsedCompute
     buffer = rho
-    extra_symbols = true
-    expression = 'phi*(rho_l - rho_g) + rho_g'
+    expression = 'phi * (rho_l - rho_g) + rho_g'
     constant_names = 'rho_l rho_g'
     constant_expressions = '${rho_l} ${rho_g}'
     inputs = phi
@@ -220,7 +228,6 @@ D = 4
     enable_forces = true
     forces = forces
   []
-  # Phase-field
   [h_eq]
     type = LBMPhaseEquilibrium
     buffer = h_eq
@@ -243,15 +250,13 @@ D = 4
     tau = tau_h
     thickness = D
   []
-  # Hydrodynamics
   [relaxation_tensor]
     type = ParsedCompute
     buffer = relaxation_tensor
-    extra_symbols = true
-    expression = '(phi*(nu_l - nu_g) + nu_g)/cs2+0.5'
+    expression = '(phi * (nu_l - nu_g) + nu_g) / cs2 + 0.5'
     constant_names = 'nu_l nu_g cs2'
-    constant_expressions = '${nu_l} ${nu_g} 0.3333'
-    inputs = phi
+    constant_expressions = '${nu_l} ${nu_g} 0.333333333333'
+    inputs = 'phi'
   []
   [pressure]
     type = LBMPhaseFieldPressure
@@ -278,7 +283,7 @@ D = 4
     tau0 = 1.0
     is_dynamic_relaxation = true
     tau_tensor = relaxation_tensor
-   []
+  []
   [apply_forces_hydro]
     type = LBMForceDistribution
     buffer = f_post_collision
@@ -298,38 +303,43 @@ D = 4
   []
 []
 
+[TensorComputes/Boundary]
+  # Bounce back on both top and bottom
+  [top_fluid]
+    type = LBMBounceBack
+    buffer = f
+    f_old = f_post_collision
+    boundary = top
+  []
+  [bottom_fluid]
+    type = LBMBounceBack
+    buffer = f
+    f_old = f_post_collision
+    boundary = bottom
+  []
+  [top_phase]
+    type = LBMBounceBack
+    buffer = h
+    f_old = h_post_collision
+    boundary = top
+  []
+  [bottom_phase]
+    type = LBMBounceBack
+    buffer = h
+    f_old = h_post_collision
+    boundary = bottom
+  []
+[]
+
 [TensorSolver]
   type = LBMStream
   buffer = 'h f'
   f_old = 'h_post_collision f_post_collision'
 []
 
-[Postprocessors]
-  [phi_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MIN
-  []
-  [phi_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MAX
-  []
-  [density_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MIN
-  []
-  [density_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MAX
-  []
-[]
-
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 5
+  substeps = 200
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
@@ -337,10 +347,15 @@ D = 4
 
 [Executioner]
   type = Transient
-  num_steps = 5
+  num_steps = 50
 []
 
-[Outputs]
-  file_base = phase
-  csv = true
+[TensorOutputs]
+  [xdmf]
+    type = XDMFTensorOutput
+    buffer = 'phi velocity rho'
+    output_mode = 'Cell Cell Cell'
+    enable_hdf5 = true
+    transpose = false
+  []
 []

@@ -5,24 +5,34 @@
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
-
 #pragma once
 
 #include "LatticeBoltzmannOperator.h"
 
 /**
- * Compute LB equilibrium distribution for phase field parameter
+ * Compute object for the force distribution function (source term) for phase field model.
  */
-class LBMPhaseEquilibrium : public LatticeBoltzmannOperator
+class LBMForceDistribution : public LatticeBoltzmannOperator
 {
 public:
   static InputParameters validParams();
 
-  LBMPhaseEquilibrium(const InputParameters & parameters);
+  LBMForceDistribution(const InputParameters & parameters);
 
   virtual void computeBuffer() override;
 
 protected:
-  const torch::Tensor & _phi;
+  void computeSourceTerm();
+
+  const torch::Tensor & _grad_phi;
   const torch::Tensor & _velocity;
+  const torch::Tensor & _forces;
+  const torch::Tensor & _tau_tensor;
+
+  torch::Tensor _source_term;
+
+  const Real _tau;
+  const Real _rho_l;
+  const Real _rho_g;
+  const bool _is_dynamic_relaxation;
 };

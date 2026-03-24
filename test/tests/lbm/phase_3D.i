@@ -1,6 +1,7 @@
 # Domain
 Nx = 20
 Ny = 20
+Nz = 20
 
 # Fluid properties
 rho_l = 5.0
@@ -14,19 +15,21 @@ tau_h = 1.0
 D = 4
 
 [Domain]
-  dim = 2
+  dim = 3
   nx = '${Nx}'
   ny = '${Ny}'
+  nz = '${Nz}'
   xmax = '${Nx}'
   ymax = '${Ny}'
+  zmax = '${Nz}'
   device_names='cpu'
   parallel_mode = REAL_SPACE
-  periodic_directions = 'X Y'
+  periodic_directions = 'X Y Z'
 []
 
 [Stencil]
-  [d2q9]
-    type = LBMD2Q9
+  [d3q27]
+    type = LBMD3Q27
   []
 []
 
@@ -109,7 +112,7 @@ D = 4
     type = ParsedCompute
     buffer = phi
     extra_symbols = true
-    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y)*2*pi)'
+    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y + 43.12*z)*2*pi)'
   []
   [grad_phi_init]
     type = LBMIsotropicGradient
@@ -325,6 +328,16 @@ D = 4
     buffer = rho
     value_type = MAX
   []
+  [velocity_min]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MIN
+  []
+  [velocity_max]
+    type = TensorExtremeValuePostprocessor
+    buffer = velocity
+    value_type = MAX
+  []
 []
 
 [Problem]
@@ -341,6 +354,6 @@ D = 4
 []
 
 [Outputs]
-  file_base = phase
+  file_base = phase_3D
   csv = true
 []

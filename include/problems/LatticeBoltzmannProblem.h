@@ -89,6 +89,9 @@ protected:
   /// lbm substeps
   const unsigned int _lbm_substeps;
 
+  /// log interval for substeps
+  const unsigned int _log_interval;
+
   /// lbm convergence tolerance
   const Real _tolerance;
 

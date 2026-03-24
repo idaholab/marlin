@@ -7,13 +7,14 @@ LBMApplyForces adds forces onto LBM distribution fucntion. The forces act as sou
 ## Overview
 
 Applies a body force term to a post\-collision distribution using the Guo forcing scheme. Provide
-the density via [!param](/TensorComputes/Solve/LBMApplyForces/rho) and the force vector via
+the veloicty via [!param](/TensorComputes/Solve/LBMApplyForces/velocity), density via 
+[!param](/TensorComputes/Solve/LBMApplyForces/rho) and the force vector via
 [!param](/TensorComputes/Solve/LBMApplyForces/forces). The relaxation time is referenced via
 [!param](/TensorComputes/Solve/LBMApplyForces/tau0).
 
 ## Example Input File Syntax
 
-!listing test/tests/lbm/phase.i block=TensorComputes/Solve/apply_forces
+!listing examples/lbm/natural_convection_3D/convection.i block=TensorComputes/Solve/Apply_forces
 
 !syntax parameters /TensorComputes/Solve/LBMApplyForces
 

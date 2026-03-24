@@ -1,16 +1,21 @@
+#
+# Spinodal decomposition
+# PHYSICAL REVIEW E 97, 033309 (2018) - Section III.C
+#
+
 # Domain
-Nx = 20
-Ny = 20
+Nx = 200
+Ny = 200
 
 # Fluid properties
-rho_l = 5.0
+rho_l = 1000.0
 rho_g = 1.0
 nu_l = 0.1
 nu_g = 1.0
 sigma = 0.2
 
 # Phase field parameters
-tau_h = 1.0
+tau_h = 0.67
 D = 4
 
 [Domain]
@@ -106,10 +111,10 @@ D = 4
 
 [TensorComputes/Initialize]
   [phi_init]
-    type = ParsedCompute
+    type = RandomTensor
     buffer = phi
-    extra_symbols = true
-    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y)*2*pi)'
+    min = 0.3233
+    max = 0.3433
   []
   [grad_phi_init]
     type = LBMIsotropicGradient
@@ -304,43 +309,26 @@ D = 4
   f_old = 'h_post_collision f_post_collision'
 []
 
-[Postprocessors]
-  [phi_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MIN
-  []
-  [phi_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = phi
-    value_type = MAX
-  []
-  [density_min]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MIN
-  []
-  [density_max]
-    type = TensorExtremeValuePostprocessor
-    buffer = rho
-    value_type = MAX
-  []
-[]
-
 [Problem]
   type = LatticeBoltzmannProblem
-  substeps = 5
+  substeps = 500
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
+  log_interval = 100
 []
 
 [Executioner]
   type = Transient
-  num_steps = 5
+  num_steps = 100
 []
 
-[Outputs]
-  file_base = phase
-  csv = true
+[TensorOutputs]
+  [xdmf]
+    type = XDMFTensorOutput
+    buffer = 'phi rho velocity'
+    output_mode = 'Cell Cell Cell'
+    enable_hdf5 = true
+    # transpose = false
+  []
 []

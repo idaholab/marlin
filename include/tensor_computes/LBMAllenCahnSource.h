@@ -5,24 +5,32 @@
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
-
 #pragma once
 
 #include "LatticeBoltzmannOperator.h"
 
 /**
- * Compute LB equilibrium distribution for phase field parameter
+ * Compute Allen-Cahn source term for phase field model.
  */
-class LBMPhaseEquilibrium : public LatticeBoltzmannOperator
+class LBMAllenCahnSource : public LatticeBoltzmannOperator
 {
 public:
   static InputParameters validParams();
 
-  LBMPhaseEquilibrium(const InputParameters & parameters);
+  LBMAllenCahnSource(const InputParameters & parameters);
 
   virtual void computeBuffer() override;
 
 protected:
+  void computeSourceTerm();
+
   const torch::Tensor & _phi;
   const torch::Tensor & _velocity;
+  const torch::Tensor & _grad_phi;
+
+  torch::Tensor _phi_u_old;
+  torch::Tensor _source_term;
+
+  const Real _tau;
+  const Real _D;
 };

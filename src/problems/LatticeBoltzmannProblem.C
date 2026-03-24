@@ -33,6 +33,7 @@ LatticeBoltzmannProblem::validParams()
       "Domain edge boundaries (top/bottom/left/right/front/back) are specified separately.");
 
   params.addParam<unsigned int>("substeps", 1, "Number of LBM iterations for every MOOSE timestep");
+  params.addParam<unsigned int>("log_interval", 1, "Interval for logging LBM substep information");
   params.addParam<Real>("tolerance", 1.0e-15, "LBM convergence tolerance");
   params.addClassDescription("Problem object to enable solving lattice Boltzmann problems");
 
@@ -43,6 +44,7 @@ LatticeBoltzmannProblem::LatticeBoltzmannProblem(const InputParameters & paramet
   : TensorProblem(parameters),
     _is_binary_media(isParamValid("binary_media")),
     _lbm_substeps(getParam<unsigned int>("substeps")),
+    _log_interval(getParam<unsigned int>("log_interval")),
     _tolerance(getParam<Real>("tolerance"))
 {
   if (_domain.comm().size() > 1)
@@ -143,9 +145,9 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
         getMooseApp().getExecutioner()->fixedPointSolve().failStep();
         break;
       }
-
-      _console << COLOR_WHITE << "Lattice Boltzmann Substep " << substep << ", Residual "
-               << _convergence_residual << COLOR_DEFAULT << std::endl;
+      if (substep % _log_interval == 0)
+        _console << COLOR_WHITE << "Lattice Boltzmann Substep " << substep << ", Residual "
+                 << _convergence_residual << COLOR_DEFAULT << std::endl;
 
       _t_total++;
     }
