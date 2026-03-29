@@ -148,6 +148,7 @@
   type = LBMStream
   buffer = f
   f_old = f_post_collision
+  root_compute=residual
 []
 
 [Postprocessors]

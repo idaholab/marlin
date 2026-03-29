@@ -36,6 +36,7 @@ protected:
   const torch::Tensor _ey;
   const torch::Tensor _ez;
   const torch::Tensor _w;
+  torch::Tensor _e_mat;
 
   const std::vector<int64_t> & _shape;
   const std::vector<int64_t> & _shape_q;

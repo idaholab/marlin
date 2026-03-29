@@ -71,19 +71,6 @@
     []
   []
   [Solve]
-    [equilibrium]
-      type=LBMEquilibrium
-      buffer = feq
-      bulk = density
-      velocity = velocity
-    []
-    [collision]
-      type=LBMBGKCollision
-      buffer = fpc
-      f = f
-      feq = feq
-      tau0 = 1.0
-    []
     [density]
       type = LBMComputeDensity
       buffer = density
@@ -96,6 +83,19 @@
       rho = density
       add_body_force = true
       body_force_x = 0.0001
+    []
+    [equilibrium]
+      type=LBMEquilibrium
+      buffer = feq
+      bulk = density
+      velocity = velocity
+    []
+    [collision]
+      type=LBMBGKCollision
+      buffer = fpc
+      f = f
+      feq = feq
+      tau0 = 1.0
     []
     [speed]
       type = LBMComputeVelocityMagnitude
@@ -128,6 +128,7 @@
   type = LBMStream
   buffer = f
   f_old = fpc
+  root_compute=residual
 []
 
 [Postprocessors]

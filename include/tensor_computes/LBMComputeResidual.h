@@ -24,5 +24,5 @@ public:
 
 protected:
   const torch::Tensor & _speed;
-  const std::vector<torch::Tensor> & _speed_old;
+  torch::Tensor _speed_previous;
 };

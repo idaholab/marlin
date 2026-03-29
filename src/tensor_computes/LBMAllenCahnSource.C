@@ -42,68 +42,65 @@ LBMAllenCahnSource::LBMAllenCahnSource(const InputParameters & parameters)
   shape_q_with_ghost[1] += 2 * _radius;
   if (_dim == 3)
     shape_q_with_ghost[2] += 2 * _radius;
+
   _source_term = torch::zeros(shape_q_with_ghost, MooseTensor::floatTensorOptions());
+
+  // Precompute the projection matrix: _P_mat = (weights / cs2) * E
+  std::vector<torch::Tensor> e_vec = {_stencil._ex, _stencil._ey};
+  if (_dim == 3)
+    e_vec.push_back(_stencil._ez);
+
+  torch::Tensor E_mat =
+      torch::stack(e_vec, /*dim=*/0).to(MooseTensor::floatTensorOptions()); // [dim, Q]
+  auto w_flat = _stencil._weights.unsqueeze(0);                             // [1, Q]
+
+  _P_mat = (E_mat * (w_flat / _lb_problem._cs2)).clone();
 }
 
 void
 LBMAllenCahnSource::computeSourceTerm()
 {
-  const unsigned int & dim = _domain.getDim();
+  const unsigned int dim = _domain.getDim();
+  const int64_t N = _velocity.numel() / _velocity.size(-1);
+  const int Q = _stencil._q;
 
-  // Lazily initialize _phi_u_old on first call
+  auto phi_flat = _phi.view({N, 1});
+  auto vel_flat = _velocity.slice(-1, 0, dim).reshape({N, dim});
+  auto grad_flat = _grad_phi.slice(-1, 0, dim).reshape({N, dim});
+  auto source_flat = _source_term.view({N, Q});
+
+  // Initialize flat
   if (_phi_u_old.numel() == 0)
-    _phi_u_old = torch::zeros_like(_velocity);
+    _phi_u_old = torch::zeros({N, dim}, MooseTensor::floatTensorOptions());
+  auto phi_u_old_flat = _phi_u_old.view({N, dim});
 
-  if (_phi.dim() < 3)
-    _phi.unsqueeze_(2);
+  auto phi_u = phi_flat * vel_flat;
+  torch::Tensor A = torch::sub(phi_u, phi_u_old_flat);
 
-  torch::Tensor phi_unsqueezed = _phi.unsqueeze(-1);
-  torch::Tensor phi_u = phi_unsqueezed * _velocity;
-  torch::Tensor dphi_u_dt = phi_u - _phi_u_old;
+  auto mag = torch::norm(grad_flat, 2, -1, /*keepdim=*/true); // [N, 1]
 
-  // Unit normal from gradient of phi
-  auto mag = torch::norm(_grad_phi, 2, -1);
-  auto unit_normal = _grad_phi / (mag.unsqueeze(-1) + 1.0e-16);
+  auto lambda_factor = 1.0 - phi_flat;
+  lambda_factor.mul_(phi_flat);
+  lambda_factor.mul_(_lb_problem._cs2 * 4.0 / _D);
+  lambda_factor.div_(mag + 1.0e-16);
 
-  // Anti-diffusion coefficient: lambda = 4*phi*(1-phi)/D
-  torch::Tensor lambda = 4.0 / _D * phi_unsqueezed * (1.0 - phi_unsqueezed);
-  // Combined vector: A = d(phi*u)/dt + cs2 * lambda * n
-  torch::Tensor A = dphi_u_dt + _lb_problem._cs2 * lambda * unit_normal;
+  A.addcmul_(lambda_factor, grad_flat);
+  torch::mm_out(source_flat, A, _P_mat);
 
-  torch::Tensor Ax = A.select(3, 0).unsqueeze(-1);
-  torch::Tensor Ay = A.select(3, 1).unsqueeze(-1);
-  torch::Tensor Az;
-
-  switch (dim)
-  {
-    case 3:
-      Az = A.select(3, 2).unsqueeze(-1);
-      break;
-    case 2:
-      Az = torch::zeros_like(Ax);
-      break;
-    default:
-      mooseError("Unsupported dimension for LBMAllenCahnSource");
-  }
-  // source term: w_i * (c_i . A) / cs2
-  for (int64_t ic = 0; ic < _stencil._q; ic++)
-  {
-    _source_term.index_put_(
-        {Slice(), Slice(), Slice(), ic},
-        _stencil._weights[ic] *
-            (_stencil._ex[ic] * Ax + _stencil._ey[ic] * Ay + _stencil._ez[ic] * Az).squeeze(-1) /
-            _lb_problem._cs2);
-  }
-
-  // Store current phi*u for next timestep
-  _phi_u_old.copy_(phi_u);
+  phi_u_old_flat.copy_(phi_u);
 }
 
 void
 LBMAllenCahnSource::computeBuffer()
 {
   computeSourceTerm();
-  _u += (1.0 - 1.0 / (2.0 * _tau)) * _source_term;
+
+  const int64_t N = _u.numel() / _stencil._q;
+  auto u_flat = _u.view({N, _stencil._q});
+  auto source_flat = _source_term.view({N, _stencil._q});
+
+  u_flat.add_(source_flat, /*alpha=*/1.0 - 1.0 / (2.0 * _tau));
+
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

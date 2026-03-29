@@ -21,37 +21,39 @@ LBMComputeResidual::validParams()
 }
 
 LBMComputeResidual::LBMComputeResidual(const InputParameters & parameters)
-  : LatticeBoltzmannOperator(parameters),
-    _speed(getInputBuffer("speed", _radius)),
-    _speed_old(_lb_problem.getBufferOld(getParam<TensorInputBufferName>("speed"), 1, _radius))
+  : LatticeBoltzmannOperator(parameters), _speed(getInputBuffer("speed", _radius))
 {
 }
 
 void
 LBMComputeResidual::computeBuffer()
 {
-  const auto & n_old = _speed_old.size();
-  if (n_old == 0)
+  auto speed_owned = ownedView(_speed);
+
+  if (_speed_previous.numel() == 0)
   {
-    Real residual = 1.0;
-    _lb_problem.setSolverResidual(residual);
+    _speed_previous = torch::empty_like(speed_owned);
+    _speed_previous.copy_(speed_owned);
+    _lb_problem.setSolverResidual(1.0);
   }
   else
   {
-    auto speed_owned = ownedView(_speed);
-    auto speed_old_owned = ownedView(_speed_old[0]);
+    Real sumUsquare = speed_owned.sum().item<Real>();
 
-    Real sumUsqareMinusUsqareOld =
-        torch::sum(torch::abs(speed_owned - speed_old_owned)).item<Real>();
-    Real sumUsquare = torch::sum(speed_owned).item<Real>();
+    // in-place absolute difference avoids temporary tensor allocations
+    _speed_previous.sub_(speed_owned).abs_();
+    Real sumUsqareMinusUsqareOld = _speed_previous.sum().item<Real>();
 
-    // global reduction
     _domain.comm().sum(sumUsqareMinusUsqareOld);
     _domain.comm().sum(sumUsquare);
 
     Real residual = (sumUsquare == 0 || sumUsqareMinusUsqareOld == 0)
                         ? 1.0
                         : sumUsqareMinusUsqareOld / sumUsquare;
+
     _lb_problem.setSolverResidual(residual);
+
+    // zero-allocation save for the next substep
+    _speed_previous.copy_(speed_owned);
   }
 }

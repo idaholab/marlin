@@ -20,8 +20,6 @@ public:
 
   void computeBuoyancy();
   void computeGravity();
-  void computeSurfaceForces();
-  /// more forces can be added ?
 
   LBMComputeForces(const InputParameters & parameters);
 
@@ -33,9 +31,10 @@ protected:
 
   const bool _enable_gravity;
   const bool _enable_buoyancy;
-  const bool _enable_surface_forces;
 
   const Real _g; // gravitational acceleration
+  Real _buoyancy_const;  // buoyancy constant
+  Real _buoyancy_offset; // buoyancy offset for reference temperature
 
   const int64_t _gravity_direction; // direction of gravitational acceleration
 

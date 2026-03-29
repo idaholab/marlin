@@ -32,28 +32,21 @@ LBMPhaseEquilibrium::LBMPhaseEquilibrium(const InputParameters & parameters)
 void
 LBMPhaseEquilibrium::computeBuffer()
 {
-  const unsigned int & dim = _domain.getDim();
-  if (_phi.dim() < 3)
-    _phi.unsqueeze_(2);
+  const unsigned int dim = _domain.getDim();
+  const int64_t N = _u.numel() / _stencil._q;
+  const int Q = _stencil._q;
 
-  torch::Tensor phi_unsqueezed = _phi.unsqueeze(-1);
-  torch::Tensor ux = _velocity.select(-1, 0).unsqueeze(-1);
-  torch::Tensor uy = _velocity.select(-1, 1).unsqueeze(-1);
-  torch::Tensor uz;
-  switch (dim)
-  {
-    case 3:
-      uz = _velocity.select(-1, 2).unsqueeze(-1);
-      break;
-    case 2:
-      uz = torch::zeros_like(phi_unsqueezed, MooseTensor::floatTensorOptions());
-      break;
-    default:
-      mooseError("Unsupported dimension for LBMPhaseEquilibrium");
-  }
+  auto vel_flat = _velocity.slice(-1, 0, dim).reshape({N, dim});
+  auto phi_flat = _phi.reshape({N, 1});
+  auto u_flat = _u.view({N, Q});
 
-  torch::Tensor ci_dot_u = _ex * ux + _ey * uy + _ez * uz;
-  _u = _w * phi_unsqueezed * (1.0 + ci_dot_u / _lb_problem._cs2);
+  // edotu = vel_flat @ _e_mat.t()
+  torch::mm_out(u_flat, vel_flat, _e_mat.t());
+
+  u_flat.div_(_lb_problem._cs2);
+  u_flat.add_(1.0);
+  u_flat.mul_(_w.view({1, Q}));
+  u_flat.mul_(phi_flat);
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);

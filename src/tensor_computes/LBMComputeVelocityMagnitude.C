@@ -28,19 +28,9 @@ LBMComputeVelocityMagnitude::LBMComputeVelocityMagnitude(const InputParameters &
 void
 LBMComputeVelocityMagnitude::computeBuffer()
 {
-  const unsigned int & dim = _domain.getDim();
-  switch (dim)
-  {
-    case 2:
-      _u = torch::sqrt(_velocity.select(3, 0).pow(2) + _velocity.select(3, 1).pow(2));
-      break;
-    case 3:
-      _u = torch::sqrt(_velocity.select(3, 0).pow(2) + _velocity.select(3, 1).pow(2) +
-                       _velocity.select(3, 2).pow(2));
-      break;
-    default:
-      mooseError("Unsupported dimension");
-  }
+  auto active_velocity = _velocity.narrow(3, 0, _domain.getDim());
+  _u.copy_(torch::norm(active_velocity, /*p=*/2, /*dim=*/3));
+
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

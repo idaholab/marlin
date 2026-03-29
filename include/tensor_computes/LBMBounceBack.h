@@ -38,7 +38,16 @@ protected:
   const bool _exclude_corners_y;
   const bool _exclude_corners_z;
 
-  torch::Tensor _x_indices;
-  torch::Tensor _y_indices;
-  torch::Tensor _z_indices;
+  // Replaced heavy index tensors with zero-cost slice bounds
+  int64_t _x_start, _x_end;
+  int64_t _y_start, _y_end;
+  int64_t _z_start, _z_end;
+
+  // Precomputed direction indices for O(1) vectorized assignments
+  torch::Tensor _left_dirs, _left_opp_dirs;
+  torch::Tensor _bottom_dirs, _bottom_opp_dirs;
+  torch::Tensor _front_dirs, _front_opp_dirs;
+
+  /// Pre-computed opposite direction indices for vectorized wall bounce-back
+  torch::Tensor _op_indices;
 };

@@ -30,6 +30,7 @@ protected:
 
   torch::Tensor _phi_u_old;
   torch::Tensor _source_term;
+  torch::Tensor _P_mat;
 
   const Real _tau;
   const Real _D;

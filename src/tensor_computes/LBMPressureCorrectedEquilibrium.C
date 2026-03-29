@@ -36,49 +36,35 @@ LBMPressureCorrectedEquilibrium::LBMPressureCorrectedEquilibrium(const InputPara
 void
 LBMPressureCorrectedEquilibrium::computeBuffer()
 {
-  // g_i^{eq} = p / cs2 * (w_0 - 1) + rho * s_0(u),   i = 0
-  // g_i^{eq} = p / cs2 * w_i       + rho * s_i(u),    i != 0
-  // where s_i(u) = kind_of_eq_i / rho
+  const unsigned int dim = _domain.getDim();
 
-  const unsigned int & dim = _domain.getDim();
+  const int64_t N = _u.numel() / _stencil._q;
+  const int Q = _stencil._q;
 
-  if (_rho.dim() < 3)
-    _rho.unsqueeze_(2);
+  auto vel_flat = _velocity.slice(/*dim=*/-1, /*start=*/0, /*end=*/dim).reshape({N, dim});
+  auto rho_flat = _rho.reshape({N, 1});
+  auto p_flat = _pressure.reshape({N, 1});
+  auto u_flat = _u.view({N, Q});
+  auto w_flat = _w.view({1, Q});
 
-  // Compute s_i(u) inline
-  torch::Tensor rho_unsqueezed = _rho.unsqueeze(-1);
-  torch::Tensor ux = _velocity.select(-1, 0).unsqueeze(-1);
-  torch::Tensor uy = _velocity.select(-1, 1).unsqueeze(-1);
-  torch::Tensor uz;
+  auto edotu = torch::matmul(vel_flat, _e_mat.t());                // [N, Q]
+  auto usqr = vel_flat.square().sum(/*dim=*/-1, /*keepdim=*/true); // [N, 1]
 
-  switch (dim)
-  {
-    case 3:
-      uz = _velocity.select(-1, 2).unsqueeze(-1);
-      break;
-    case 2:
-      uz = torch::zeros_like(rho_unsqueezed, MooseTensor::floatTensorOptions());
-      break;
-    default:
-      mooseError("Unsupported dimensions for LBMPressureCorrectedEquilibrium");
-  }
+  // rho * s_i(u) directly into u_flat
+  u_flat.copy_(edotu).square_().div_(2.0 * _lb_problem._cs4);
+  u_flat.add_(edotu, /*alpha=*/1.0 / _lb_problem._cs2);
+  u_flat.sub_(usqr, /*alpha=*/1.0 / (2.0 * _lb_problem._cs2));
+  u_flat.mul_(w_flat);
+  u_flat.mul_(rho_flat);
 
-  torch::Tensor second_order;
-  torch::Tensor third_order;
-  {
-    auto edotu = _ex * ux + _ey * uy + _ez * uz;
-    auto edotu_sqr = edotu * edotu;
-    auto usqr = ux * ux + uy * uy + uz * uz;
-    second_order = edotu / _lb_problem._cs2 + 0.5 * edotu_sqr / _lb_problem._cs4;
-    third_order = 0.5 * usqr / _lb_problem._cs2;
-  }
-  torch::Tensor rho_s_i = _w * rho_unsqueezed * (second_order - third_order);
+  // pressure term: (p / cs2) * w_i
+  auto p_scaled = p_flat / _lb_problem._cs2;
 
-  // g_i^eq = p / cs2 * w_i + rho_s_i  for all i
-  _u = _pressure.unsqueeze(-1) / _lb_problem._cs2 * _w + rho_s_i;
+  // addcmul_ computes: u_flat + (p_scaled * w_flat) without allocating the [N, Q] intermediate!
+  u_flat.addcmul_(p_scaled, w_flat, /*value=*/1.0);
 
-  // Correct i = 0: subtract p / cs2 to get p / cs2 * (w_0 - 1) instead of p / cs2 * w_0
-  _u.select(-1, 0) -= _pressure / _lb_problem._cs2;
+  // correct i = 0: subtract p / cs2
+  u_flat.select(/*dim=*/1, /*index=*/0).sub_(p_scaled.squeeze(-1));
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);

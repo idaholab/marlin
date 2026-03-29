@@ -32,42 +32,26 @@ LBMEquilibrium::LBMEquilibrium(const InputParameters & parameters)
 void
 LBMEquilibrium::computeBuffer()
 {
-  // prepping
-  const unsigned int & dim = _domain.getDim();
+  const unsigned int dim = _domain.getDim();
+  const int64_t N = _u.numel() / _stencil._q;
+  const int Q = _stencil._q;
 
-  if (_rho.dim() < 3)
-    _rho.unsqueeze_(2);
+  auto vel_flat = _velocity.slice(/*dim=*/-1, /*start=*/0, /*end=*/dim).reshape({N, dim});
+  auto rho_flat = _rho.reshape({N, 1});
+  auto u_flat = _u.view({N, Q});
+  auto w_flat = _w.view({1, Q});
 
-  torch::Tensor rho_unsqueezed = _rho.unsqueeze(3);
-  torch::Tensor ux = _velocity.select(3, 0).unsqueeze(3);
-  torch::Tensor uy = _velocity.select(3, 1).unsqueeze(3);
-  torch::Tensor uz;
+  auto usqr = vel_flat.square().sum(/*dim=*/-1, /*keepdim=*/true);
+  auto edotu = torch::mm(vel_flat, _e_mat.t());
 
-  switch (dim)
-  {
-    case 3:
-      uz = _velocity.select(3, 2).unsqueeze(3);
-      break;
-    case 2:
-      uz = torch::zeros_like(rho_unsqueezed, MooseTensor::floatTensorOptions());
-      break;
-    default:
-      mooseError("Unsupported dimensions for buffer _u");
-  }
+  u_flat.copy_(edotu).square_().div_(2.0 * _lb_problem._cs4);
+  u_flat.add_(edotu, /*alpha=*/1.0 / _lb_problem._cs2);
+  u_flat.sub_(usqr, /*alpha=*/1.0 / (2.0 * _lb_problem._cs2));
+  u_flat.add_(1.0);
 
-  // compute equilibrium
-  torch::Tensor second_order;
-  torch::Tensor third_order;
+  u_flat.mul_(w_flat);
+  u_flat.mul_(rho_flat);
 
-  {
-    auto edotu = _ex * ux + _ey * uy + _ez * uz;
-    auto edotu_sqr = edotu * edotu;
-    auto usqr = ux * ux + uy * uy + uz * uz;
-    second_order = edotu / _lb_problem._cs2 + 0.5 * edotu_sqr / _lb_problem._cs4;
-    third_order = 0.5 * usqr / _lb_problem._cs2;
-  }
-
-  _u = _w * rho_unsqueezed * (1.0 + second_order - third_order);
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
