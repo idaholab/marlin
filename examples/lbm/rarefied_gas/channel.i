@@ -104,6 +104,19 @@
     []
   []
   [Solve]
+    [density]
+      type = LBMComputeDensity
+      buffer = density
+      f = f
+    []
+    [velocity]
+      type = LBMComputeVelocity
+      buffer = velocity
+      f = f
+      rho = density
+      add_body_force = true
+      body_force_x = 1.0e-8
+    []
     [equilibrium]
       type=LBMEquilibrium
       buffer = feq
@@ -118,19 +131,6 @@
       is_dynamic_relaxation = true
       local_relaxation_matrix = relaxation_matrix
       projection = true
-    []
-    [density]
-      type = LBMComputeDensity
-      buffer = density
-      f = f
-    []
-    [velocity]
-      type = LBMComputeVelocity
-      buffer = velocity
-      f = f
-      rho = density
-      add_body_force = true
-      body_force_x = 1.0e-8
     []
     [speed]
       type = LBMComputeVelocityMagnitude
@@ -158,6 +158,7 @@
   type = LBMStream
   buffer = f
   f_old = fpc
+  root_compute = residual
 []
 
 [Postprocessors]

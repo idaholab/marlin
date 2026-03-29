@@ -30,4 +30,7 @@ protected:
   const Real _mfp; // mean free path
   const Real _dx;  // domain resolution
   const Real _A2;  // second order slip boundary constant
+  // precomputed Constants
+  Real _C1;
+  Real _C2;
 };

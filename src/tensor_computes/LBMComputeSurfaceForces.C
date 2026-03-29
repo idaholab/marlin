@@ -35,7 +35,8 @@ LBMComputeSurfaceForces::LBMComputeSurfaceForces(const InputParameters & paramet
 void
 LBMComputeSurfaceForces::computeBuffer()
 {
-  _u = _chemical_potential.unsqueeze(-1) * _grad_phi;
+  // F_surface = mu * grad_phi
+  torch::mul_out(_u, _chemical_potential.unsqueeze(-1), _grad_phi);
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

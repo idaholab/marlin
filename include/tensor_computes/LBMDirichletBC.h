@@ -44,4 +44,6 @@ protected:
   int _region_id = 0;
 
   torch::Tensor _feq_boundary;
+  torch::Tensor _feq_owned;
+  torch::Tensor _feq_boundary_owned;
 };

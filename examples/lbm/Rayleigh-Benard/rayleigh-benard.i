@@ -103,6 +103,7 @@ amplitude = '${Ny}/100.0'
   type = LBMStream
   buffer = 'f g'
   f_old = 'fpc gpc'
+  root_compute = Residual
 []
 
 [TensorOutputs]

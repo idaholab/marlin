@@ -28,8 +28,6 @@ LBMComputeForces::validParams()
 
   params.addParam<bool>("enable_gravity", false, "Whether to consider gravity");
   params.addParam<bool>("enable_buoyancy", false, "Whether to consider buoyancy");
-  params.addParam<bool>(
-      "enable_surface_forces", false, "Whether to consider surface tension in multiphase flow");
 
   params.addClassDescription("Compute object for LB forces");
   return params;
@@ -41,46 +39,45 @@ LBMComputeForces::LBMComputeForces(const InputParameters & parameters)
     _reference_temperature((_lb_problem.getConstant<Real>(getParam<std::string>("T0")))),
     _enable_gravity(getParam<bool>("enable_gravity")),
     _enable_buoyancy(getParam<bool>("enable_buoyancy")),
-    _enable_surface_forces(getParam<bool>("enable_surface_forces")),
     _g(_lb_problem.getConstant<Real>(getParam<std::string>("gravity"))),
     _gravity_direction(static_cast<int64_t>(getParam<Real>("gravity_direction"))),
     _density_tensor(getInputBufferByName(getParam<TensorInputBufferName>("rho"), _radius)),
     _temperature(getInputBufferByName(getParam<TensorInputBufferName>("temperature"), _radius))
 {
+  _buoyancy_const = _g * _reference_density;
+  _buoyancy_offset = _buoyancy_const * _reference_temperature;
 }
 
 void
 LBMComputeForces::computeGravity()
 {
-  _u.index({Slice(), Slice(), Slice(), _gravity_direction}) += _g * _density_tensor;
+  const int64_t N = _u.numel() / _u.size(-1);
+  auto u_dir_flat = _u.select(-1, _gravity_direction).view({N});
+  auto rho_flat = _density_tensor.view({N});
+
+  u_dir_flat.add_(rho_flat, /*alpha=*/_g);
 }
 
 void
 LBMComputeForces::computeBuoyancy()
 {
-  // Boussinesq approximation
-  _u.index({Slice(), Slice(), Slice(), _gravity_direction}) +=
-      _g * _reference_density * (_temperature - _reference_temperature);
-}
+  const int64_t N = _u.numel() / _u.size(-1);
+  auto u_dir_flat = _u.select(-1, _gravity_direction).view({N});
+  auto temp_flat = _temperature.view({N});
 
-void
-LBMComputeForces::computeSurfaceForces()
-{
-  // TBD
-  mooseError("computeSurfaceForces is not yet implemented.");
+  u_dir_flat.add_(temp_flat, /*alpha=*/_buoyancy_const);
+  u_dir_flat.sub_(_buoyancy_offset);
 }
 
 void
 LBMComputeForces::computeBuffer()
 {
-  _u = torch::zeros_like(_u);
+  _u.zero_();
 
   if (_enable_gravity)
     computeGravity();
   if (_enable_buoyancy)
     computeBuoyancy();
-  if (_enable_surface_forces)
-    computeSurfaceForces();
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);

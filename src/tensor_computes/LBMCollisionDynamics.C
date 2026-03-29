@@ -4,9 +4,11 @@
 /*                                                                    */
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
-/**********************************************************************/
 
+/**********************************************************************/
 #include "LBMCollisionDynamics.h"
+
+using namespace torch::indexing;
 
 registerMooseObject("MarlinApp", LBMBGKCollision);
 registerMooseObject("MarlinApp", LBMMRTCollision);
@@ -48,192 +50,154 @@ LBMCollisionDynamicsTempl<coll_dyn>::LBMCollisionDynamicsTempl(const InputParame
     _projection(getParam<bool>("projection")),
     _is_dynamic_relaxation(getParam<bool>("is_dynamic_relaxation"))
 {
-  //
   _shape_with_ghost = _shape;
   _shape_with_ghost[0] += 2 * _radius;
   _shape_with_ghost[1] += 2 * _radius;
   if (_dim == 3)
     _shape_with_ghost[2] += 2 * _radius;
 
+  // Always pre-allocate _fneq (used in all collision operators)
   _fneq =
       torch::zeros({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q},
                    MooseTensor::floatTensorOptions());
+
+  const int64_t N = _shape_with_ghost[0] * _shape_with_ghost[1] * _shape_with_ghost[2];
+
+  // Hermite Pre-allocations
+  if (_projection)
+  {
+    torch::Tensor e_xyz = torch::stack({_stencil._ex, _stencil._ey, _stencil._ez}, 0)
+                              .to(MooseTensor::floatTensorOptions());
+    _C_mat = (e_xyz.t().unsqueeze(2) * e_xyz.t().unsqueeze(1)).view({_stencil._q, 9});
+    auto identity_flat = torch::eye(3, MooseTensor::floatTensorOptions()).flatten().unsqueeze(0);
+    torch::Tensor H2 = _C_mat / _lb_problem._cs2 - identity_flat;
+    _P_mat = ((1.0 / (2.0 * _lb_problem._cs2)) * _stencil._weights.unsqueeze(0) * H2.t()).clone();
+
+    _pi_neq_flat = torch::empty({N, 9}, MooseTensor::floatTensorOptions());
+  }
+
+  // MRT Pre-allocations
+  if (coll_dyn == 1 || coll_dyn == 3)
+  {
+    _m_neq_flat = torch::empty({N, _stencil._q}, MooseTensor::floatTensorOptions());
+
+    if (!_is_dynamic_relaxation && coll_dyn == 1)
+    {
+      computeGlobalRelaxationMatrix();
+      auto MSM = torch::mm(torch::mm(_stencil._M_inv, _global_relaxation_matrix), _stencil._M);
+      _MSM_t = MSM.t().clone();
+    }
+  }
+
+  // Smagorinsky Pre-allocations
+  if (coll_dyn == 2 || coll_dyn == 3)
+  {
+    int Q = _stencil._q;
+    int64_t nz = _shape_with_ghost[2];
+    auto zeros_q = torch::zeros({Q}, MooseTensor::intTensorOptions());
+    auto ones_q = torch::ones({Q}, MooseTensor::intTensorOptions());
+
+    auto ex_vec =
+        torch::stack({_stencil._ex, zeros_q, zeros_q}, 1).to(MooseTensor::floatTensorOptions());
+    auto ey_vec =
+        torch::stack({zeros_q, _stencil._ey, zeros_q}, 1).to(MooseTensor::floatTensorOptions());
+
+    torch::Tensor ez_vec;
+    if (nz == 1)
+      ez_vec =
+          torch::stack({ones_q, zeros_q, _stencil._ez}, 1).to(MooseTensor::floatTensorOptions());
+    else
+      ez_vec =
+          torch::stack({zeros_q, zeros_q, _stencil._ez}, 1).to(MooseTensor::floatTensorOptions());
+
+    auto outer_products = (ex_vec.unsqueeze(2).unsqueeze(3) * ey_vec.unsqueeze(1).unsqueeze(3) *
+                           ez_vec.unsqueeze(1).unsqueeze(2))
+                              .permute({0, 3, 1, 2});
+    _outer_flat = outer_products.reshape({Q, 27}).clone();
+
+    _local_relaxation_parameter =
+        torch::empty({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], 1},
+                     MooseTensor::floatTensorOptions());
+  }
 }
 
 template <int coll_dyn>
 void
 LBMCollisionDynamicsTempl<coll_dyn>::HermiteRegularization()
 {
-  /**
-   * Regularization procedure projects non-equilibrium (fneq) distribution
-   * onto the second order Hermite space.
-   */
-  using torch::indexing::Slice;
+  const int64_t N = _fneq.numel() / _stencil._q;
+  const int Q = _stencil._q;
 
-  int64_t nx = _shape_with_ghost[0];
-  int64_t ny = _shape_with_ghost[1];
-  int64_t nz = _shape_with_ghost[2];
-  auto f_flat = _f.view({nx * ny * nz, _stencil._q});
-  auto feq_flat = _feq.view({nx * ny * nz, _stencil._q});
-  auto f_neq_hat = _fneq.view({nx * ny * nz, _stencil._q});
-  torch::Tensor fneq = f_flat - feq_flat;
-  torch::Tensor fneqtimescc = torch::zeros({nx * ny * nz, 9}, MooseTensor::floatTensorOptions());
-  torch::Tensor e_xyz = torch::stack({_stencil._ex, _stencil._ey, _stencil._ez}, 0);
-  for (int ic = 0; ic < _stencil._q; ic++)
-  {
-    auto exyz_ic = e_xyz.index({Slice(), ic}).flatten();
-    torch::Tensor ccr = torch::outer(exyz_ic, exyz_ic).flatten();
-    fneqtimescc += (fneq.select(1, ic).view({nx * ny * nz, 1}) * ccr.view({1, 9}));
-  }
-  // Compute Hermite tensor
-  torch::Tensor H2 = torch::zeros({1, 9}, MooseTensor::floatTensorOptions());
-  for (int ic = 0; ic < _stencil._q; ic++)
-  {
-    auto exyz_ic = e_xyz.index({Slice(), ic}).flatten();
-    torch::Tensor ccr = torch::outer(exyz_ic, exyz_ic) / _lb_problem._cs2 -
-                        torch::eye(3, MooseTensor::floatTensorOptions());
-    H2 = ccr.flatten().unsqueeze(0).expand({nx * ny * nz, 9});
+  auto f_flat = _f.view({N, Q});
+  auto feq_flat = _feq.view({N, Q});
+  auto fneq_flat = _fneq.view({N, Q});
 
-    // Compute regularized non-equilibrium distribution
-    f_neq_hat.index_put_(
-        {Slice(), ic},
-        (_stencil._weights[ic] * (1.0 / (2.0 * _lb_problem._cs2)) * (fneqtimescc * H2).sum(1)));
-  }
-  _fneq = f_neq_hat.view({nx, ny, nz, _stencil._q});
+  torch::sub_out(fneq_flat, f_flat, feq_flat);
+  torch::mm_out(_pi_neq_flat, fneq_flat, _C_mat);
+  torch::mm_out(fneq_flat, _pi_neq_flat, _P_mat);
 }
 
 template <int coll_dyn>
 void
 LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
 {
-  auto fneq_owned = ownedView(_fneq);
-  auto sizes = fneq_owned.sizes();
-  int64_t nx = sizes[0];
-  int64_t ny = sizes[1];
-  int64_t nz = sizes[2];
+  const int64_t N = _fneq.numel() / _stencil._q;
+  const int64_t N_owned = ownedView(_f).numel() / _stencil._q;
+  const int Q = _stencil._q;
 
-  auto f_neq_hat = fneq_owned.reshape({nx * ny * nz, _stencil._q, 1, 1, 1});
+  auto fneq_flat = _fneq.view({N, Q});
 
-  torch::Tensor S;
-  {
-    torch::Tensor outer_products;
-    {
-      torch::Tensor ex_2d;
-      torch::Tensor ey_2d;
-      torch::Tensor ez_2d;
+  // Multiply with pre-cached outer products [N, Q] @ [Q, 27] -> [N, 27]
+  auto Q_tensor_flat = torch::mm(fneq_flat, _outer_flat);
 
-      {
-        auto zeros = torch::zeros({_stencil._q}, MooseTensor::intTensorOptions());
-        auto ones = torch::ones({_stencil._q}, MooseTensor::intTensorOptions());
+  // Mean density calculation: sum(rho) is mathematically identical to sum(f),
+  // so we avoid allocating a density tensor entirely!
+  auto sum_density = torch::sum(ownedView(_f)).template item<double>();
+  double num_points = static_cast<double>(N_owned);
 
-        ex_2d = torch::stack({_stencil._ex, zeros, zeros});
-        ey_2d = torch::stack({zeros, _stencil._ey, zeros});
-        ez_2d = torch::stack({zeros, zeros, _stencil._ez});
+  _domain.comm().sum(sum_density);
+  _domain.comm().sum(num_points);
+  _mean_density = sum_density / num_points;
 
-        if (nz == 1)
-          ez_2d = torch::stack({ones, zeros, _stencil._ez});
-      } // zeros and ones are out of scope
+  // Frobenius norm of flattened tensor (Norm over the 27 components directly)
+  auto Q_mean = torch::norm(Q_tensor_flat, /*p=*/2, /*dim=*/1) / (_mean_density * _lb_problem._cs2);
 
-      // outer product
-      // expected shape: _q, 3, 3, 3
-      outer_products = torch::zeros({_stencil._q, 3, 3, 3}, MooseTensor::floatTensorOptions());
+  auto t_sgs = sqrt(_C_s) * _delta_x / _lb_problem._cs;
+  auto eta = _tau_0 / t_sgs;
 
-      for (int i = 0; i < _stencil._q; i++)
-      {
-        auto ex_col = ex_2d.index({Slice(), i});
-        auto ey_col = ey_2d.index({Slice(), i});
-        auto ez_col = ez_2d.index({Slice(), i});
-        auto outer_product = torch::einsum("i,j,k->kij", {ex_col, ey_col, ez_col});
-        outer_products[i] = outer_product;
-      }
-      outer_products = outer_products.reshape({1, _stencil._q, 3, 3, 3});
-    } // ex_2d ey_2d ez_2d are out of scope
+  auto S = (-eta + torch::sqrt(eta * eta + 4.0 * Q_mean)) / (2.0 * t_sgs);
 
-    torch::Tensor Q_mean;
-    {
-      // momentum flux
-      torch::Tensor Q;
-      {
-        // auto f_neq_outer_prod = torch::einsum("anijk,mnxyz->mijk", {outer_products, f_neq_hat});
-        // until we figure out a better way to optimzie memory consumption of above commented line
-        // we will do this in smaller batches
-        // this will take slightly longer .... ??
+  auto relaxation_flat = (_tau_0 + _C_s * _delta_x * _delta_x * S / _lb_problem._cs2).unsqueeze(1);
 
-        const int64_t M = nx * ny * nz;
-        const int64_t batch_size = std::max<int64_t>(1, M / 20);
-        torch::Tensor f_neq_outer_prod_batched =
-            torch::zeros({M, 3, 3, 3}, MooseTensor::floatTensorOptions());
-
-        for (int64_t i = 0; i < M; i += batch_size)
-        {
-          int64_t current_batch_size = std::min(batch_size, M - i);
-          torch::Tensor f_neq_hat_batch = f_neq_hat.slice(0, i, i + current_batch_size);
-
-          torch::Tensor batch_result =
-              torch::einsum("anijk,mnxyz->mijk", {outer_products, f_neq_hat_batch});
-
-          f_neq_outer_prod_batched.slice(0, i, i + current_batch_size).copy_(batch_result);
-        }
-        Q = f_neq_outer_prod_batched.reshape({nx, ny, nz, 3, 3, 3});
-      }
-
-      // mean density
-      auto density = torch::sum(ownedView(_f), 3);
-      auto sum_density = torch::sum(density, {0, 1, 2}).template item<double>();
-      auto num_points = density.numel();
-      _domain.comm().sum(sum_density);
-      _domain.comm().sum(num_points);
-      _mean_density = sum_density / num_points;
-
-      // Frobenius norm
-      Q_mean = torch::norm(Q, 2, {3, 4, 5}) / (_mean_density * _lb_problem._cs2);
-    } //  auto Q goes of scopoe
-
-    // subgrid time scale factor
-    auto t_sgs = sqrt(_C_s) * _delta_x / _lb_problem._cs;
-    auto eta = _tau_0 / t_sgs;
-
-    // mean strain rate
-    auto Q_mean_sqrt = torch::sqrt(eta * eta + 4.0 * Q_mean);
-    auto eta_Q_mean_sqrt = (-1.0 * eta + Q_mean_sqrt);
-    S = eta_Q_mean_sqrt / (2.0 * t_sgs);
-  } // outer_products is out of scope
-
-  // relaxation parameter
-  auto relaxation_owned = _tau_0 + _C_s * _delta_x * _delta_x * S / _lb_problem._cs2;
-  relaxation_owned = relaxation_owned.reshape({nx, ny, nz, 1});
-  _local_relaxation_parameter =
-      torch::ones({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], 1},
-                  MooseTensor::floatTensorOptions()) *
-      _tau_0;
-  auto relaxation_owned_view = ownedView(_local_relaxation_parameter);
-  relaxation_owned_view.copy_(relaxation_owned);
+  _local_relaxation_parameter.view({N, 1}).copy_(relaxation_flat);
 }
 
 template <int coll_dyn>
 void
 LBMCollisionDynamicsTempl<coll_dyn>::computeLocalRelaxationMatrix()
 {
+  const int64_t N = _fneq.numel() / _stencil._q;
+  const int Q = _stencil._q;
+
+  // Initialize strictly in [N, Q, Q] shape
   if (_lb_problem.getTotalSteps() == 0)
   {
-    std::array<int64_t, 5> local_relaxation_mrt_shape = {
-        _shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q, _stencil._q};
-
-    _local_relaxation_matrix =
-        torch::zeros(local_relaxation_mrt_shape, MooseTensor::floatTensorOptions());
-    torch::Tensor stencil_S_expanded = _stencil._S.view({_stencil._q, _stencil._q}).clone();
-
-    stencil_S_expanded = stencil_S_expanded.unsqueeze(0).unsqueeze(0).unsqueeze(0);
-    _local_relaxation_matrix = stencil_S_expanded.expand(local_relaxation_mrt_shape).clone();
+    _local_relaxation_matrix = torch::empty({N, Q, Q}, MooseTensor::floatTensorOptions());
+    auto stencil_S = _stencil._S.view({Q, Q}).unsqueeze(0);
+    _local_relaxation_matrix.copy_(stencil_S.expand({N, Q, Q}));
   }
 
+  auto local_rel_flat = _local_relaxation_matrix.view({N, Q, Q});
+  auto inv_tau_flat = torch::reciprocal(_local_relaxation_parameter.view({N}));
+
   for (int64_t sh_id = 0; sh_id < _stencil._id_kinematic_visc.size(0); sh_id++)
-    _local_relaxation_matrix.index_put_({Slice(),
-                                         Slice(),
-                                         Slice(),
-                                         _stencil._id_kinematic_visc[sh_id],
-                                         _stencil._id_kinematic_visc[sh_id]},
-                                        1.0 / _local_relaxation_parameter.squeeze(-1));
+  {
+    int64_t idx = _stencil._id_kinematic_visc[sh_id].item<int64_t>();
+
+    // Zero-overhead assignment replacing index_put_
+    // select(2, idx) gets [N, Q], select(1, idx) gets [N]
+    local_rel_flat.select(2, idx).select(1, idx).copy_(inv_tau_flat);
+  }
 }
 
 template <int coll_dyn>
@@ -243,7 +207,6 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeGlobalRelaxationMatrix()
   if (_lb_problem.getTotalSteps() == 0)
   {
     _global_relaxation_matrix = _stencil._S.clone();
-
     _global_relaxation_matrix.index_put_({_stencil._id_kinematic_visc, _stencil._id_kinematic_visc},
                                          1.0 / _tau_0);
   }
@@ -253,15 +216,23 @@ template <>
 void
 LBMCollisionDynamicsTempl<0>::BGKDynamics()
 {
-  /* LBM BGK collision */
+  _u.copy_(_feq);
+
   if (!_is_dynamic_relaxation)
-    _u = _feq + _fneq - 1.0 / _tau_0 * _fneq;
+  {
+    _u.add_(_fneq, /*alpha=*/1.0 - 1.0 / _tau_0);
+  }
   else
   {
-    if (_tau_tensor.dim() < 3)
-      _tau_tensor.unsqueeze_(-1);
-    _u = _feq + _fneq - 1.0 / _tau_tensor.unsqueeze(-1) * _fneq;
+    _u.add_(_fneq);
+    const int64_t N = _u.numel() / _stencil._q;
+    auto tau_flat = _tau_tensor.view({N, 1});
+    auto u_flat = _u.view({N, _stencil._q});
+    auto fneq_flat = _fneq.view({N, _stencil._q});
+
+    u_flat.addcdiv_(fneq_flat, tau_flat, /*value=*/-1.0);
   }
+
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
@@ -270,24 +241,26 @@ template <>
 void
 LBMCollisionDynamicsTempl<1>::MRTDynamics()
 {
-  // LBM MRT collision
-  // f = M^{-1} x S x M x (f - feq)
+  const int64_t N = _fneq.numel() / _stencil._q;
+  const int Q = _stencil._q;
+
+  auto fneq_flat = _fneq.view({N, Q});
+  auto u_flat = _u.view({N, Q});
+
+  _u.copy_(_feq);
+  _u.add_(_fneq);
+
   if (!_is_dynamic_relaxation)
   {
-    computeGlobalRelaxationMatrix();
-    auto m_neq = torch::einsum("ab,ijkb->ijka", {_stencil._M, _fneq});
-    auto m_neq_relaxed = torch::einsum("ab,ijkb->ijka", {_global_relaxation_matrix, m_neq});
-    auto f = torch::einsum("ab,ijkb->ijka", {_stencil._M_inv, m_neq_relaxed});
-    _u = _feq + _fneq - f;
+    u_flat.addmm_(fneq_flat, _MSM_t, /*beta=*/1.0, /*alpha=*/-1.0);
   }
   else
   {
-    torch::Tensor relaxation_matrix = torch::diag_embed(_input_relaxation_matrix);
-    auto m_neq = torch::einsum("ab,ijkb->ijka", {_stencil._M, _fneq});
-    auto m_neq_relaxed = torch::einsum("ijkab,ijkb->ijka", {relaxation_matrix, m_neq});
-    auto f = torch::einsum("ab,ijkb->ijka", {_stencil._M_inv, m_neq_relaxed});
-    _u = _feq + _fneq - f;
+    torch::mm_out(_m_neq_flat, fneq_flat, _stencil._M.t());
+    _m_neq_flat.mul_(_input_relaxation_matrix.view({N, Q}));
+    u_flat.addmm_(_m_neq_flat, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
   }
+
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
@@ -297,9 +270,16 @@ void
 LBMCollisionDynamicsTempl<2>::SmagorinskyDynamics()
 {
   computeRelaxationParameter();
-  // BGK collision
-  _u = _feq + _fneq - 1.0 / _local_relaxation_parameter * _fneq;
-  _u_owned = ownedView(_u);
+
+  _u.copy_(_feq);
+  _u.add_(_fneq);
+
+  auto u_owned = ownedView(_u);
+  auto fneq_owned = ownedView(_fneq);
+  auto tau_owned = ownedView(_local_relaxation_parameter);
+  u_owned.addcdiv_(fneq_owned, tau_owned, /*value=*/-1.0);
+
+  _u_owned = u_owned;
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
 
@@ -310,14 +290,22 @@ LBMCollisionDynamicsTempl<3>::SmagorinskyMRTDynamics()
   computeRelaxationParameter();
   computeLocalRelaxationMatrix();
 
-  /* LBM MRT collision */
+  const int64_t N = _fneq.numel() / _stencil._q;
+  const int Q = _stencil._q;
 
-  auto m_neq = torch::einsum("ab,ijkb->ijka", {_stencil._M, _fneq});
-  auto m_neq_relaxed = torch::einsum("ijklm,ijkm->ijkl", {_local_relaxation_matrix, m_neq});
-  auto f = torch::einsum("ab,ijkb->ijka", {_stencil._M_inv, m_neq_relaxed});
+  auto fneq_flat = _fneq.view({N, Q});
 
-  // f = M^{-1} x S x M x (f - feq)
-  _u = _feq + _fneq - f;
+  torch::mm_out(_m_neq_flat, fneq_flat, _stencil._M.t());
+
+  auto m_neq_expanded = _m_neq_flat.view({N, Q, 1});
+  auto S_local = _local_relaxation_matrix.view({N, Q, Q});
+
+  auto m_neq_relaxed = torch::bmm(S_local, m_neq_expanded).squeeze(-1);
+
+  _u.copy_(_feq);
+  _u.add_(_fneq);
+  _u.view({N, Q}).addmm_(m_neq_relaxed, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
+
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }
@@ -329,7 +317,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeBuffer()
   if (_projection)
     HermiteRegularization();
   else
-    _fneq = _f - _feq;
+    torch::sub_out(_fneq, _f, _feq);
 
   switch (coll_dyn)
   {

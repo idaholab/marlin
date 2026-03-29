@@ -8,6 +8,8 @@
 /**********************************************************************/
 
 #include "LBMNeumannBC.h"
+#include "LatticeBoltzmannProblem.h"
+#include "LatticeBoltzmannStencilBase.h"
 
 using namespace torch::indexing;
 
@@ -44,122 +46,142 @@ LBMNeumannBC::LBMNeumannBC(const InputParameters & parameters)
   if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
     _region_id = getParam<int>("region_id");
-    // mark 7 (128 in decimal) for regional boundary ownership
     if (isBoundaryOwned(_region_id))
       _boundary_rank |= (1 << 7);
   }
   else if (!isParamValid("region_id") && _lb_problem.isBinaryMedia())
     maskBoundary();
+
+  // Precompute specific incoming direction tensors for O(1) vectorized assignments
+  auto cache_dirs =
+      [&](const torch::Tensor & dirs, torch::Tensor & out_dirs, torch::Tensor & out_opps)
+  {
+    if (dirs.size(0) > 0)
+    {
+      out_dirs = dirs.to(torch::kLong);
+      out_opps = _stencil._op.index_select(0, out_dirs).to(torch::kLong);
+    }
+  };
+
+  cache_dirs(_stencil._left, _left_dirs, _right_dirs);
+  cache_dirs(_stencil._bottom, _bottom_dirs, _top_dirs);
+  cache_dirs(_stencil._front, _front_dirs, _back_dirs);
 }
 
 void
 LBMNeumannBC::computeBoundaryEquilibrium()
 {
-  const int dim = _domain.getDim();
-  torch::Tensor phi_G = _rho + _gradient_value;
-  torch::Tensor rho_unsqueezed = phi_G.unsqueeze(3).expand_as(_feq);
-  torch::Tensor ux = _velocity.select(3, 0).unsqueeze(3);
-  torch::Tensor uy = _velocity.select(3, 1).unsqueeze(3);
-  torch::Tensor uz;
+  const unsigned int dim = _domain.getDim();
+  auto vel_owned = ownedView(_velocity);
+  auto rho_owned = ownedView(_rho);
 
-  switch (dim)
-  {
-    case 3:
-      uz = _velocity.select(3, 2).unsqueeze(3);
-      break;
-    case 2:
-      uz = torch::zeros_like(rho_unsqueezed, MooseTensor::floatTensorOptions());
-      break;
-    default:
-      mooseError("Unsupported dimensions for buffer _u");
-  }
+  const int64_t N = vel_owned.numel() / vel_owned.size(-1);
 
-  torch::Tensor second_order;
-  torch::Tensor third_order;
-  {
-    auto edotu = _ex * ux + _ey * uy + _ez * uz;
-    auto edotu_sqr = edotu * edotu;
-    auto usqr = ux * ux + uy * uy + uz * uz;
-    second_order = edotu / _lb_problem._cs2 + 0.5 * edotu_sqr / _lb_problem._cs4;
-    third_order = 0.5 * usqr / _lb_problem._cs2;
-  }
-  auto feq_boundary = _w * rho_unsqueezed * (1.0 + second_order - third_order);
-  _feq_boundary = ownedView(feq_boundary);
+  auto vel_flat = vel_owned.slice(-1, 0, dim).reshape({N, dim});
+  auto rho_flat = rho_owned.reshape({N, 1});
+
+  auto usqr = vel_flat.square().sum(-1, /*keepdim=*/true);
+  auto edotu = torch::mm(vel_flat, _e_mat.t());
+
+  auto edotu_spatial = edotu.reshape_as(_feq_boundary_owned);
+
+  auto spatial_shape = _feq_boundary_owned.sizes().vec();
+  spatial_shape.back() = 1;
+  auto usqr_spatial = usqr.reshape(spatial_shape);
+  auto rho_spatial = rho_flat.reshape(spatial_shape);
+
+  _feq_boundary_owned.copy_(edotu_spatial).square_().div_(2.0 * _lb_problem._cs4);
+  _feq_boundary_owned.add_(edotu_spatial, 1.0 / _lb_problem._cs2);
+  _feq_boundary_owned.sub_(usqr_spatial, 1.0 / (2.0 * _lb_problem._cs2));
+  _feq_boundary_owned.add_(1.0);
+  _feq_boundary_owned.mul_(_w);
+
+  // Multiply by the scalar boundary density + gradient
+  _feq_boundary_owned.mul_(torch::add(rho_spatial, _gradient_value));
 }
 
 void
 LBMNeumannBC::topBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
-  {
-    auto opposite = _stencil._op[_stencil._bottom[i]].item<int64_t>();
-    _u_owned.index_put_({Slice(), _shape[1] - 1, Slice(), opposite},
-                        _feq_boundary.index({Slice(), _shape[1] - 1, Slice(), opposite}) +
-                            (_f_old_owned.index({Slice(), _shape[1] - 1, Slice(), opposite}) -
-                             ownedView(_feq).index({Slice(), _shape[1] - 1, Slice(), opposite})));
-  }
+  if (_top_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(1, _shape[1] - 1);
+
+  auto update = _feq_boundary_owned.select(1, _shape[1] - 1).index_select(-1, _top_dirs) +
+                _f_old_owned.select(1, _shape[1] - 1).index_select(-1, _top_dirs) -
+                _feq_owned.select(1, _shape[1] - 1).index_select(-1, _top_dirs);
+
+  u_face.index_copy_(-1, _top_dirs, update);
 }
 
 void
 LBMNeumannBC::bottomBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
-  {
-    _u_owned.index_put_({Slice(), 0, Slice(), _stencil._bottom[i]},
-                        _feq_boundary.index({Slice(), 0, Slice(), _stencil._bottom[i]}) +
-                            (_f_old_owned.index({Slice(), 0, Slice(), _stencil._bottom[i]}) -
-                             ownedView(_feq).index({Slice(), 0, Slice(), _stencil._bottom[i]})));
-  }
+  if (_bottom_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(1, 0);
+
+  auto update = _feq_boundary_owned.select(1, 0).index_select(-1, _bottom_dirs) +
+                _f_old_owned.select(1, 0).index_select(-1, _bottom_dirs) -
+                _feq_owned.select(1, 0).index_select(-1, _bottom_dirs);
+
+  u_face.index_copy_(-1, _bottom_dirs, update);
 }
 
 void
 LBMNeumannBC::leftBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._left.size(0); i++)
-  {
-    _u_owned.index_put_({0, Slice(), Slice(), _stencil._left[i]},
-                        _feq_boundary.index({0, Slice(), Slice(), _stencil._left[i]}) +
-                            (_f_old_owned.index({0, Slice(), Slice(), _stencil._left[i]}) -
-                             ownedView(_feq).index({0, Slice(), Slice(), _stencil._left[i]})));
-  }
+  if (_left_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(0, 0);
+
+  auto update = _feq_boundary_owned.select(0, 0).index_select(-1, _left_dirs) +
+                _f_old_owned.select(0, 0).index_select(-1, _left_dirs) -
+                _feq_owned.select(0, 0).index_select(-1, _left_dirs);
+
+  u_face.index_copy_(-1, _left_dirs, update);
 }
 
 void
 LBMNeumannBC::rightBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._left.size(0); i++)
-  {
-    auto opposite = _stencil._op[_stencil._left[i]].item<int64_t>();
-    _u_owned.index_put_({_shape[0] - 1, Slice(), Slice(), opposite},
-                        _feq_boundary.index({_shape[0] - 1, Slice(), Slice(), opposite}) +
-                            (_f_old_owned.index({_shape[0] - 1, Slice(), Slice(), opposite}) -
-                             ownedView(_feq).index({_shape[0] - 1, Slice(), Slice(), opposite})));
-  }
+  if (_right_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(0, _shape[0] - 1);
+
+  auto update = _feq_boundary_owned.select(0, _shape[0] - 1).index_select(-1, _right_dirs) +
+                _f_old_owned.select(0, _shape[0] - 1).index_select(-1, _right_dirs) -
+                _feq_owned.select(0, _shape[0] - 1).index_select(-1, _right_dirs);
+
+  u_face.index_copy_(-1, _right_dirs, update);
 }
 
 void
 LBMNeumannBC::frontBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._front.size(0); i++)
-  {
-    _u_owned.index_put_({Slice(), Slice(), 0, _stencil._front[i]},
-                        _feq_boundary.index({Slice(), Slice(), 0, _stencil._front[i]}) +
-                            (_f_old_owned.index({Slice(), Slice(), 0, _stencil._front[i]}) -
-                             ownedView(_feq).index({Slice(), Slice(), 0, _stencil._front[i]})));
-  }
+  if (_front_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(2, 0);
+
+  auto update = _feq_boundary_owned.select(2, 0).index_select(-1, _front_dirs) +
+                _f_old_owned.select(2, 0).index_select(-1, _front_dirs) -
+                _feq_owned.select(2, 0).index_select(-1, _front_dirs);
+
+  u_face.index_copy_(-1, _front_dirs, update);
 }
 
 void
 LBMNeumannBC::backBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._front.size(0); i++)
-  {
-    auto opposite = _stencil._op[_stencil._front[i]].item<int64_t>();
-    _u_owned.index_put_({Slice(), Slice(), _shape[2] - 1, opposite},
-                        _feq_boundary.index({Slice(), Slice(), _shape[2] - 1, opposite}) +
-                            (_f_old_owned.index({Slice(), Slice(), _shape[2] - 1, opposite}) -
-                             ownedView(_feq).index({Slice(), Slice(), _shape[2] - 1, opposite})));
-  }
+  if (_back_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(2, _shape[2] - 1);
+
+  auto update = _feq_boundary_owned.select(2, _shape[2] - 1).index_select(-1, _back_dirs) +
+                _f_old_owned.select(2, _shape[2] - 1).index_select(-1, _back_dirs) -
+                _feq_owned.select(2, _shape[2] - 1).index_select(-1, _back_dirs);
+
+  u_face.index_copy_(-1, _back_dirs, update);
 }
 
 void
@@ -170,10 +192,11 @@ LBMNeumannBC::wallBoundary()
     _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u_owned.index_put_(
-      {_boundary_mask},
-      _feq_boundary.index({_boundary_mask}) +
-          (_f_old_owned.index({_boundary_mask}) - ownedView(_feq).index({_boundary_mask})));
+
+  _u_owned.index_put_({_boundary_mask},
+                      _feq_boundary_owned.index({_boundary_mask}) +
+                          _f_old_owned.index({_boundary_mask}) -
+                          _feq_owned.index({_boundary_mask}));
 }
 
 void
@@ -184,19 +207,25 @@ LBMNeumannBC::regionalBoundary()
     _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == _region_id);
     _boundary_mask = _boundary_mask.to(torch::kBool);
   }
-  _u_owned.index_put_(
-      {_boundary_mask},
-      _feq_boundary.index({_boundary_mask}) +
-          (_f_old_owned.index({_boundary_mask}) - ownedView(_feq).index({_boundary_mask})));
+
+  _u_owned.index_put_({_boundary_mask},
+                      _feq_boundary_owned.index({_boundary_mask}) +
+                          _f_old_owned.index({_boundary_mask}) -
+                          _feq_owned.index({_boundary_mask}));
 }
 
 void
 LBMNeumannBC::computeBuffer()
 {
+  // Prepare f_old for active domain
   _f_old_owned = _f_old[0];
   for (unsigned int d = 0; d < _dim; d++)
     _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
 
+  // Cache owned views for the step to avoid repeated allocations
+  _feq_owned = ownedView(_feq);
+  _feq_boundary_owned = ownedView(_feq_boundary);
+
   computeBoundaryEquilibrium();
-  LBMBoundaryCondition::computeBuffer();
+  LBMBoundaryCondition::computeBuffer(); // Executes the boundary assignments
 }

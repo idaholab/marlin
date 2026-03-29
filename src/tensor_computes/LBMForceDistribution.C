@@ -55,10 +55,8 @@ LBMForceDistribution::computeSourceTerm()
 {
   const unsigned int & dim = _domain.getDim();
 
-  torch::Tensor force_vec = _forces;
-
-  torch::Tensor Fx = force_vec.select(3, 0).unsqueeze(-1);
-  torch::Tensor Fy = force_vec.select(3, 1).unsqueeze(-1);
+  torch::Tensor Fx = _forces.select(3, 0).unsqueeze(-1);
+  torch::Tensor Fy = _forces.select(3, 1).unsqueeze(-1);
   torch::Tensor Fz;
 
   torch::Tensor ux = _velocity.select(3, 0).unsqueeze(-1);
@@ -71,7 +69,7 @@ LBMForceDistribution::computeSourceTerm()
   switch (dim)
   {
     case 3:
-      Fz = force_vec.select(3, 2).unsqueeze(-1);
+      Fz = _forces.select(3, 2).unsqueeze(-1);
       uz = _velocity.select(3, 2).unsqueeze(-1);
       dphi_dz = _grad_phi.select(3, 2).unsqueeze(-1);
       break;
@@ -85,23 +83,23 @@ LBMForceDistribution::computeSourceTerm()
   }
   const Real drho = _rho_l - _rho_g;
 
-  for (int64_t ic = 0; ic < _stencil._q; ic++)
-  {
-    // c_i . (mu_phi * grad_phi + G) / cs2
-    auto ci_dot_F =
-        (_stencil._ex[ic] * Fx + _stencil._ey[ic] * Fy + _stencil._ez[ic] * Fz).squeeze(-1) /
-        _lb_problem._cs2;
+  // Vectorized: compute all Q directions at once
+  // Lattice velocities reshaped to [1,1,1,Q]
+  auto ex_q = _stencil._ex.reshape({1, 1, 1, _stencil._q});
+  auto ey_q = _stencil._ey.reshape({1, 1, 1, _stencil._q});
+  auto ez_q = _stencil._ez.reshape({1, 1, 1, _stencil._q});
 
-    // (rho_l - rho_g) * (u ⊗ grad_phi) : (c_i ⊗ c_i) / cs2
-    // = (rho_l - rho_g) * sum_{a,b} u_a * dphi_db * c_ia * c_ib / cs2
-    auto ci_dot_u = _stencil._ex[ic] * ux + _stencil._ey[ic] * uy + _stencil._ez[ic] * uz;
-    auto ci_dot_grad_phi =
-        _stencil._ex[ic] * dphi_dx + _stencil._ey[ic] * dphi_dy + _stencil._ez[ic] * dphi_dz;
-    auto tensor_term = drho * (ci_dot_u * ci_dot_grad_phi).squeeze(-1) / _lb_problem._cs2;
+  // ci_dot_F [Nx, Ny, Nz, Q]
+  auto ci_dot_F = (ex_q * Fx + ey_q * Fy + ez_q * Fz) / _lb_problem._cs2;
 
-    _source_term.index_put_({Slice(), Slice(), Slice(), ic},
-                            _stencil._weights[ic] * (ci_dot_F + tensor_term));
-  }
+  // ci_dot_u and ci_dot_grad_phi [Nx, Ny, Nz, Q]
+  auto ci_dot_u = ex_q * ux + ey_q * uy + ez_q * uz;
+  auto ci_dot_grad_phi = ex_q * dphi_dx + ey_q * dphi_dy + ez_q * dphi_dz;
+
+  // tensor_term = drho * (ci_dot_u * ci_dot_grad_phi) / cs2
+  auto tensor_term = (drho / _lb_problem._cs2) * ci_dot_u * ci_dot_grad_phi;
+
+  _source_term.copy_(_w * (ci_dot_F + tensor_term));
 }
 
 void
@@ -110,12 +108,12 @@ LBMForceDistribution::computeBuffer()
   computeSourceTerm();
 
   if (!_is_dynamic_relaxation)
-    _u += (1.0 - 1.0 / (2.0 * _tau)) * _source_term;
+    _u.add_(_source_term, 1.0 - 1.0 / (2.0 * _tau));
   else
   {
     if (_tau_tensor.dim() < 3)
       _tau_tensor.unsqueeze_(-1);
-    _u += (1.0 - 1.0 / (2.0 * _tau_tensor.unsqueeze(-1))) * _source_term;
+    _u.add_((1.0 - 1.0 / (2.0 * _tau_tensor.unsqueeze(-1))) * _source_term);
   }
 
   _u_owned = ownedView(_u);
