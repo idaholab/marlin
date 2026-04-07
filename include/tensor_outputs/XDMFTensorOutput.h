@@ -93,6 +93,7 @@ private:
 
 #ifdef LIBMESH_HAVE_HDF5
   const bool _enable_hdf5;
+  const bool _hdf5_compression;
 
   /// HDF5 file name (rank-specific)
   const std::string _hdf5_name;
