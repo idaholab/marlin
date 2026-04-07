@@ -203,6 +203,41 @@ TEST(ParsedTensorTest, Parse)
   check2("a:=sin(x^2); a + 2*a + 3*a", "x", "12*x*cos(x^2)", false);
 }
 
+TEST(ParsedTensorTest, MatVecVecVecTranspose)
+{
+  const auto opts = MooseTensor::floatTensorOptions();
+
+  const auto A = torch::tensor({{{1.0, 2.0}, {3.0, 4.0}}, {{5.0, 6.0}, {7.0, 8.0}}}, opts);
+  const auto v = torch::tensor({{1.0, 1.0}, {2.0, 0.0}}, opts);
+
+  {
+    ParsedJITTensor fp;
+    if (!fp.parse("matvec(A, v)", {"A", "v"}))
+      mooseError("Invalid JIT function: ", fp.errorMessage());
+    const auto result = fp.eval({&A, &v});
+    const auto expected = torch::matmul(A, v);
+    EXPECT_TRUE(torch::allclose(result, expected));
+  }
+
+  {
+    ParsedJITTensor fp;
+    if (!fp.parse("vecvec(v, v)", {"v"}))
+      mooseError("Invalid JIT function: ", fp.errorMessage());
+    const auto result = fp.eval({&v});
+    const auto expected = torch::sum(v * v, -1);
+    EXPECT_TRUE(torch::allclose(result, expected));
+  }
+
+  {
+    ParsedJITTensor fp;
+    if (!fp.parse("transpose(A)", {"A"}))
+      mooseError("Invalid JIT function: ", fp.errorMessage());
+    const auto result = fp.eval({&A});
+    const auto expected = A.transpose(-1, -2);
+    EXPECT_TRUE(torch::allclose(result, expected));
+  }
+}
+
 TEST(ParsedTensorTest, Substitute)
 {
   MarlinExpressionParser::Parser parser;

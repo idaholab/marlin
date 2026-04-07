@@ -98,7 +98,7 @@ PRIMARY     <- FUNCTION / NUMBER / VARIABLE / '(' LOGICAL ')'
 - **Exponential/Logarithmic**: `exp`, `log`, `log10`, `log2`
 - **Power/Root**: `pow`, `sqrt`, `cbrt`
 - **Rounding**: `floor`, `ceil`, `round`, `trunc`
-- **Other**: `abs`, `min`, `max`, `erf`, `erfc`, `if`
+- **Other**: `abs`, `min`, `max`, `erf`, `erfc`, `if`, `matvec`, `vecvec`, `transpose`
 
 #### Special Functions
 
