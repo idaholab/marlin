@@ -11,17 +11,14 @@
 #include "FFTGradientBase.h"
 
 /**
- * Tensor gradient component.
+ * Gradient of a tensor field returned as a stacked torch tensor.
  */
-class FFTGradient : public FFTGradientBase<>
+class GradientVector : public FFTGradientBase<>
 {
 public:
   static InputParameters validParams();
 
-  FFTGradient(const InputParameters & parameters);
+  GradientVector(const InputParameters & parameters);
 
   virtual void computeBuffer() override;
-
-protected:
-  unsigned int _direction;
 };

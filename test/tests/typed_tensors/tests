@@ -11,4 +11,16 @@
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
+
+  [gradient_vector]
+    type = HDF5Diff
+    input = gradient_vector.i
+    hdf5diff = gradient.h5
+    abs_tol = 1e-13
+    issues = '#158'
+    requirement = 'The system shall be able to output a torch vector valued tensor to XDMF'
+    design = 'GradientVector.md XDMFTensorOutput.md'
+    compute_devices = 'cpu cuda mps xpu'
+    max_parallel = 1
+  []
 []

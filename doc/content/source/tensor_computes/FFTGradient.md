@@ -20,7 +20,7 @@ and inbetween a multiplication with the $\vec k$ vector and the imaginary unit $
       type = FFTGradient
       buffer = dc_dx
       input = c
-      axis = 0                    # 0:x, 1:y, 2:z
+      direction = 0                    # 0:x, 1:y, 2:z
     []
   []
 []
