@@ -192,7 +192,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeLocalRelaxationMatrix()
 
   for (int64_t sh_id = 0; sh_id < _stencil._id_kinematic_visc.size(0); sh_id++)
   {
-    int64_t idx = _stencil._id_kinematic_visc[sh_id].item<int64_t>();
+    int64_t idx = _stencil._id_kinematic_visc[sh_id].template item<int64_t>();
 
     // Zero-overhead assignment replacing index_put_
     // select(2, idx) gets [N, Q], select(1, idx) gets [N]
