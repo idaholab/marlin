@@ -16,7 +16,7 @@
       expression = 'sin(x*8*pi)+cos(y*4*pi)+sin(z*2*pi)'
     []
     [grad_c]
-      type = NEML2GradientVector
+      type = GradientVector
       buffer = grad_c
       input = c
     []
