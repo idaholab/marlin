@@ -1,0 +1,13 @@
+[Tests]
+  [circular_grain_hdf5]
+    type = HDF5Diff
+    input = circular_grain.i
+    hdf5diff = circular_grain.h5
+    abs_tol = 1e-12
+    requirement = 'The system shall be able to evaluate anisotropic grain-boundary energy from a TorchScript model using a GradientVector input buffer.'
+    design = 'GradientVector.md AnisotropicGBEnergy.md XDMFTensorOutput.md'
+    capabilities = 'libtorch'
+    compute_devices = 'cpu cuda mps xpu'
+    max_parallel = 1
+  []
+[]
