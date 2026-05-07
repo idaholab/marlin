@@ -159,6 +159,7 @@ v=200
     executor_name = 'neml2'
     model = 'model'
     verbose = true
+    keep_tensors_on_device = true
     moose_input_kernels = 'strain'
 
     moose_input_types = 'POSTPROCESSOR POSTPROCESSOR POSTPROCESSOR'

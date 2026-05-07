@@ -12,6 +12,10 @@
     abs_tol = 1e-8
     rel_tol = 1e-6
     max_its = 20
+    linear_solver = 'lu'
+  []
+  [lu]
+    type = DenseLU
   []
 []
 
@@ -42,7 +46,6 @@
   [trial_state]
     type = ComposedModel
     models = 'trial_elastic_strain cauchy_stress flow_direction'
-    additional_outputs = 'state/S'
   []
 
   ###############################################################################
@@ -93,7 +96,7 @@
     equivalent_plastic_strain = 'state/ep'
     temperature = 'forces/T'
     use_temperature = true
-    flow_rate = state/ep_rate
+    flow_rate = 'state/ep_rate'
     # OFHC Copper parameters
     A = 99.7e6          # Reference yield stress (Pa)
     B = 262.8e6         # Hardening coefficient (Pa)
@@ -118,7 +121,7 @@
   []
   [radial_return]
     type = ImplicitUpdate
-    implicit_model = 'rate'
+    equation_system = 'return_map_sys'
     solver = 'newton'
   []
 
@@ -127,7 +130,14 @@
   ###############################################################################
   [model]
     type = ComposedModel
-    # models = 'trial_state radial_return plastic_update stress_update vonmises jc_flowrate'
-    models = 'trial_state radial_return'
+    models = 'trial_state radial_return ep_rate plastic_update stress_update vonmises'
+    additional_outputs = 'state/s state/ep state/S state/Ep'
+  []
+[]
+
+[EquationSystems]
+  [return_map_sys]
+    type = NonlinearSystem
+    model = 'rate'
   []
 []

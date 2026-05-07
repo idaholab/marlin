@@ -107,7 +107,8 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
 
   // Strain hardening: H = A + B * ep^n
   // Use max(ep, eps_min) to avoid 0^n issues
-  const auto ep_safe = _ep() + eps_min;
+  const auto ep_positive = macaulay(_ep());
+  const auto ep_safe = ep_positive + eps_min;
   const auto ep_pow_n = pow(ep_safe, _n);
   const auto H = _A + _B * ep_pow_n;
 
@@ -147,6 +148,8 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
   const auto exp_arg_min = Scalar::full(-20.0, _s.options());
   const auto exp_arg_clamped = exp_arg - macaulay(exp_arg - exp_arg_max) +
                                macaulay(exp_arg_min - exp_arg);
+  const auto exp_arg_active =
+      heaviside(exp_arg_max - exp_arg) * heaviside(exp_arg - exp_arg_min);
 
   // Flow rate: ep_dot = eps0 * exp(exp_arg) * H(ratio - 1)
   // Using Heaviside to ensure no plastic flow when below yield
@@ -165,7 +168,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
     {
       // d(ep_dot)/d(s) = eps0 * exp(exp_arg) * H(ratio-1) * (1 / (C * sigma_y))
       // Note: We ignore the delta function from Heaviside derivative
-      const auto dep_dot_ds = ep_dot / (_C * sigma_y_safe);
+      const auto dep_dot_ds = ep_dot * exp_arg_active / (_C * sigma_y_safe);
       _ep_dot.d(_s) = dep_dot_ds;
     }
 
@@ -174,7 +177,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
     {
       // d(ep_dot)/d(ep) through the strain hardening H
       // dH/dep = B * n * ep^(n-1)
-      const auto dH_dep = _B * _n * pow(ep_safe, _n - one);
+      const auto dH_dep = _B * _n * heaviside(_ep()) * pow(ep_safe, _n - one);
       // d(sigma_y)/dep = dH/dep * Theta
       const auto dsigma_y_dep = dH_dep * Theta;
       // d(ratio)/d(ep) = -s * dsigma_y_dep / sigma_y^2
@@ -182,7 +185,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
       // d(exp_arg)/d(ep) = dratio_dep / C
       const auto dexp_arg_dep = dratio_dep / _C;
       // d(ep_dot)/d(ep) = ep_dot * dexp_arg_dep (ignoring Heaviside derivative)
-      const auto dep_dot_dep = ep_dot * dexp_arg_dep;
+      const auto dep_dot_dep = ep_dot * exp_arg_active * dexp_arg_dep;
       _ep_dot.d(_ep) = dep_dot_dep;
     }
 
@@ -200,7 +203,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
       // d(exp_arg)/d(T) = dratio_dT / C
       const auto dexp_arg_dT = dratio_dT / _C;
       // d(ep_dot)/d(T) = ep_dot * dexp_arg_dT
-      const auto dep_dot_dT = ep_dot * dexp_arg_dT;
+      const auto dep_dot_dT = ep_dot * exp_arg_active * dexp_arg_dT;
       _ep_dot.d(*_T) = dep_dot_dT;
     }
   }
