@@ -107,7 +107,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
 
   // Strain hardening: H = A + B * ep^n
   // Use max(ep, eps_min) to avoid 0^n issues
-  const auto ep_safe = Scalar(_ep) + eps_min;
+  const auto ep_safe = _ep() + eps_min;
   const auto ep_pow_n = pow(ep_safe, _n);
   const auto H = _A + _B * ep_pow_n;
 
@@ -118,7 +118,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
   {
     // T* = (T - T_ref) / (T_melt - T_ref)
     const auto dT = _T_melt - _T_ref;
-    T_star = (Scalar(*_T) - _T_ref) / dT;
+    T_star = ((*_T)() - _T_ref) / dT;
     // Clamp T* to [0, 0.9999] to avoid Theta = 0 or negative
     T_star = macaulay(T_star);  // max(T_star, 0)
     const auto T_star_max = Scalar::full(0.9999, _s.options());
@@ -138,7 +138,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
 
   // Stress ratio: ratio = sigma_vm / sigma_y
   const auto sigma_y_safe = sigma_y + eps_min;  // Avoid division by zero
-  const auto ratio = Scalar(_s) / sigma_y_safe;
+  const auto ratio = _s() / sigma_y_safe;
 
   // Exponential argument: (ratio - 1) / C
   // Clamp to [-20, 20] for numerical stability
@@ -178,7 +178,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
       // d(sigma_y)/dep = dH/dep * Theta
       const auto dsigma_y_dep = dH_dep * Theta;
       // d(ratio)/d(ep) = -s * dsigma_y_dep / sigma_y^2
-      const auto dratio_dep = -Scalar(_s) * dsigma_y_dep / (sigma_y_safe * sigma_y_safe);
+      const auto dratio_dep = -_s() * dsigma_y_dep / (sigma_y_safe * sigma_y_safe);
       // d(exp_arg)/d(ep) = dratio_dep / C
       const auto dexp_arg_dep = dratio_dep / _C;
       // d(ep_dot)/d(ep) = ep_dot * dexp_arg_dep (ignoring Heaviside derivative)
@@ -196,7 +196,7 @@ JohnsonCookFlowRate::set_value(bool out, bool dout_din, bool d2out_din2)
       // d(sigma_y)/d(T) = H * dTheta_dT
       const auto dsigma_y_dT = H * dTheta_dT;
       // d(ratio)/d(T) = -s * dsigma_y_dT / sigma_y^2
-      const auto dratio_dT = -Scalar(_s) * dsigma_y_dT / (sigma_y_safe * sigma_y_safe);
+      const auto dratio_dT = -_s() * dsigma_y_dT / (sigma_y_safe * sigma_y_safe);
       // d(exp_arg)/d(T) = dratio_dT / C
       const auto dexp_arg_dT = dratio_dT / _C;
       // d(ep_dot)/d(T) = ep_dot * dexp_arg_dT

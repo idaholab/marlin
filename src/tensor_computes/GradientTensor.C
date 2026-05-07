@@ -11,6 +11,10 @@
 #include "MarlinUtils.h"
 #include "TensorProblem.h"
 
+#ifdef NEML2_ENABLED
+#include "neml2/tensors/Scalar.h"
+#endif
+
 registerMooseObject("MarlinApp", GradientTensor);
 
 InputParameters
