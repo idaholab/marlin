@@ -76,16 +76,23 @@ v=200
     heights = '${units 3 in -> m}'
     num_layers = 50 # adjust for mesh resolution
   []
-  [face]
+  [impact_face]
     type = SideSetsAroundSubdomainGenerator
     block = 1
     input = extrude
-    new_boundary = face
+    new_boundary = impact_face
+    normal = '0 -1 0'
+  []
+  [back_face]
+    type = SideSetsAroundSubdomainGenerator
+    block = 1
+    input = impact_face
+    new_boundary = back_face
     normal = '0 1 0'
   []
 []
 
-# set velocity in y direction
+# set velocity in the -y direction
 [ICs]
   [current]
     type = ConstantIC
@@ -96,7 +103,7 @@ v=200
   [old]
     type = ConstantIC
     variable = disp_y
-    value = ${fparse -v*dt}
+    value = ${fparse v*dt}
     state = OLD
   []
 []
@@ -105,7 +112,7 @@ v=200
 [Functions]
   [anvil]
     type = ParsedFunction
-    expression = 'if(y>0, -y*${units 20000 GPa -> Pa}, 0)'
+    expression = 'if(y<0, -y*${units 20000 GPa -> Pa}, 0)'
   []
 []
 [BCs]
@@ -113,7 +120,7 @@ v=200
     type = FunctionNeumannBC
     function = anvil
     variable = disp_y
-    boundary = face
+    boundary = impact_face
     use_displaced_mesh = true
   []
 []
