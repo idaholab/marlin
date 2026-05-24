@@ -34,7 +34,7 @@ LatticeBoltzmannProblem::validParams()
 
   params.addParam<unsigned int>("substeps", 1, "Number of LBM iterations for every MOOSE timestep");
   params.addParam<unsigned int>("log_interval", 1, "Interval for logging LBM substep information");
-  params.addParam<Real>("tolerance", 1.0e-15, "LBM convergence tolerance");
+  params.addParam<Real>("tolerance", 1.0e-10, "LBM convergence tolerance");
   params.addClassDescription("Problem object to enable solving lattice Boltzmann problems");
 
   return params;
@@ -90,9 +90,6 @@ LatticeBoltzmannProblem::init()
 void
 LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
 {
-  if (_convergence_residual < _tolerance)
-    return;
-
   if (exec_type == EXEC_INITIAL)
   {
     // check for constants
@@ -150,6 +147,9 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
                  << _convergence_residual << COLOR_DEFAULT << std::endl;
 
       _t_total++;
+
+      if (_convergence_residual < _tolerance)
+        return;
     }
 
   if (exec_type == EXEC_TIMESTEP_END)

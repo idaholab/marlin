@@ -24,7 +24,8 @@ void addDataToHDF5(hid_t file_id,
                    const std::string & dataset_name,
                    const char * data,
                    const std::vector<std::size_t> & ndim,
-                   hid_t type);
+                   hid_t type,
+                   bool enable_compression);
 }
 #endif
 
@@ -37,6 +38,7 @@ XDMFTensorOutput::validParams()
   params.addClassDescription("Output a tensor in XDMF format.");
 #ifdef LIBMESH_HAVE_HDF5
   params.addParam<bool>("enable_hdf5", false, "Use HDF5 for binary data storage.");
+  params.addParam<bool>("hdf5_compression", true, "Enable DEFLATE compression for HDF5 datasets.");
 #endif
   MultiMooseEnum outputMode("CELL NODE OVERSIZED_NODAL");
   outputMode.addDocumentation("CELL", "Output as discontinuous elemental fields.");
@@ -68,6 +70,7 @@ XDMFTensorOutput::XDMFTensorOutput(const InputParameters & parameters)
 #ifdef LIBMESH_HAVE_HDF5
     ,
     _enable_hdf5(getParam<bool>("enable_hdf5")),
+    _hdf5_compression(getParam<bool>("hdf5_compression")),
     _hdf5_name(_file_base + (_is_parallel ? rankTag(_rank) : std::string()) + ".h5")
 #endif
 {
@@ -345,7 +348,7 @@ XDMFTensorOutput::writeLocalData()
         else
           mooseError("Unsupported output type");
 
-        addDataToHDF5(_hdf5_file_id, setname, raw_ptr, dims, hdf_type);
+        addDataToHDF5(_hdf5_file_id, setname, raw_ptr, dims, hdf_type, _hdf5_compression);
       }
       else
 #endif
@@ -584,13 +587,14 @@ addDataToHDF5(hid_t file_id,
               const std::string & dataset_name,
               const char * data,
               const std::vector<std::size_t> & ndim,
-              hid_t type)
+              hid_t type,
+              bool enable_compression)
 {
-  hid_t dataset_id, dataspace_id, plist_id;
+  hid_t dataset_id, dataspace_id;
+  hid_t plist_id = H5P_DEFAULT;
   herr_t status;
 
   // Open the file in read/write mode, create if it doesn't exist
-
   // hsize_t chunk_dims[RANK];
   std::vector<hsize_t> dims(ndim.begin(), ndim.end());
 
@@ -603,23 +607,27 @@ addDataToHDF5(hid_t file_id,
   if (dataspace_id < 0)
     mooseError("Error creating dataspace");
 
-  plist_id = H5Pcreate(H5P_DATASET_CREATE);
-  if (plist_id < 0)
-    mooseError("Error creating property list");
-
-  status = H5Pset_chunk(plist_id, dims.size(), dims.data());
-  if (status < 0)
-    mooseError("Error setting chunking");
-
-  if (H5Zfilter_avail(H5Z_FILTER_DEFLATE))
+  // only setup chunking and compression if requested
+  if (enable_compression)
   {
-    unsigned filter_info;
-    H5Zget_filter_info(H5Z_FILTER_DEFLATE, &filter_info);
-    if (filter_info & H5Z_FILTER_CONFIG_ENCODE_ENABLED)
+    plist_id = H5Pcreate(H5P_DATASET_CREATE);
+    if (plist_id < 0)
+      mooseError("Error creating property list");
+
+    status = H5Pset_chunk(plist_id, dims.size(), dims.data());
+    if (status < 0)
+      mooseError("Error setting chunking");
+
+    if (H5Zfilter_avail(H5Z_FILTER_DEFLATE))
     {
-      status = H5Pset_deflate(plist_id, 9);
-      if (status < 0)
-        mooseError("Error setting compression filter");
+      unsigned filter_info;
+      H5Zget_filter_info(H5Z_FILTER_DEFLATE, &filter_info);
+      if (filter_info & H5Z_FILTER_CONFIG_ENCODE_ENABLED)
+      {
+        status = H5Pset_deflate(plist_id, 9);
+        if (status < 0)
+          mooseError("Error setting compression filter");
+      }
     }
   }
 
@@ -648,8 +656,10 @@ addDataToHDF5(hid_t file_id,
   // Write data to the dataset
   status = H5Dwrite(dataset_id, type, H5S_ALL, dataspace_id, H5P_DEFAULT, data);
 
-  // Close resources
-  H5Pclose(plist_id);
+  // Close resources carefully (only close plist_id if we actually created it)
+  if (enable_compression)
+    H5Pclose(plist_id);
+
   H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
 }
