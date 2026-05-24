@@ -258,7 +258,9 @@ LBMCollisionDynamicsTempl<1>::MRTDynamics()
   {
     torch::mm_out(_m_neq_flat, fneq_flat, _stencil._M.t());
     _m_neq_flat.mul_(_input_relaxation_matrix.view({N, Q}));
-    u_flat.addmm_(_m_neq_flat, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
+    // u_flat.addmm_(_m_neq_flat, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
+    auto correction = torch::mm(_m_neq_flat, _stencil._M_inv.t());
+    u_flat.sub_(correction);
   }
 
   _u_owned = ownedView(_u);
@@ -304,7 +306,9 @@ LBMCollisionDynamicsTempl<3>::SmagorinskyMRTDynamics()
 
   _u.copy_(_feq);
   _u.add_(_fneq);
-  _u.view({N, Q}).addmm_(m_neq_relaxed, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
+  // _u.view({N, Q}).addmm_(m_neq_relaxed, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
+  auto correction = torch::mm(m_neq_relaxed, _stencil._M_inv.t());
+  _u.view({N, Q}).sub_(correction);
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
