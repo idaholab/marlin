@@ -111,7 +111,7 @@ Now build Marlin with custom `LDFLAGS` to ensure that the torch libraries are fo
 
 ```
 cd ..
-make CXXFLAGS="-fiopenmp" LDFLAGS="-fiopenmp -lintel-ext-pt-gpu -Wl,--disable-new-dtags -Wl,-rpath,${INTEL_TORCH}/lib -L${INTEL_TORCH}/lib -Wl,-rpath,${LIBTORCH_DIR}/lib" -j32
+make CXXFLAGS="-fiopenmp -DPETSC_PKG_PARMETIS_VERSION_MAJOR=4 -DPETSC_PKG_PARMETIS_VERSION_MINOR=0 -DPETSC_PKG_PARMETIS_VERSION_SUBMINOR=3" LDFLAGS="-fiopenmp -lintel-ext-pt-gpu -Wl,--disable-new-dtags -Wl,-rpath,${INTEL_TORCH}/lib -L${INTEL_TORCH}/lib -Wl,-rpath,${LIBTORCH_DIR}/lib" -j32
 ```
 
 To run the code make sure each time your environment in `MARLIN_DIR` is set up with
