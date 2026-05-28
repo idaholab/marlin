@@ -25,6 +25,8 @@ public:
 protected:
   torch::Tensor padScalarField();
   torch::Tensor prepareInputField();
+  torch::Tensor stencilConvolve3D(const torch::Tensor & field,
+                                  const torch::Tensor & kernel_flat) const;
 
   const torch::Tensor & _scalar_field;
   const int64_t _padding = 1;
@@ -32,5 +34,4 @@ protected:
 
   torch::Tensor _kernel;
   torch::nn::functional::Conv2dFuncOptions _conv2d_options;
-  torch::nn::functional::Conv3dFuncOptions _conv3d_options;
 };

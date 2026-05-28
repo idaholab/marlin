@@ -52,7 +52,6 @@ LBMIsotropicGradient::LBMIsotropicGradient(const InputParameters & parameters)
       _kernel.index_put_({Slice(), Slice(), Slice(), 1}, kernel_of_kernel * ey3x3x3);
       _kernel.index_put_({Slice(), Slice(), Slice(), 2}, kernel_of_kernel * ez3x3x3);
 
-      _conv3d_options.bias(torch::Tensor()).stride({1, 1, 1}).padding(0);
       break;
     }
     case 2:
@@ -135,6 +134,40 @@ LBMIsotropicGradient::prepareInputField()
   return _scalar_field;
 }
 
+torch::Tensor
+LBMIsotropicGradient::stencilConvolve3D(const torch::Tensor & field,
+                                        const torch::Tensor & kernel_flat) const
+{
+  // field:        [Nx+2p, Ny+2p, Nz+2p]  (padded / ghost-layer field)
+  // kernel_flat:  [Q, out_channels]       (per-direction weights for each output channel)
+  // returns:      [out_channels, Nx, Ny, Nz]
+
+  const int64_t p = _padding;
+  const int64_t Nx = field.size(0) - 2 * p;
+  const int64_t Ny = field.size(1) - 2 * p;
+  const int64_t Nz = field.size(2) - 2 * p;
+  const int64_t C = kernel_flat.size(1);
+  const int64_t Q = kernel_flat.size(0);
+
+  auto ex_r = torch::index_select(_stencil._ex, 0, _stencil._reorder_indices);
+  auto ey_r = torch::index_select(_stencil._ey, 0, _stencil._reorder_indices);
+  auto ez_r = torch::index_select(_stencil._ez, 0, _stencil._reorder_indices);
+
+  auto result = torch::zeros({C, Nx, Ny, Nz}, field.options());
+
+  for (int64_t m = 0; m < Q; m++)
+  {
+    auto rolled =
+        torch::roll(field,
+                    {-ex_r[m].item<int64_t>(), -ey_r[m].item<int64_t>(), -ez_r[m].item<int64_t>()},
+                    {0, 1, 2});
+    auto interior = rolled.slice(0, p, p + Nx).slice(1, p, p + Ny).slice(2, p, p + Nz);
+    result.add_(kernel_flat.select(0, m).view({C, 1, 1, 1}) * interior.unsqueeze(0));
+  }
+
+  return result;
+}
+
 void
 LBMIsotropicGradient::computeBuffer()
 {
@@ -150,8 +183,8 @@ LBMIsotropicGradient::computeBuffer()
   torch::Tensor result;
   if (dim == 3)
   {
-    auto kernel = _kernel.permute({3, 0, 1, 2}).unsqueeze(1);
-    result = torch::nn::functional::conv3d(input_field, kernel, _conv3d_options);
+    result = stencilConvolve3D(input_field.squeeze(0).squeeze(0),
+                               _kernel.reshape({_stencil._q, (int64_t)dim}));
   }
   else
   {
