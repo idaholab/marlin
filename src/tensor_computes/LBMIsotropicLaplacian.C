@@ -54,8 +54,7 @@ LBMIsotropicLaplacian::computeBuffer()
   torch::Tensor L1;
   if (dim == 3)
   {
-    auto kernel = _kernel.view({1, 1, 3, 3, 3});
-    L1 = torch::nn::functional::conv3d(input_field, kernel, _conv3d_options);
+    L1 = stencilConvolve3D(input_field.squeeze(0).squeeze(0), _kernel.reshape({_stencil._q, 1LL}));
   }
   else
   {
