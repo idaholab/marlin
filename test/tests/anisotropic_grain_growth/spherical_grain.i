@@ -1,4 +1,4 @@
-interface_width = 3.2 #0.8
+interface_width = 1.6 #0.8
 r0 = 15
 
 gbe_max = ${units 0.8 J/m^2}
@@ -9,14 +9,15 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 
 [Domain]
   dim = 3
-  nx = 100
-  ny = 100
-  nz = 100
+  nx = 200
+  ny = 200
+  nz = 200
   xmax = 40
   ymax = 40
   zmax = 40
   mesh_mode = DUMMY
   device_names = 'mps'
+  floating_precision = SINGLE
 []
 
 [TensorComputes]
@@ -117,7 +118,7 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
     reciprocal_buffer = 'etabar'
     linear_reciprocal = 'kappa_linear_term'
     nonlinear_reciprocal = 'smooth_NL'
-    substeps = 1e3
+    substeps = 1e2
     predictor_order = 1
     corrector_order = 1
     corrector_steps = 1
