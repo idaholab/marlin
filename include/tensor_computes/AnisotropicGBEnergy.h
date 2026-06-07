@@ -26,12 +26,13 @@ public:
   virtual void computeBuffer() override;
 
 protected:
-  double epsilonFor(const torch::ScalarType dtype) const;
-
-  const torch::Tensor & _gb_normal_buffer;
+  const torch::Tensor & _gb_gradient_buffer;
   torch::Tensor & _dsigma_dn;
   Moose::DataFileUtils::Path _file_path;
 
   // forward() is not const-qualified
   std::unique_ptr<torch::jit::script::Module> _surrogate;
+
+  const Real _interface_width;
+  Real _gradient_threshold;
 };

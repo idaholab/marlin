@@ -1,5 +1,5 @@
-interface_width = 1.6 #0.8
-r0 = 6
+interface_width = 3.2 #0.8
+r0 = 15
 
 gbe_max = ${units 0.8 J/m^2}
 kappa = ${fparse 0.75 * gbe_max * interface_width }
@@ -8,11 +8,13 @@ L = 1
 g_eta_expr = '(eta^2*(1-eta^2)^2)'
 
 [Domain]
-  dim = 2
-  nx = 200
-  ny = 200
+  dim = 3
+  nx = 100
+  ny = 100
+  nz = 100
   xmax = 40
   ymax = 40
+  zmax = 40
   mesh_mode = DUMMY
   device_names = 'mps'
 []
@@ -23,7 +25,7 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             type = ParsedCompute
             buffer = 'eta'
             extra_symbols = 'true'
-            expression = 'radius:=sqrt((x-${Domain/xmax}/2)^2+(y-${Domain/ymax}/2)^2);0.5 - 0.5*tanh(2*(radius-${r0})/${interface_width})'
+            expression = 'radius:=sqrt((x-${Domain/xmax}/2)^2+(y-${Domain/ymax}/2)^2+(z-${Domain/zmax}/2)^2);0.5 - 0.5*tanh(2*(radius-${r0})/${interface_width})'
         []
         [kappa_linear_term]
             type = ReciprocalLaplacianFactor
@@ -82,24 +84,6 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             dmu_dn = dmu_dn
             g = g
         []
-
-        [fft_torque]
-            type = ForwardFFT
-            buffer = fft_torque
-            input = anisotropy_torque
-        []
-        [smooth_fft_torque]
-            type = ParsedCompute
-            buffer = 'smooth_fft_torque'
-            expression = 'smooth * fft_torque'
-            inputs = 'smooth fft_torque'
-        []
-        [smooth_torque]
-            type = InverseFFT
-            buffer = smooth_torque
-            input = smooth_fft_torque
-        []
-
         [total_mu_driving_force]
             type = ParsedCompute
             buffer = 'total_mu_driving_force'
@@ -133,7 +117,7 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
     reciprocal_buffer = 'etabar'
     linear_reciprocal = 'kappa_linear_term'
     nonlinear_reciprocal = 'smooth_NL'
-    substeps = 1e2
+    substeps = 1e3
     predictor_order = 1
     corrector_order = 1
     corrector_steps = 1
@@ -142,8 +126,8 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 [TensorOutputs]
     [xdmf]
         type = XDMFTensorOutput
-        buffer = 'eta grad_eta gb_energy dsigma_dn mu g anisotropy_torque total_mu_driving_force smooth_torque'
-        output_mode = 'NODE NODE NODE NODE NODE NODE NODE NODE NODE'
+        buffer = 'eta gb_energy'
+        output_mode = 'NODE NODE'
         enable_hdf5 = true
         transpose = false
     []
@@ -151,8 +135,8 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 
 [Executioner]
     type = Transient
-    dt = 1e-1
-    num_steps = 100
+    dt = 1.0
+    num_steps = 10
 []
 
 [Outputs]
