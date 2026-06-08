@@ -124,8 +124,8 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
         [interface_energy]
             type = ParsedCompute
             buffer = interface_energy
-            expression = 'g_eta * mu - kappa_laplacian_eta'
-            inputs = 'g_eta mu kappa_laplacian_eta'
+            expression = 'g * 6 * gb_energy / ${interface_width} - kappa_laplacian_eta'
+            inputs = 'g gb_energy kappa_laplacian_eta'
         []
     []
 []
