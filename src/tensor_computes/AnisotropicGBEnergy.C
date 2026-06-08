@@ -66,8 +66,9 @@ AnisotropicGBEnergy::computeBuffer()
   auto gb_gradient = _gb_gradient_buffer.reshape({batch_size, 3}).contiguous().detach();
 
   // ── 1. Compute valid mask on full grid (cheap) ────────────────────────
-  auto grad_mag = torch::sqrt((gb_gradient * gb_gradient).sum(/*dim=*/1, /*keepdim=*/true)); // [B, 1]
-  auto valid_mask = (grad_mag.squeeze(1) >= _gradient_threshold); // [B]
+  auto grad_mag =
+      torch::sqrt((gb_gradient * gb_gradient).sum(/*dim=*/1, /*keepdim=*/true)); // [B, 1]
+  auto valid_mask = (grad_mag.squeeze(1) >= _gradient_threshold);                // [B]
 
   // ── 2. Pre-filter to interface points only ────────────────────────────
   auto valid_idx = torch::where(valid_mask)[0]; // [N_interface]
@@ -77,29 +78,53 @@ AnisotropicGBEnergy::computeBuffer()
   auto gamma_full = torch::zeros({batch_size}, gb_gradient.options());
   auto dσ_dg_full = torch::zeros({batch_size, 3}, gb_gradient.options());
 
+  // if (N_interface > 0)
+  // {
+  //   // Select only interface points — this is the only tensor autograd tracks
+  //   auto gb_grad_valid = gb_gradient.index_select(0, valid_idx)
+  //                                   .requires_grad_(true); // [N_interface, 3]
+  //   auto grad_mag_valid = grad_mag.index_select(0, valid_idx); // [N_interface, 1]
+
+  //   // ── 3. Normalize directions ──────────────────────────────────────────
+  //   auto n_hat = gb_grad_valid / grad_mag_valid; // [N_interface, 3]
+
+  //   // ── 4. Forward pass — now [N_interface, E] instead of [B, E] ────────
+  //   auto gamma_valid = _surrogate->forward({n_hat}).toTensor().reshape({N_interface});
+
+  //   // ── 5. Autograd over N_interface points only ─────────────────────────
+  //   auto grads = torch::autograd::grad({gamma_valid.sum()},
+  //                                      {gb_grad_valid},
+  //                                      /*grad_outputs=*/{},
+  //                                      /*retain_graph=*/false,
+  //                                      /*create_graph=*/false,
+  //                                      /*allow_unused=*/false);
+  //   auto dσ_dg_valid = grads[0]; // [N_interface, 3]
+
+  //   // ── 6. Scatter results back to full grid ─────────────────────────────
+  //   gamma_full.index_put_({valid_idx}, gamma_valid.detach());
+  //   dσ_dg_full.index_put_({valid_idx}, dσ_dg_valid.detach());
+  // }
   if (N_interface > 0)
   {
-    // Select only interface points — this is the only tensor autograd tracks
-    auto gb_grad_valid = gb_gradient.index_select(0, valid_idx)
-                                    .requires_grad_(true); // [N_interface, 3]
-    auto grad_mag_valid = grad_mag.index_select(0, valid_idx); // [N_interface, 1]
+    auto gb_grad_valid =
+        gb_gradient.index_select(0, valid_idx).requires_grad_(true); // [N_interface, 3]
 
-    // ── 3. Normalize directions ──────────────────────────────────────────
+    // Recompute from the leaf so autograd differentiates through normalization
+    auto grad_mag_valid = torch::sqrt(
+        (gb_grad_valid * gb_grad_valid).sum(/*dim=*/1, /*keepdim=*/true)); // [N_interface, 1]
+
     auto n_hat = gb_grad_valid / grad_mag_valid; // [N_interface, 3]
 
-    // ── 4. Forward pass — now [N_interface, E] instead of [B, E] ────────
     auto gamma_valid = _surrogate->forward({n_hat}).toTensor().reshape({N_interface});
 
-    // ── 5. Autograd over N_interface points only ─────────────────────────
     auto grads = torch::autograd::grad({gamma_valid.sum()},
                                        {gb_grad_valid},
                                        /*grad_outputs=*/{},
                                        /*retain_graph=*/false,
                                        /*create_graph=*/false,
                                        /*allow_unused=*/false);
-    auto dσ_dg_valid = grads[0]; // [N_interface, 3]
+    auto dσ_dg_valid = grads[0];
 
-    // ── 6. Scatter results back to full grid ─────────────────────────────
     gamma_full.index_put_({valid_idx}, gamma_valid.detach());
     dσ_dg_full.index_put_({valid_idx}, dσ_dg_valid.detach());
   }
@@ -123,7 +148,8 @@ AnisotropicGBEnergy::computeBuffer()
 //   std::vector<int64_t> output_shape(_gb_gradient_buffer.sizes().begin(),
 //                                     _gb_gradient_buffer.sizes().end() - 1);
 
-//   auto gb_gradient = _gb_gradient_buffer.reshape({batch_size, 3}).contiguous().detach().requires_grad_(true);
+//   auto gb_gradient = _gb_gradient_buffer.reshape({batch_size,
+//   3}).contiguous().detach().requires_grad_(true);
 
 //   // ── 1. Compute regularized magnitude and normalized directions ──────────
 //   // auto directions = gb_gradient;
@@ -134,11 +160,11 @@ AnisotropicGBEnergy::computeBuffer()
 //   auto mask3 = valid_mask.unsqueeze(1).expand({batch_size, 3}); // [B, 3]
 //   // ── 2. Detach n_hat — this is the autograd leaf, NOT directions ─────────
 //   //    Autograd will give us dσ/dn̂ cleanly, with no 1/|∇η| blowup
-//   auto n_hat = torch::where(mask3, gb_gradient / grad_mag, torch::zeros_like(gb_gradient)); // [B, 3]
+//   auto n_hat = torch::where(mask3, gb_gradient / grad_mag, torch::zeros_like(gb_gradient)); //
+//   [B, 3]
 
 //   // ── 3. Forward pass through torchscript hull model ──────────────────────
 //   auto gamma = _surrogate->forward({n_hat}).toTensor().reshape({batch_size});
-
 
 //   // // ── 4. Get dσ/dn̂ via autograd — clean, no singularity ──────────────────
 //   auto grads = torch::autograd::grad({gamma.sum()},

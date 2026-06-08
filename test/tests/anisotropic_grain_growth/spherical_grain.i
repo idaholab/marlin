@@ -53,17 +53,11 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             libtorch_model_file = '/Users/bhavcv/projects/torch-gb5dof/gb_energy_hull_3d.pt'
             interface_width = ${interface_width}
         []
-        [mu]
-            type = ParsedCompute
-            buffer = 'mu'
-            expression = '6 * gb_energy / ${interface_width}'
-            inputs = 'gb_energy'
-        []
         [bulk_driving_force]
             type = ParsedCompute
             buffer = 'bulk_driving_force'
-            expression = 'mu * ${g_eta_expr}'
-            inputs = 'mu eta'
+            expression = '6 * gb_energy * ${g_eta_expr} / ${interface_width}'
+            inputs = 'mu eta gb_energy'
             derivatives = 'eta'
         []
         [dmu_dn]

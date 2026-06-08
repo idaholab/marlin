@@ -1,7 +1,7 @@
-interface_width = 1.6 #0.8
-r0 = 6
+interface_width = 1.6
+r0 = 15
 
-gbe_max = ${units 0.8 J/m^2}
+gbe_max = ${units 0.9 J/m^2}
 kappa = ${fparse 0.75 * gbe_max * interface_width }
 L = 1
 
@@ -14,7 +14,8 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
   xmax = 40
   ymax = 40
   mesh_mode = DUMMY
-  device_names = 'mps'
+#   device_names = 'mps'
+#   floating_precision = SINGLE
 []
 
 [TensorComputes]
@@ -50,17 +51,11 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             libtorch_model_file = '/Users/bhavcv/projects/torch-gb5dof/gb_energy_hull_3d.pt'
             interface_width = ${interface_width}
         []
-        [mu]
-            type = ParsedCompute
-            buffer = 'mu'
-            expression = '6 * gb_energy / ${interface_width}'
-            inputs = 'gb_energy'
-        []
         [bulk_driving_force]
             type = ParsedCompute
             buffer = 'bulk_driving_force'
-            expression = 'mu * ${g_eta_expr}'
-            inputs = 'mu eta'
+            expression = '6 * gb_energy * ${g_eta_expr} / ${interface_width}'
+            inputs = 'mu eta gb_energy'
             derivatives = 'eta'
         []
         [dmu_dn]
@@ -82,24 +77,6 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             dmu_dn = dmu_dn
             g = g
         []
-
-        [fft_torque]
-            type = ForwardFFT
-            buffer = fft_torque
-            input = anisotropy_torque
-        []
-        [smooth_fft_torque]
-            type = ParsedCompute
-            buffer = 'smooth_fft_torque'
-            expression = 'smooth * fft_torque'
-            inputs = 'smooth fft_torque'
-        []
-        [smooth_torque]
-            type = InverseFFT
-            buffer = smooth_torque
-            input = smooth_fft_torque
-        []
-
         [total_mu_driving_force]
             type = ParsedCompute
             buffer = 'total_mu_driving_force'
@@ -142,8 +119,8 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 [TensorOutputs]
     [xdmf]
         type = XDMFTensorOutput
-        buffer = 'eta grad_eta gb_energy dsigma_dn mu g anisotropy_torque total_mu_driving_force smooth_torque'
-        output_mode = 'NODE NODE NODE NODE NODE NODE NODE NODE NODE'
+        buffer = 'eta gb_energy'
+        output_mode = 'NODE NODE'
         enable_hdf5 = true
         transpose = false
     []
@@ -151,7 +128,7 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 
 [Executioner]
     type = Transient
-    dt = 1e-1
+    dt = 0.1
     num_steps = 100
 []
 
