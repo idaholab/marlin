@@ -1,5 +1,5 @@
-interface_width = 1.6 #0.8
-r0 = 15
+interface_width = 2.0
+r0 = 7.5
 
 gbe_max = ${units 0.8 J/m^2}
 kappa = ${fparse 0.75 * gbe_max * interface_width }
@@ -9,12 +9,12 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 
 [Domain]
   dim = 3
-  nx = 200
-  ny = 200
-  nz = 200
-  xmax = 40
-  ymax = 40
-  zmax = 40
+  nx = 100
+  ny = 100
+  nz = 100
+  xmax = 20
+  ymax = 20
+  zmax = 20
   mesh_mode = DUMMY
   device_names = 'mps'
   floating_precision = SINGLE
@@ -130,8 +130,8 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 
 [Executioner]
     type = Transient
-    dt = 1.0
-    num_steps = 10
+    dt = 0.1
+    num_steps = 200
 []
 
 [Outputs]
