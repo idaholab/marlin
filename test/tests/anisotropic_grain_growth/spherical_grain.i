@@ -38,6 +38,11 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             method = HOULI
             buffer = smooth
         []
+        [kappa_laplacian]
+            type = ReciprocalLaplacianFactor
+            buffer = kappa_laplacian
+            factor = '${kappa}'
+        []
     []
     [Solve]
         [grad_eta_vector]
@@ -103,6 +108,25 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             buffer = etabar
             input = eta
         []
+
+        [kappa_laplacian_etabar]
+            type = ParsedCompute
+            buffer = kappa_laplacian_etabar
+            expression = 'kappa_laplacian * etabar'
+            inputs = 'kappa_laplacian etabar'
+        []
+        [kappa_laplacian_eta]
+            type = InverseFFT
+            buffer = kappa_laplacian_eta
+            input = kappa_laplacian_etabar
+        []
+
+        [interface_energy]
+            type = ParsedCompute
+            buffer = interface_energy
+            expression = 'g_eta * mu - kappa_laplacian_eta'
+            inputs = 'g_eta mu kappa_laplacian_eta'
+        []
     []
 []
 
@@ -125,6 +149,12 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
         output_mode = 'NODE NODE'
         enable_hdf5 = true
         transpose = false
+    []
+[]
+[Postprocessors]
+    [total_gb_energy]
+        type = TensorIntegralPostprocessor
+        buffer = interface_energy
     []
 []
 
