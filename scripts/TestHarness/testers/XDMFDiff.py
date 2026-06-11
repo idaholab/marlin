@@ -46,9 +46,9 @@ class XDMFDiff(FileTester):
 
     def processResultsCommand(self, moose_dir, options):
         commands = []
-        script = os.path.abspath(
-            os.path.join(self.getMooseDir(), "..", "scripts", "xdmfdiff.py")
-        )
+
+        # xdmfdiff script, relative to this tester
+        script_path = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../xdmfdiff.py"))
 
         abs_error = self.specs["abs_error"] if self.specs.isValid("abs_error") else None
         if abs_error is None and self.specs.isValid("abs_tol"):
@@ -59,7 +59,7 @@ class XDMFDiff(FileTester):
         abs_zero = self.specs["abs_zero"] if self.specs.isValid("abs_zero") else None
 
         for file in self.specs["xdmfdiff"]:
-            cmd = [script]
+            cmd = [script_path]
             gold = os.path.join(self.getTestDir(), self.specs["gold_dir"], file)
             test = os.path.join(self.getTestDir(), file)
             cmd.append(gold + " " + test)
