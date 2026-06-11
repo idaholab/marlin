@@ -1,7 +1,7 @@
-interface_width = 1.6
-r0 = 15
+interface_width = 0.8
+r0 = 10
 
-gbe_max = ${units 0.9 J/m^2}
+gbe_max = ${units 0.8 J/m^2}
 kappa = ${fparse 0.75 * gbe_max * interface_width }
 L = 1
 
@@ -9,13 +9,13 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 
 [Domain]
   dim = 2
-  nx = 200
-  ny = 200
+  nx = 400
+  ny = 400
   xmax = 40
   ymax = 40
   mesh_mode = DUMMY
-#   device_names = 'mps'
-#   floating_precision = SINGLE
+  device_names = 'mps'
+  floating_precision = SINGLE
 []
 
 [TensorComputes]
@@ -30,6 +30,11 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             type = ReciprocalLaplacianFactor
             buffer = kappa_linear_term
             factor = ${fparse ${L} * ${kappa} }
+        []
+        [kappa_laplacian]
+            type = ReciprocalLaplacianFactor
+            buffer = kappa_laplacian
+            factor = '${kappa}'
         []
         [smooth]
             type = DeAliasingTensor
@@ -101,6 +106,25 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
             buffer = etabar
             input = eta
         []
+
+        [kappa_laplacian_etabar]
+            type = ParsedCompute
+            buffer = kappa_laplacian_etabar
+            expression = 'kappa_laplacian * etabar'
+            inputs = 'kappa_laplacian etabar'
+        []
+        [kappa_laplacian_eta]
+            type = InverseFFT
+            buffer = kappa_laplacian_eta
+            input = kappa_laplacian_etabar
+        []
+
+        [interface_energy]
+            type = ParsedCompute
+            buffer = interface_energy
+            expression = 'g * 6 * gb_energy / ${interface_width} - kappa_laplacian_eta'
+            inputs = 'g gb_energy kappa_laplacian_eta'
+        []
     []
 []
 
@@ -110,10 +134,17 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
     reciprocal_buffer = 'etabar'
     linear_reciprocal = 'kappa_linear_term'
     nonlinear_reciprocal = 'smooth_NL'
-    substeps = 1e2
+    substeps = 1e3
     predictor_order = 1
     corrector_order = 1
     corrector_steps = 1
+[]
+
+[Postprocessors]
+    [total_gb_energy]
+        type = TensorIntegralPostprocessor
+        buffer = interface_energy
+    []
 []
 
 [TensorOutputs]
@@ -129,7 +160,7 @@ g_eta_expr = '(eta^2*(1-eta^2)^2)'
 [Executioner]
     type = Transient
     dt = 0.1
-    num_steps = 100
+    num_steps = 20
 []
 
 [Outputs]
