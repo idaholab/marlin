@@ -36,7 +36,8 @@
     type = CSVDiff
     input = grain_tracker.i
     csvdiff = grain_tracker_par_out.csv
-    cli_args = "Domain/parallel_mode=REAL_SPACE Postprocessors/inactive='int_eta0 int_eta1' "
+    cli_args = "Domain/parallel_mode=REAL_SPACE Domain/periodic_directions='X Y' "
+               "Postprocessors/inactive='int_eta0 int_eta1' "
                "Outputs/file_base=grain_tracker_par_out"
     requirement = 'The system shall produce identical grain tracking and remapping results in '
                   'REAL_SPACE parallel mode, stitching grains across rank boundaries with '
