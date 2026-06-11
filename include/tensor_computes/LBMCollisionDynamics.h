@@ -36,10 +36,36 @@ public:
 protected:
   const torch::Tensor & _f;
   const torch::Tensor & _feq;
+  /// reference to externally provided relaxation matrix [Nx, Ny, Nz, Q] input buffer
+  const torch::Tensor & _input_relaxation_matrix;
+  /// reference to externally provided relaxation tensor [Nx, Ny, Nz] input buffer
+  const torch::Tensor & _tau_tensor;
+  /// non-equilibrium distribution function
   torch::Tensor _fneq;
-  torch::Tensor _relaxation_parameter;
+  /// local shear stress relaxation tau_s
+  torch::Tensor _local_relaxation_parameter;
+  /// local relaxation matrix [Nx, Ny, Nz, Q] (internally computed for Smagorinsky)
   torch::Tensor _local_relaxation_matrix;
+  /// global relaxation matrix [Q]
   torch::Tensor _global_relaxation_matrix;
+
+  /// Precomputed Matrices for Hermite Projection
+  /// Lattice velocity outer products [Q, 9]
+  torch::Tensor _C_mat;
+  /// Scaled Hermite basis projection operator [9, Q]
+  torch::Tensor _P_mat;
+  /// Pre-allocated flat buffer for non-equilibrium stress tensor [N, 9]
+  torch::Tensor _pi_neq_flat;
+
+  /// MRT Specific Caches
+  /// Precomputed static MRT collision matrix [Q, Q]
+  torch::Tensor _MSM_t;
+  /// Flat buffer for MRT moment space [N, Q]
+  torch::Tensor _m_neq_flat;
+
+  /// Smagorinsky Specific Caches
+  /// Flattened outer products of lattice velocities [Q, 27]
+  torch::Tensor _outer_flat;
 
   std::vector<int64_t> _shape_with_ghost;
 
@@ -47,6 +73,7 @@ protected:
   const Real _C_s;     // Smagorinsky constant
   const Real _delta_x; // grid resolution
   const bool _projection;
+  const bool _is_dynamic_relaxation;
   Real _mean_density;
 };
 

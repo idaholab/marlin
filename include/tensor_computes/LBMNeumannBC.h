@@ -44,4 +44,11 @@ protected:
   int _region_id = 0;
 
   torch::Tensor _feq_boundary;
+  // Cached active views for the current timestep
+  torch::Tensor _feq_owned;
+  torch::Tensor _feq_boundary_owned;
+  // Precomputed direction indices for vectorized boundary assignments
+  torch::Tensor _left_dirs, _right_dirs;
+  torch::Tensor _bottom_dirs, _top_dirs;
+  torch::Tensor _front_dirs, _back_dirs;
 };

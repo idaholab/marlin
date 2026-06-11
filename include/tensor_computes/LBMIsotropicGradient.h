@@ -20,14 +20,18 @@ public:
 
   LBMIsotropicGradient(const InputParameters & parameters);
 
-  torch::Tensor padScalarField();
   virtual void computeBuffer() override;
 
 protected:
+  torch::Tensor padScalarField();
+  torch::Tensor prepareInputField();
+  torch::Tensor stencilConvolve3D(const torch::Tensor & field,
+                                  const torch::Tensor & kernel_flat) const;
+
   const torch::Tensor & _scalar_field;
-  const int64_t _padding = (3 - 1) / 2;
-  torch::IntArrayRef _pad_dims = {_padding, _padding, _padding, _padding};
+  const int64_t _padding = 1;
+  bool _is_interior = false;
 
   torch::Tensor _kernel;
-  torch::nn::functional::Conv2dFuncOptions _conv_options;
+  torch::nn::functional::Conv2dFuncOptions _conv2d_options;
 };

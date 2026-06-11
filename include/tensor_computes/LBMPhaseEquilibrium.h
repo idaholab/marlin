@@ -11,7 +11,7 @@
 #include "LatticeBoltzmannOperator.h"
 
 /**
- * Compute LB equilibrium distribution for phase field
+ * Compute LB equilibrium distribution for phase field parameter
  */
 class LBMPhaseEquilibrium : public LatticeBoltzmannOperator
 {
@@ -24,7 +24,5 @@ public:
 
 protected:
   const torch::Tensor & _phi;
-  const torch::Tensor & _grad_phi;
-  const Real _tau_phi;
-  const Real _D;
+  const torch::Tensor & _velocity;
 };

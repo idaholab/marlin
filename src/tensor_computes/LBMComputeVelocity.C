@@ -66,19 +66,28 @@ LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
 void
 LBMComputeVelocity::computeBuffer()
 {
-  _u.index({Slice(), Slice(), Slice(), 0}) = torch::sum(_f * _stencil._ex, 3) / _rho;
+  const unsigned int dim = _domain.getDim();
+  const int64_t N = _u.numel() / _u.size(-1);
+  const int Q = _f.size(-1);
 
-  if (_dim > 1)
-    _u.index({Slice(), Slice(), Slice(), 1}) = torch::sum(_f * _stencil._ey, 3) / _rho;
-  if (_dim > 2)
-    _u.index({Slice(), Slice(), Slice(), 2}) = torch::sum(_f * _stencil._ez, 3) / _rho;
+  auto u_flat = _u.view({N, _u.size(-1)});
+  auto f_flat = _f.view({N, Q});
+  auto rho_flat = _rho.view({N, 1});
 
-  // include forces
+  // u = f @ e_mat
+  torch::mm_out(u_flat, f_flat, _e_mat);
+  u_flat.div_(rho_flat);
+
   if (getParam<bool>("enable_forces"))
-    _u += _force_tensor / (2.0 * _rho.unsqueeze(3));
-
+  {
+    auto forces_flat = _force_tensor.slice(-1, 0, dim).reshape({N, dim});
+    u_flat.addcdiv_(forces_flat, rho_flat, /*value=*/0.5);
+  }
   if (getParam<bool>("add_body_force"))
-    _u += _body_forces / (2.0 * _rho.unsqueeze(3));
+  {
+    auto body_forces_flat = _body_forces.slice(-1, 0, dim).reshape({N, dim});
+    u_flat.addcdiv_(body_forces_flat, rho_flat, /*value=*/0.5);
+  }
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);

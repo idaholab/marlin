@@ -5,37 +5,34 @@
 /*            Copyright 2024 Battelle Energy Alliance, LLC            */
 /*                        ALL RIGHTS RESERVED                         */
 /**********************************************************************/
-
 #pragma once
 
-#include "TensorOperator.h"
-
-#ifdef NEML2_ENABLED
-#include "neml2/tensors/Scalar.h"
-#include "neml2/tensors/Vec.h"
-using GradientTensorType = neml2::Vec;
-#else
-using GradientTensorType = torch::Tensor;
-#endif
+#include "LatticeBoltzmannOperator.h"
 
 /**
- * Gradient of a tensor field
+ * Compute object for the force distribution function (source term) for phase field model.
  */
-class GradientTensor : public TensorOperator<GradientTensorType>
+class LBMForceDistribution : public LatticeBoltzmannOperator
 {
 public:
   static InputParameters validParams();
 
-  GradientTensor(const InputParameters & parameters);
+  LBMForceDistribution(const InputParameters & parameters);
 
   virtual void computeBuffer() override;
 
-  /// Parallel FFT uses MPI communication which cannot be JIT traced
-  virtual bool supportsJIT() const override { return !usesParallelFFT(); }
-
 protected:
-  const torch::Tensor & _input;
-  const bool _input_is_reciprocal;
+  void computeSourceTerm();
 
-  const torch::Tensor _zero;
+  const torch::Tensor & _grad_phi;
+  const torch::Tensor & _velocity;
+  const torch::Tensor & _forces;
+  const torch::Tensor & _tau_tensor;
+
+  torch::Tensor _source_term;
+
+  const Real _tau;
+  const Real _rho_l;
+  const Real _rho_g;
+  const bool _is_dynamic_relaxation;
 };

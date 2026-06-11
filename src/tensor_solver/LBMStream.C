@@ -79,21 +79,24 @@ LBMStream::computeBuffer()
   const auto n_old = _variables[0]._f_old.size();
   if (n_old != 0 && _radius == 0)
   {
-    // serial streaming
+    // serial streaming - pre-extract shift values to avoid repeated item<int64_t>() dispatch
+    std::vector<std::array<int64_t, 3>> shifts(_stencil._q);
+    for (int i = 0; i < _stencil._q; i++)
+    {
+      shifts[i] = {_stencil._ex[i].item<int64_t>(),
+                   _stencil._ey[i].item<int64_t>(),
+                   _stencil._ez[i].item<int64_t>()};
+    }
+
     for (auto & [u, f_old] : _variables)
     {
       // do not overwrite previous
       u = u.clone();
       for (int i = 0; i < _stencil._q; i++)
       {
-        u.index_put_({Slice(), Slice(), Slice(), i},
-                     torch::roll(f_old[0].index({Slice(), Slice(), Slice(), i}),
-                                 /* shifts = */
-                                 {_stencil._ex[i].item<int64_t>(),
-                                  _stencil._ey[i].item<int64_t>(),
-                                  _stencil._ez[i].item<int64_t>()},
-                                 /* dims = */
-                                 {0, 1, 2}));
+        u.select(3, i).copy_(torch::roll(f_old[0].select(3, i),
+                                         /* shifts = */ {shifts[i][0], shifts[i][1], shifts[i][2]},
+                                         /* dims = */ {0, 1, 2}));
       }
       _lb_problem.maskedFillSolids(u, 0);
     }
@@ -101,9 +104,17 @@ LBMStream::computeBuffer()
   else if (n_old != 0 && _radius > 0)
   {
     // streaming with ghost layers
-    // get domain info for slicing
     const auto owned = _lb_problem.getExtendedShape();
     const int64_t halo = _lb_problem.getGhostRadius();
+
+    // Pre-extract shift values to avoid repeated item<int64_t>() dispatch per variable
+    std::vector<std::array<int64_t, 3>> shifts(_stencil._q);
+    for (int i = 0; i < _stencil._q; i++)
+    {
+      shifts[i] = {_stencil._ex[i].item<int64_t>(),
+                   _stencil._ey[i].item<int64_t>(),
+                   _stencil._ez[i].item<int64_t>()};
+    }
 
     for (auto & [u, f_old] : _variables)
     {
@@ -119,18 +130,12 @@ LBMStream::computeBuffer()
 
       for (int i = 0; i < _stencil._q; i++)
       {
-        // shifts
-        int64_t shifts[] = {_stencil._ex[i].item<int64_t>(),
-                            _stencil._ey[i].item<int64_t>(),
-                            _stencil._ez[i].item<int64_t>()};
-
-        // stream via slicing
+        // stream via slicing with pre-extracted shifts
         auto f_shifted = f_old[0];
         for (unsigned int d = 0; d < _dim; d++)
-          f_shifted = f_shifted.narrow(d, halo - shifts[d], owned[d]);
+          f_shifted = f_shifted.narrow(d, halo - shifts[i][d], owned[d]);
 
-        u_owned.index_put_({Slice(), Slice(), Slice(), i},
-                           f_shifted.index({Slice(), Slice(), Slice(), i}));
+        u_owned.select(3, i).copy_(f_shifted.select(3, i));
       }
 
       _lb_problem.maskedFillSolids(u_owned, 0);

@@ -164,7 +164,7 @@
 
 [TensorSolver]
   type = LBMStream
-  root_compute=residual
+  root_compute = residual
   buffer = f
   f_old = fpc
 []

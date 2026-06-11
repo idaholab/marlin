@@ -17,6 +17,8 @@
 #include "MarlinUtils.h"
 #include "DependencyResolverInterface.h"
 
+#include "Executioner.h"
+
 registerMooseObject("MarlinApp", LatticeBoltzmannProblem);
 
 InputParameters
@@ -29,11 +31,10 @@ LatticeBoltzmannProblem::validParams()
       "Values: 0 = solid (closed cell, no flow), 1 = fluid (open cell, flow allowed). "
       "Internal solid boundaries must use 'boundary = wall' in boundary conditions. "
       "Domain edge boundaries (top/bottom/left/right/front/back) are specified separately.");
-  params.addParam<bool>("enable_slip", false, "Enable slip model");
-  // params.addParam<Real>("mfp", 0.0, "Mean free path of the system, (meters)");
-  // params.addParam<Real>("dx", 0.0, "Domain resolution, (meters)");
+
   params.addParam<unsigned int>("substeps", 1, "Number of LBM iterations for every MOOSE timestep");
-  params.addParam<Real>("tolerance", 1.0e-15, "LBM convergence tolerance");
+  params.addParam<unsigned int>("log_interval", 1, "Interval for logging LBM substep information");
+  params.addParam<Real>("tolerance", 1.0e-10, "LBM convergence tolerance");
   params.addClassDescription("Problem object to enable solving lattice Boltzmann problems");
 
   return params;
@@ -42,10 +43,8 @@ LatticeBoltzmannProblem::validParams()
 LatticeBoltzmannProblem::LatticeBoltzmannProblem(const InputParameters & parameters)
   : TensorProblem(parameters),
     _is_binary_media(isParamValid("binary_media")),
-    _enable_slip(getParam<bool>("enable_slip")),
-    /*_mfp(getParam<Real>("mfp")),
-    _dx(getParam<Real>("dx")),*/
     _lbm_substeps(getParam<unsigned int>("substeps")),
+    _log_interval(getParam<unsigned int>("log_interval")),
     _tolerance(getParam<Real>("tolerance"))
 {
   if (_domain.comm().size() > 1)
@@ -91,9 +90,6 @@ LatticeBoltzmannProblem::init()
 void
 LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
 {
-  if (_convergence_residual < _tolerance)
-    return;
-
   if (exec_type == EXEC_INITIAL)
   {
     // check for constants
@@ -138,10 +134,22 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
       // run computes
       for (auto & cmp : _computes)
         cmp->computeBuffer();
-      _console << COLOR_WHITE << "Lattice Boltzmann Substep " << substep << ", Residual "
-               << _convergence_residual << COLOR_DEFAULT << std::endl;
+
+      if (std::isnan(_convergence_residual))
+      {
+        _console << COLOR_RED << "Aborting at Lattice Boltzmann Substep " << substep
+                 << ", Residual " << _convergence_residual << COLOR_DEFAULT << std::endl;
+        getMooseApp().getExecutioner()->fixedPointSolve().failStep();
+        break;
+      }
+      if (substep % _log_interval == 0)
+        _console << COLOR_WHITE << "Lattice Boltzmann Substep " << substep << ", Residual "
+                 << _convergence_residual << COLOR_DEFAULT << std::endl;
 
       _t_total++;
+
+      if (_convergence_residual < _tolerance)
+        return;
     }
 
   if (exec_type == EXEC_TIMESTEP_END)

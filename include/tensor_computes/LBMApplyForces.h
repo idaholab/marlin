@@ -11,7 +11,7 @@
 #include "LatticeBoltzmannOperator.h"
 
 /**
- * Apply forces forces
+ * Apply forces
  */
 class LBMApplyForces : public LatticeBoltzmannOperator
 {
@@ -29,7 +29,13 @@ protected:
   const torch::Tensor & _forces;
 
   std::vector<int64_t> _shape_q_with_ghost;
-  torch::Tensor _source_term = torch::zeros(_shape_q, MooseTensor::floatTensorOptions());
+
+  // Uninitialized here, allocated in constructor
+  torch::Tensor _source_term;
+
+  // --- Precomputed Cache ---
+  /// Projection matrix: (weights / cs2) * e_i -> Shape [dim, Q]
+  torch::Tensor _P_mat;
 
   const Real _tau;
 };

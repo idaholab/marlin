@@ -28,7 +28,9 @@ LBMComputeDensity::LBMComputeDensity(const InputParameters & parameters)
 void
 LBMComputeDensity::computeBuffer()
 {
-  _u = torch::sum(_f, 3);
+  const int64_t N = _u.numel();
+  const int Q = _f.size(-1);
+  _u.view({N}).copy_(_f.view({N, Q}).sum(-1));
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

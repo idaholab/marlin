@@ -258,6 +258,7 @@
   type = LBMStream
   buffer = 'f g'
   f_old = 'fpc gpc'
+  root_compute = Residual
 []
 
 [Problem]

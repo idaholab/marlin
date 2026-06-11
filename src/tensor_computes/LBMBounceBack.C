@@ -42,102 +42,107 @@ LBMBounceBack::LBMBounceBack(const InputParameters & parameters)
     _exclude_corners_y(getParam<bool>("exclude_corners_y")),
     _exclude_corners_z(getParam<bool>("exclude_corners_z"))
 {
-  if (_exclude_corners_x)
-    _x_indices = torch::arange(1, _shape[0] - 1, MooseTensor::intTensorOptions());
-  else
-    _x_indices = torch::arange(_shape[0], MooseTensor::intTensorOptions());
+  _x_start = _exclude_corners_x ? 1 : 0;
+  _x_end = _exclude_corners_x ? _shape[0] - 1 : _shape[0];
 
-  if (_exclude_corners_y)
-    _y_indices = torch::arange(1, _shape[1] - 1, MooseTensor::intTensorOptions());
-  else
-    _y_indices = torch::arange(_shape[1], MooseTensor::intTensorOptions());
+  _y_start = _exclude_corners_y ? 1 : 0;
+  _y_end = _exclude_corners_y ? _shape[1] - 1 : _shape[1];
 
-  if (_exclude_corners_z)
-    _z_indices = torch::arange(1, _shape[2] - 1, MooseTensor::intTensorOptions());
-  else
-    _z_indices = torch::arange(_shape[2], MooseTensor::intTensorOptions());
+  _z_start = _exclude_corners_z ? 1 : 0;
+  _z_end = _exclude_corners_z ? _shape[2] - 1 : _shape[2];
 
-  std::vector<torch::Tensor> xyz_mesh = torch::meshgrid({_x_indices, _y_indices, _z_indices});
+  auto cache_dirs =
+      [&](const torch::Tensor & dirs, torch::Tensor & out_dirs, torch::Tensor & out_opps)
+  {
+    if (dirs.size(0) > 0)
+    {
+      out_dirs = dirs.to(torch::kLong);
+      out_opps = _stencil._op.index_select(0, out_dirs).to(torch::kLong);
+    }
+  };
 
-  torch::Tensor flat_x_indices = xyz_mesh[0].reshape(-1);
-  torch::Tensor flat_y_indices = xyz_mesh[1].reshape(-1);
-  torch::Tensor flat_z_indices = xyz_mesh[2].reshape(-1);
-
-  _x_indices = flat_x_indices.clone();
-  _y_indices = flat_y_indices.clone();
-  _z_indices = flat_z_indices.clone();
+  // reuse these arrays with flipped assignments to maintain the original physics logic.
+  cache_dirs(_stencil._left, _left_dirs, _left_opp_dirs);
+  cache_dirs(_stencil._bottom, _bottom_dirs, _bottom_opp_dirs);
+  cache_dirs(_stencil._front, _front_dirs, _front_opp_dirs);
 
   if (_lb_problem.isBinaryMedia())
     maskBoundary();
 }
 
 void
-LBMBounceBack::backBoundary()
-{
-  for (unsigned int i = 0; i < _stencil._front.size(0); i++)
-  {
-    const auto & opposite_dir = _stencil._op[_stencil._front[i]];
-    _u_owned.index_put_(
-        {_x_indices, _y_indices, _shape[2] - 1, opposite_dir},
-        _f_old_owned.index({_x_indices, _y_indices, _shape[2] - 1, _stencil._front[i]}));
-  }
-}
-
-void
-LBMBounceBack::frontBoundary()
-{
-  for (unsigned int i = 0; i < _stencil._front.size(0); i++)
-  {
-    const auto & opposite_dir = _stencil._op[_stencil._front[i]];
-    _u_owned.index_put_({_x_indices, _y_indices, 0, _stencil._front[i]},
-                        _f_old_owned.index({_x_indices, _y_indices, 0, opposite_dir}));
-  }
-}
-
-void
 LBMBounceBack::leftBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._left.size(0); i++)
-  {
-    const auto & opposite_dir = _stencil._op[_stencil._left[i]];
-    _u_owned.index_put_({0, _y_indices, _z_indices, _stencil._left[i]},
-                        _f_old_owned.index({0, _y_indices, _z_indices, opposite_dir}));
-  }
+  if (_left_dirs.numel() == 0)
+    return;
+  // select(0, 0) grabs the X=0 plane. slice() bounds the Y and Z corners.
+  auto u_face = _u_owned.select(0, 0).slice(0, _y_start, _y_end).slice(1, _z_start, _z_end);
+  auto f_old_face = _f_old_owned.select(0, 0).slice(0, _y_start, _y_end).slice(1, _z_start, _z_end);
+
+  // u[left] = f_old[right] for all Q simultaneously
+  u_face.index_copy_(-1, _left_dirs, f_old_face.index_select(-1, _left_opp_dirs));
 }
 
 void
 LBMBounceBack::rightBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._left.size(0); i++)
-  {
-    const auto & opposite_dir = _stencil._op[_stencil._left[i]];
-    _u_owned.index_put_(
-        {_shape[0] - 1, _y_indices, _z_indices, opposite_dir},
-        _f_old_owned.index({_shape[0] - 1, _y_indices, _z_indices, _stencil._left[i]}));
-  }
+  if (_left_dirs.numel() == 0)
+    return;
+  auto u_face =
+      _u_owned.select(0, _shape[0] - 1).slice(0, _y_start, _y_end).slice(1, _z_start, _z_end);
+  auto f_old_face =
+      _f_old_owned.select(0, _shape[0] - 1).slice(0, _y_start, _y_end).slice(1, _z_start, _z_end);
+
+  // u[right] = f_old[left] for all Q simultaneously
+  u_face.index_copy_(-1, _left_opp_dirs, f_old_face.index_select(-1, _left_dirs));
 }
 
 void
 LBMBounceBack::bottomBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
-  {
-    const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
-    _u_owned.index_put_({_x_indices, 0, _z_indices, _stencil._bottom[i]},
-                        _f_old_owned.index({_x_indices, 0, _z_indices, opposite_dir}));
-  }
+  if (_bottom_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(1, 0).slice(0, _x_start, _x_end).slice(1, _z_start, _z_end);
+  auto f_old_face = _f_old_owned.select(1, 0).slice(0, _x_start, _x_end).slice(1, _z_start, _z_end);
+
+  u_face.index_copy_(-1, _bottom_dirs, f_old_face.index_select(-1, _bottom_opp_dirs));
 }
 
 void
 LBMBounceBack::topBoundary()
 {
-  for (unsigned int i = 0; i < _stencil._bottom.size(0); i++)
-  {
-    const auto & opposite_dir = _stencil._op[_stencil._bottom[i]];
-    _u_owned.index_put_(
-        {_x_indices, _shape[1] - 1, _z_indices, opposite_dir},
-        _f_old_owned.index({_x_indices, _shape[1] - 1, _z_indices, _stencil._bottom[i]}));
-  }
+  if (_bottom_dirs.numel() == 0)
+    return;
+  auto u_face =
+      _u_owned.select(1, _shape[1] - 1).slice(0, _x_start, _x_end).slice(1, _z_start, _z_end);
+  auto f_old_face =
+      _f_old_owned.select(1, _shape[1] - 1).slice(0, _x_start, _x_end).slice(1, _z_start, _z_end);
+
+  u_face.index_copy_(-1, _bottom_opp_dirs, f_old_face.index_select(-1, _bottom_dirs));
+}
+
+void
+LBMBounceBack::frontBoundary()
+{
+  if (_front_dirs.numel() == 0)
+    return;
+  auto u_face = _u_owned.select(2, 0).slice(0, _x_start, _x_end).slice(1, _y_start, _y_end);
+  auto f_old_face = _f_old_owned.select(2, 0).slice(0, _x_start, _x_end).slice(1, _y_start, _y_end);
+
+  u_face.index_copy_(-1, _front_dirs, f_old_face.index_select(-1, _front_opp_dirs));
+}
+
+void
+LBMBounceBack::backBoundary()
+{
+  if (_front_dirs.numel() == 0)
+    return;
+  auto u_face =
+      _u_owned.select(2, _shape[2] - 1).slice(0, _x_start, _x_end).slice(1, _y_start, _y_end);
+  auto f_old_face =
+      _f_old_owned.select(2, _shape[2] - 1).slice(0, _x_start, _x_end).slice(1, _y_start, _y_end);
+
+  u_face.index_copy_(-1, _front_opp_dirs, f_old_face.index_select(-1, _front_dirs));
 }
 
 void
@@ -148,16 +153,14 @@ LBMBounceBack::wallBoundary()
     _boundary_mask =
         (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1) & (_u_owned == 0);
     _boundary_mask = _boundary_mask.to(torch::kBool);
+
+    _op_indices = _stencil._op.to(torch::kLong);
   }
 
-  torch::Tensor f_bounce_back = torch::zeros_like(_u_owned);
-  for (/* do not use unsigned int */ int ic = 1; ic < _stencil._q; ic++)
-  {
-    int64_t index = _stencil._op[ic].item<int64_t>();
-    auto lattice_slice = _f_old_owned.index({Slice(), Slice(), Slice(), index});
-    auto bounce_back_slice = f_bounce_back.index({Slice(), Slice(), Slice(), ic});
-    bounce_back_slice.copy_(lattice_slice);
-  }
+  // Gather all opposite directions simultaneously
+  auto f_bounce_back = torch::index_select(_f_old_owned, 3, _op_indices);
+
+  // Boolean masked assignment
   _u_owned.index_put_({_boundary_mask}, f_bounce_back.index({_boundary_mask}));
 }
 
@@ -173,5 +176,6 @@ LBMBounceBack::computeBuffer()
     _f_old_owned = _f_old_owned.narrow(d, _radius, _shape[d]);
 
   LBMBoundaryCondition::computeBuffer();
+
   _lb_problem.maskedFillSolids(_u_owned, 0);
 }

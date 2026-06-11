@@ -39,4 +39,5 @@ protected:
   torch::Tensor _f_owned;
   const Real & _value;
   const bool _perturb;
+  torch::Tensor _u_x_perturbed;
 };

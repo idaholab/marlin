@@ -30,6 +30,15 @@ LatticeBoltzmannOperator::LatticeBoltzmannOperator(const InputParameters & param
     _shape_q(_lb_problem.getExtendedShapeQ()),
     _radius(_lb_problem.getGhostRadius())
 {
+  std::vector<torch::Tensor> e_vec;
+  e_vec.push_back(_stencil._ex);
+  if (_dim > 1)
+    e_vec.push_back(_stencil._ey);
+  if (_dim > 2)
+    e_vec.push_back(_stencil._ez);
+
+  _e_mat = torch::stack(e_vec, /*dim=*/1);
+  _e_mat = _e_mat.to(MooseTensor::floatTensorOptions());
 }
 
 torch::Tensor

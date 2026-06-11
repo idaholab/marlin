@@ -74,6 +74,7 @@ LBMD2Q9::LBMD2Q9(const InputParameters & parameters) : LatticeBoltzmannStencilBa
   _left = torch::tensor({1, 5, 8}, MooseTensor::intTensorOptions());   //  x dir;  x = 0
   _bottom = torch::tensor({2, 5, 6}, MooseTensor::intTensorOptions()); // y dir; y = 0
 
-  //
-  _reorder_indices = torch::tensor({6, 2, 5, 3, 0, 1, 7, 4, 8}, MooseTensor::intTensorOptions());
+  // Reorder stencil directions into a 3x3 grid for conv2d cross-correlation kernels.
+  // Grid position (row, col) maps to lattice direction (ex=row-1, ey=col-1).
+  _reorder_indices = torch::tensor({7, 3, 6, 4, 0, 2, 8, 1, 5}, MooseTensor::intTensorOptions());
 }
