@@ -1,0 +1,47 @@
+[Tests]
+  issues = '#169'
+  design = grain_remap.md
+
+  [serial_2d]
+    type = CSVDiff
+    input = grain_tracker.i
+    csvdiff = grain_tracker_out.csv
+    rel_err = 1e-4
+    requirement = 'The system shall detect grains in a multi-order-parameter phase field, '
+                  'remap grains sharing an order parameter within the exclusion distance to '
+                  'free order parameters while conserving the field, and keep the assignment '
+                  'stable in subsequent steps.'
+    max_parallel = 1
+  []
+
+  [serial_3d]
+    type = CSVDiff
+    input = grain_tracker_3d.i
+    csvdiff = grain_tracker_3d_out.csv
+    requirement = 'The system shall track and remap grains in three dimensional phase fields '
+                  'using full (corner) connectivity.'
+    max_parallel = 1
+  []
+
+  [periodic]
+    type = CSVDiff
+    input = grain_tracker_periodic.i
+    csvdiff = grain_tracker_periodic_out.csv
+    requirement = 'The system shall detect grain adjacency across periodic boundaries and '
+                  'remap grains that conflict only through the periodic wrap.'
+    max_parallel = 1
+  []
+
+  [parallel_real_space]
+    type = CSVDiff
+    input = grain_tracker.i
+    csvdiff = grain_tracker_par_out.csv
+    cli_args = "Domain/parallel_mode=REAL_SPACE Postprocessors/inactive='int_eta0 int_eta1' "
+               "Outputs/file_base=grain_tracker_par_out"
+    requirement = 'The system shall produce identical grain tracking and remapping results in '
+                  'REAL_SPACE parallel mode, stitching grains across rank boundaries with '
+                  'ghost layer communication.'
+    min_parallel = 2
+    max_parallel = 3
+  []
+[]
