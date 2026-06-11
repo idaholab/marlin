@@ -8,6 +8,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [channel_flow_3d]
     type = CSVDiff
@@ -18,6 +19,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [isotropic_mrt]
     type = CSVDiff
@@ -28,6 +30,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [flow_around_obstacle]
     type = CSVDiff
@@ -38,6 +41,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [phase-field]
     type = CSVDiff
@@ -48,6 +52,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [phase-field-3D]
     type = CSVDiff
@@ -78,6 +83,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [dirichlet_regional]
     type = CSVDiff
@@ -88,6 +94,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [neumann_box]
     type = CSVDiff
@@ -98,6 +105,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [neumann_wall]
     type = CSVDiff
@@ -108,6 +116,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [neumann_regional]
     type = CSVDiff
@@ -118,6 +127,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [stacking]
     type = CSVDiff
@@ -138,6 +148,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [vertical_velocity_bcs]
     type = CSVDiff
@@ -148,6 +159,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [horizontal_mixed_bcs_d2q9]
     type = CSVDiff
@@ -158,6 +170,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [horizontal_mixed_bcs_d2q9_reverse]
     type = CSVDiff
@@ -168,6 +181,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [mixed_bcs_d3q19]
     type = CSVDiff
@@ -178,6 +192,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [mixed_bcs_d3q19_reverse]
     type = CSVDiff
@@ -188,6 +203,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [mixed_bcs_d3q27]
     type = CSVDiff
@@ -198,6 +214,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [mixed_bcs_d3q27_reverse]
     type = CSVDiff
@@ -208,6 +225,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [smagorinsky_mrt]
     type = CSVDiff
@@ -218,6 +236,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [smagorinsky_mrt_jit]
     type = CSVDiff
@@ -229,6 +248,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [nee_2d_channel]
     type = CSVDiff
@@ -239,6 +259,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [nee_2d_all_walls]
     type = CSVDiff
@@ -249,6 +270,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [nee_3d_box_first]
     type = CSVDiff
@@ -259,6 +281,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [nee_3d_box_second]
     type = CSVDiff
@@ -269,6 +292,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_2d_right]
     type = CSVDiff
@@ -279,6 +303,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_3d_right]
     type = CSVDiff
@@ -289,6 +314,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_2d_left]
     type = CSVDiff
@@ -299,6 +325,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_2d_top]
     type = CSVDiff
@@ -309,6 +336,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_2d_bottom]
     type = CSVDiff
@@ -319,6 +347,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_3d_left]
     type = CSVDiff
@@ -329,6 +358,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_3d_top]
     type = CSVDiff
@@ -339,6 +369,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_3d_bottom]
     type = CSVDiff
@@ -349,6 +380,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_3d_front]
     type = CSVDiff
@@ -359,6 +391,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [convective_outflow_3d_back]
     type = CSVDiff
@@ -369,6 +402,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [rarefied_gas_flow]
     type = CSVDiff
@@ -379,6 +413,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
+    min_slots = 2 # memory heavy
   []
   [abort_on_nan]
     type = RunApp
@@ -386,6 +421,7 @@
     cli_args = 'TensorComputes/Solve/collision/tau0=0.1 Executioner/dtmin=1 Executioner/error_on_dtmin=false'
     expect_out = 'Aborting at Lattice Boltzmann Substep \d, Residual -?nan'
     compute_devices = 'cpu cuda mps xpu'
+    min_slots = 2 # memory heavy
 
     requirement = 'The system shall abort transient simulation when lattice Boltzmann solve diverges.'
     issues = '#149'

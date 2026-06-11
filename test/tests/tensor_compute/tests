@@ -97,6 +97,7 @@
     design = SecantSolver.md
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # memory heavy
   []
   [smooth_rectangle]
     type = HDF5Diff
@@ -118,5 +119,6 @@
     requirement = 'The system shall be able to simulate a phase-field crystal model and generate an FCC unit crystal'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # memory heavy
   []
 []
