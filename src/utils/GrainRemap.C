@@ -9,6 +9,7 @@
 #include "GrainRemap.h"
 
 #include "MooseError.h"
+#include "MarlinUtils.h"
 #include "PetscSupport.h"
 
 #include <algorithm>
@@ -759,43 +760,46 @@ computeComponentMetadata(const torch::Tensor & labels, int color, int halo_width
   if (spatial_dim != 2 && spatial_dim != 3)
     mooseError("Labels tensor must be 2D or 3D.");
 
-  auto labels_i64 = labels.to(torch::kInt64);
+  auto labels_i64 = labels.to(torch::kInt64).contiguous();
   auto valid = labels_i64 >= 0;
   if (!valid.any().item<bool>())
     return {};
 
   const int64_t max_label = labels_i64.max().item<int64_t>();
   const int64_t n_comp = max_label + 1;
-  auto flat = labels_i64.view({-1});
-  auto idx = flat.masked_select(valid.view({-1}));
+  auto flat = labels_i64.reshape({-1});
+  auto valid_flat = valid.reshape({-1});
+  auto idx = flat.masked_select(valid_flat);
 
-  auto ones = torch::ones(idx.sizes(), labels.options().dtype(torch::kFloat));
-  auto volumes = torch::bincount(idx, ones, n_comp).to(torch::kDouble);
+  auto float_opts = MooseTensor::floatTensorOptions().device(labels.device());
+
+  auto ones = torch::ones(idx.sizes(), float_opts);
+  auto volumes = torch::bincount(idx, ones, n_comp).to(float_opts.dtype());
 
   std::array<torch::Tensor, 3> sums{
-      torch::zeros({n_comp}, labels.options().dtype(torch::kDouble)),
-      torch::zeros({n_comp}, labels.options().dtype(torch::kDouble)),
-      torch::zeros({n_comp}, labels.options().dtype(torch::kDouble))};
+      torch::zeros({n_comp}, float_opts),
+      torch::zeros({n_comp}, float_opts),
+      torch::zeros({n_comp}, float_opts)};
 
   if (spatial_dim == 2)
   {
-    auto y = torch::arange(labels.size(0), labels.options());
-    auto x = torch::arange(labels.size(1), labels.options());
+    auto y = torch::arange(labels.size(0), float_opts);
+    auto x = torch::arange(labels.size(1), float_opts);
     auto grids = torch::meshgrid({y, x}, "ij");
-    auto y_flat = grids[0].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
-    auto x_flat = grids[1].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
+    auto y_flat = grids[0].reshape({-1}).masked_select(valid_flat);
+    auto x_flat = grids[1].reshape({-1}).masked_select(valid_flat);
     sums[1].scatter_add_(0, idx, y_flat);
     sums[2].scatter_add_(0, idx, x_flat);
   }
   else
   {
-    auto z = torch::arange(labels.size(0), labels.options());
-    auto y = torch::arange(labels.size(1), labels.options());
-    auto x = torch::arange(labels.size(2), labels.options());
+    auto z = torch::arange(labels.size(0), float_opts);
+    auto y = torch::arange(labels.size(1), float_opts);
+    auto x = torch::arange(labels.size(2), float_opts);
     auto grids = torch::meshgrid({z, y, x}, "ij");
-    auto z_flat = grids[0].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
-    auto y_flat = grids[1].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
-    auto x_flat = grids[2].view({-1}).masked_select(valid.view({-1})).to(torch::kDouble);
+    auto z_flat = grids[0].reshape({-1}).masked_select(valid_flat);
+    auto y_flat = grids[1].reshape({-1}).masked_select(valid_flat);
+    auto x_flat = grids[2].reshape({-1}).masked_select(valid_flat);
     sums[0].scatter_add_(0, idx, z_flat);
     sums[1].scatter_add_(0, idx, y_flat);
     sums[2].scatter_add_(0, idx, x_flat);

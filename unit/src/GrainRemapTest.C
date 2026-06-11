@@ -102,6 +102,60 @@ TEST(GrainRemap, remapOrderParameters)
   EXPECT_NEAR(eta.index({1, 0, 1}).item<float>(), 0.0f, 1e-6);
 }
 
+TEST(GrainRemap, persistenceTwoSteps)
+{
+  const int ny = 32, nx = 32, n_colors = 2;
+  const double thresh = 0.05;
+
+  auto make_field = [&](float cx0, float cy0, float cx1, float cy1) {
+    auto eta = makeFloat({ny, nx, n_colors});
+    auto y = torch::arange(ny, eta.options());
+    auto x = torch::arange(nx, eta.options());
+    auto grids = torch::meshgrid({y, x}, "ij");
+    auto Y = grids[0];
+    auto X = grids[1];
+    auto add_disk = [&](float cx, float cy, int color) {
+      auto dy = Y - cy;
+      auto dx = X - cx;
+      auto dist2 = dy * dy + dx * dx;
+      auto val = torch::exp(-dist2 / (2.0f * 9.0f)); // smooth interface
+      auto current = eta.select(-1, color);
+      auto updated = torch::where(val > current, val, current);
+      eta.index_put_({torch::indexing::Slice(), torch::indexing::Slice(), color}, updated);
+    };
+    add_disk(cx0, cy0, 0);
+    add_disk(cx1, cy1, 1);
+    return eta;
+  };
+
+  auto eta1 = make_field(10.f, 10.f, 22.f, 20.f);
+  auto eta2 = make_field(11.f, 11.f, 23.f, 21.f); // small shift
+
+  GrainRemap::GrainRemapOptions opt;
+  opt.spatial_dim = 2;
+  opt.connectivity = 8;
+  opt.threshold = thresh;
+  opt.n_colors = n_colors;
+  opt.tracking_tolerance = 5.0;
+
+  std::function<void(torch::Tensor &, unsigned int)> ghost_cb;
+  std::vector<std::pair<GrainRemap::ComponentRef, GrainRemap::ComponentRef>> equiv;
+
+  auto res1 = GrainRemap::runRemapStep(eta1, opt, /*rank=*/0, ghost_cb, {}, equiv);
+  ASSERT_EQ(res1.grains.size(), 2u);
+  std::unordered_set<int64_t> pid1;
+  for (const auto & g : res1.grains)
+    pid1.insert(g.persistent_id);
+  ASSERT_EQ(pid1.size(), 2u);
+
+  auto res2 = GrainRemap::runRemapStep(eta2, opt, /*rank=*/0, ghost_cb, res1.grains, equiv);
+  ASSERT_EQ(res2.grains.size(), 2u);
+  std::unordered_set<int64_t> pid2;
+  for (const auto & g : res2.grains)
+    pid2.insert(g.persistent_id);
+  EXPECT_EQ(pid2, pid1);
+}
+
 TEST(GrainRemap, colorAdjacencyWithPetsc)
 {
   auto adj = torch::zeros({3, 3}, torch::TensorOptions().dtype(torch::kInt64));
