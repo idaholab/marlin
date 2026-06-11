@@ -180,9 +180,9 @@ MarlinApp::registerApps()
     // Check if the library is thread-safe
     hbool_t is_threadsafe;
     H5is_library_threadsafe(&is_threadsafe);
-    MooseApp::addBoolCapability("hdf5_threadsafe", true, doc + "is available.");
+    MooseApp::addCapability("hdf5_threadsafe", true, doc + "is available.");
 #else
-    MooseApp::addBoolCapability("hdf5_threadsafe", false, doc + "is not available.");
+    MooseApp::addCapability("hdf5_threadsafe", false, doc + "is not available.");
 #endif
   }
 
@@ -192,7 +192,7 @@ MarlinApp::registerApps()
 #if defined(MPIX_CUDA_AWARE_SUPPORT)
     flag = MPIX_Query_cuda_support();
 #endif
-    MooseApp::addBoolCapability(
+    MooseApp::addCapability(
         "mpi_cuda_aware", flag, doc + (flag ? "is available." : "is not available."));
   }
 
