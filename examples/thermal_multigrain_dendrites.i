@@ -5,12 +5,17 @@
 tau=1
 W=1
 D=2
-lambda=8
+# Thin-interface relation (Karma & Rappel): lambda = D*tau/(a2*W^2) with a2 = 0.6267
+# yields a vanishing kinetic coefficient; larger lambda makes it negative (unstable).
+a2=0.6267
+lambda=${fparse D*tau/(a2*W*W)}
 gamma=10
 L=1
 u_inf=-0.8
-# Anisotropy strength - 0.05 is typical for dendrites; can increase if needed
-eps_a=0.05
+# Anisotropy strength. With a(n) = 1 + eps_a*(sum n_i^4 - 3/5) the variation amplitude
+# matches the standard cubic form a = 1 - 3*eps4 + 4*eps4*sum n_i^4 for eps_a = 4*eps4,
+# so eps_a = 0.2 corresponds to the typical dendrite value eps4 = 0.05.
+eps_a=0.2
 # Small regularization to avoid division by zero at interface cores
 eps_n=1e-8
 r0=6
@@ -281,34 +286,39 @@ r0=6
     # explicit terms for each phi_i
     # Note: kinetic anisotropy removed for stability - surface energy anisotropy
     # from CubicAnisotropyFlux (including corner correction) is sufficient for dendrites
+    #
+    # The driving force uses the quintic interpolant g'(phi) = 30*phi^2*(1-phi)^2, whose
+    # derivative vanishes at phi=0,1. This keeps the bulk phases metastable for arbitrary
+    # lambda*u (the cubic interpolant g' = 6*phi*(1-phi) destabilizes the liquid for
+    # lambda*|u| > 1/3, freezing the entire melt spontaneously).
     [Rphi1]
       type = ParsedCompute
       buffer = Rphi1
-      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=6*phi1*(1-phi1); (-fdw-ov-lambda*u*gp+anis1)/tau'
+      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=30*phi1^2*(1-phi1)^2; (-fdw-ov-lambda*u*gp+anis1)/tau'
       inputs = 'phi1 sum_phi_sq u anis1'
     []
     [Rphi2]
       type = ParsedCompute
       buffer = Rphi2
-      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=6*phi2*(1-phi2); (-fdw-ov-lambda*u*gp+anis2)/tau'
+      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=30*phi2^2*(1-phi2)^2; (-fdw-ov-lambda*u*gp+anis2)/tau'
       inputs = 'phi2 sum_phi_sq u anis2'
     []
     [Rphi3]
       type = ParsedCompute
       buffer = Rphi3
-      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=6*phi3*(1-phi3); (-fdw-ov-lambda*u*gp+anis3)/tau'
+      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=30*phi3^2*(1-phi3)^2; (-fdw-ov-lambda*u*gp+anis3)/tau'
       inputs = 'phi3 sum_phi_sq u anis3'
     []
     [Rphi4]
       type = ParsedCompute
       buffer = Rphi4
-      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=6*phi4*(1-phi4); (-fdw-ov-lambda*u*gp+anis4)/tau'
+      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=30*phi4^2*(1-phi4)^2; (-fdw-ov-lambda*u*gp+anis4)/tau'
       inputs = 'phi4 sum_phi_sq u anis4'
     []
     [Rphi5]
       type = ParsedCompute
       buffer = Rphi5
-      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=6*phi5*(1-phi5); (-fdw-ov-lambda*u*gp+anis5)/tau'
+      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=30*phi5^2*(1-phi5)^2; (-fdw-ov-lambda*u*gp+anis5)/tau'
       inputs = 'phi5 sum_phi_sq u anis5'
     []
 
@@ -364,11 +374,12 @@ r0=6
       input = phi5
     []
 
-    # solid fraction
+    # solid fraction, using the same quintic interpolant h(phi) = phi^3*(10-15*phi+6*phi^2)
+    # as the driving force for thermodynamic consistency
     [s]
       type = ParsedCompute
       buffer = s
-      expression = 'phi1^2*(3-2*phi1)+phi2^2*(3-2*phi2)+phi3^2*(3-2*phi3)+phi4^2*(3-2*phi4)+phi5^2*(3-2*phi5)'
+      expression = 'phi1^3*(10-15*phi1+6*phi1^2)+phi2^3*(10-15*phi2+6*phi2^2)+phi3^3*(10-15*phi3+6*phi3^2)+phi4^3*(10-15*phi4+6*phi4^2)+phi5^3*(10-15*phi5+6*phi5^2)'
       inputs = 'phi1 phi2 phi3 phi4 phi5'
     []
 

@@ -11,7 +11,8 @@
 #include "TensorOperator.h"
 
 /**
- * Compute latent heat source term L * (s - s_old) / dt.
+ * Compute latent heat source term L * (s - s_old) / dt, where s_old is the
+ * solid fraction at the previous solver substep and dt the substep size.
  */
 class LatentHeatSource : public TensorOperator<>
 {

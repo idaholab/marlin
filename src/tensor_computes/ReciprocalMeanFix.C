@@ -28,7 +28,8 @@ ReciprocalMeanFix::ReciprocalMeanFix(const InputParameters & parameters)
 void
 ReciprocalMeanFix::computeBuffer()
 {
-  _u = _input;
+  // clone to avoid aliasing the input buffer, which index_put_ below would mutate in place
+  _u = _input.clone();
 
   bool has_k0 = true;
   std::vector<torch::indexing::TensorIndex> zero_idx(_dim, 0);

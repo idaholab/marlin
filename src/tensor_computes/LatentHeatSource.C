@@ -15,7 +15,8 @@ InputParameters
 LatentHeatSource::validParams()
 {
   InputParameters params = TensorOperator<>::validParams();
-  params.addClassDescription("Latent heat source L*(s - s_old)/dt.");
+  params.addClassDescription("Latent heat source L*(s - s_old)/dt, where s_old is the solid "
+                             "fraction at the previous solver substep.");
   params.addRequiredParam<TensorInputBufferName>("s", "Solid fraction buffer.");
   params.addParam<Real>("L", 1.0, "Latent heat coefficient.");
   return params;
@@ -32,7 +33,8 @@ LatentHeatSource::LatentHeatSource(const InputParameters & parameters)
 void
 LatentHeatSource::computeBuffer()
 {
-  const auto dt = _tensor_problem.dt();
+  // old buffer states advance once per solver substep, so the rate must use the substep dt
+  const auto dt = _tensor_problem.subDt();
   if (_s_old.empty() || dt == 0.0)
   {
     _u = torch::zeros_like(_s);

@@ -13,8 +13,15 @@
 #include "MooseSyntax.h"
 #include "DomainAction.h"
 #include "MarlinUtils.h"
+#include "ParameterRegistration.h"
+#include "ParameterRegistry.h"
 
 #include <cstdlib>
+
+// int64_t is `long long` on some platforms (e.g. macOS arm64), which MOOSE does not
+// register natively (it registers `long int`). Register it so that std::vector<int64_t>
+// parameters like 'value_dimensions' can be parsed from input files on all platforms.
+registerParameter(long long);
 
 #ifdef LIBMESH_HAVE_HDF5
 #include "hdf5.h"
