@@ -7,6 +7,7 @@
     design = 'FFTMechanics.md'
     rel_tol = 1e-2
     abs_tol = 1e-4
+    min_slots = 2 # memory heavy
     compute_devices = 'cpu cuda xpu'
   []
   [mechanics_3d_parallel]
@@ -17,6 +18,7 @@
     design = 'FFTMechanics.md'
     rel_tol = 1e-2
     abs_tol = 1e-4
+    min_slots = 2 # memory heavy
     compute_devices = 'cpu cuda xpu'
   []
 
@@ -31,6 +33,7 @@
     abs_tol = 1e-4
     compute_devices = 'cpu cuda xpu'
     max_parallel = 1
+    min_slots = 2 # memory heavy
   []
   [mechanics_3d_serial]
     type = XDMFDiff
@@ -43,5 +46,6 @@
     abs_tol = 1e-4
     compute_devices = 'cpu cuda xpu'
     max_parallel = 1
+    min_slots = 2 # memory heavy
   []
 []

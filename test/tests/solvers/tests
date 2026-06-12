@@ -156,7 +156,7 @@
       cli_args = 'ss=10 cs=0 order=1'
       requirement = 'of first order'
       compute_devices = 'cpu cuda mps xpu'
-    max_parallel = 1
+      max_parallel = 1
     []
     [order_2]
       type = CSVDiff
@@ -165,7 +165,7 @@
       cli_args = 'ss=10 cs=0 order=2'
       requirement = 'of second order'
       compute_devices = 'cpu cuda mps xpu'
-    max_parallel = 1
+      max_parallel = 1
     []
     [order_3]
       type = CSVDiff
@@ -175,6 +175,7 @@
       requirement = 'of third order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # memory heavy
     []
     [order_4]
       # higher order integrators have smaller stability regions, hence the increased number of substeps
@@ -226,6 +227,7 @@
       cli_args = 'ss=1 dt=10.0'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # memory heavy
     []
   []
 []
