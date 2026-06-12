@@ -9,8 +9,10 @@ lambda=8
 gamma=10
 L=1
 u_inf=-0.8
-eps_a=0.6
-eps_n=1e-3
+# Anisotropy strength - 0.05 is typical for dendrites; can increase if needed
+eps_a=0.05
+# Small regularization to avoid division by zero at interface cores
+eps_n=1e-8
 r0=6
 
 [Domain]
@@ -173,17 +175,13 @@ r0=6
       buffer = gradvec1
       input = phi1
     []
-    [a2m1_1]
-      type = ParsedCompute
-      buffer = a2m1_1
-      expression = 'q:=matvec(transpose(rot1),gradvec1); q2:=vecvec(q,q); q4:=vecvec(q*q,q*q); d:=sqrt(q2)+eps_n; a:=1+eps_a*(q4/(d*d*d*d)-0.6); a*a-1'
-      inputs = 'rot1 gradvec1'
-    []
     [fluxvec1]
-      type = ScaleVector
+      type = CubicAnisotropyFlux
       buffer = fluxvec1
-      scalar = a2m1_1
-      vector = gradvec1
+      gradient = gradvec1
+      rotation = rot1
+      eps_a = ${eps_a}
+      eps_n = ${eps_n}
     []
     [anis1]
       type = DivergenceVector
@@ -197,17 +195,13 @@ r0=6
       buffer = gradvec2
       input = phi2
     []
-    [a2m1_2]
-      type = ParsedCompute
-      buffer = a2m1_2
-      expression = 'q:=matvec(transpose(rot2),gradvec2); q2:=vecvec(q,q); q4:=vecvec(q*q,q*q); d:=sqrt(q2)+eps_n; a:=1+eps_a*(q4/(d*d*d*d)-0.6); a*a-1'
-      inputs = 'rot2 gradvec2'
-    []
     [fluxvec2]
-      type = ScaleVector
+      type = CubicAnisotropyFlux
       buffer = fluxvec2
-      scalar = a2m1_2
-      vector = gradvec2
+      gradient = gradvec2
+      rotation = rot2
+      eps_a = ${eps_a}
+      eps_n = ${eps_n}
     []
     [anis2]
       type = DivergenceVector
@@ -221,17 +215,13 @@ r0=6
       buffer = gradvec3
       input = phi3
     []
-    [a2m1_3]
-      type = ParsedCompute
-      buffer = a2m1_3
-      expression = 'q:=matvec(transpose(rot3),gradvec3); q2:=vecvec(q,q); q4:=vecvec(q*q,q*q); d:=sqrt(q2)+eps_n; a:=1+eps_a*(q4/(d*d*d*d)-0.6); a*a-1'
-      inputs = 'rot3 gradvec3'
-    []
     [fluxvec3]
-      type = ScaleVector
+      type = CubicAnisotropyFlux
       buffer = fluxvec3
-      scalar = a2m1_3
-      vector = gradvec3
+      gradient = gradvec3
+      rotation = rot3
+      eps_a = ${eps_a}
+      eps_n = ${eps_n}
     []
     [anis3]
       type = DivergenceVector
@@ -245,17 +235,13 @@ r0=6
       buffer = gradvec4
       input = phi4
     []
-    [a2m1_4]
-      type = ParsedCompute
-      buffer = a2m1_4
-      expression = 'q:=matvec(transpose(rot4),gradvec4); q2:=vecvec(q,q); q4:=vecvec(q*q,q*q); d:=sqrt(q2)+eps_n; a:=1+eps_a*(q4/(d*d*d*d)-0.6); a*a-1'
-      inputs = 'rot4 gradvec4'
-    []
     [fluxvec4]
-      type = ScaleVector
+      type = CubicAnisotropyFlux
       buffer = fluxvec4
-      scalar = a2m1_4
-      vector = gradvec4
+      gradient = gradvec4
+      rotation = rot4
+      eps_a = ${eps_a}
+      eps_n = ${eps_n}
     []
     [anis4]
       type = DivergenceVector
@@ -269,17 +255,13 @@ r0=6
       buffer = gradvec5
       input = phi5
     []
-    [a2m1_5]
-      type = ParsedCompute
-      buffer = a2m1_5
-      expression = 'q:=matvec(transpose(rot5),gradvec5); q2:=vecvec(q,q); q4:=vecvec(q*q,q*q); d:=sqrt(q2)+eps_n; a:=1+eps_a*(q4/(d*d*d*d)-0.6); a*a-1'
-      inputs = 'rot5 gradvec5'
-    []
     [fluxvec5]
-      type = ScaleVector
+      type = CubicAnisotropyFlux
       buffer = fluxvec5
-      scalar = a2m1_5
-      vector = gradvec5
+      gradient = gradvec5
+      rotation = rot5
+      eps_a = ${eps_a}
+      eps_n = ${eps_n}
     []
     [anis5]
       type = DivergenceVector
@@ -297,35 +279,37 @@ r0=6
     []
 
     # explicit terms for each phi_i
+    # Note: kinetic anisotropy removed for stability - surface energy anisotropy
+    # from CubicAnisotropyFlux (including corner correction) is sufficient for dendrites
     [Rphi1]
       type = ParsedCompute
       buffer = Rphi1
-      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=6*phi1*(1-phi1); kin:=1/(1+a2m1_1); ((-fdw-ov-lambda*u*gp)*kin+anis1)/tau'
-      inputs = 'phi1 sum_phi_sq u anis1 a2m1_1'
+      expression = 'fdw:=2*phi1*(1-phi1)*(1-2*phi1); ov:=2*gamma*phi1*(sum_phi_sq-phi1*phi1); gp:=6*phi1*(1-phi1); (-fdw-ov-lambda*u*gp+anis1)/tau'
+      inputs = 'phi1 sum_phi_sq u anis1'
     []
     [Rphi2]
       type = ParsedCompute
       buffer = Rphi2
-      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=6*phi2*(1-phi2); kin:=1/(1+a2m1_2); ((-fdw-ov-lambda*u*gp)*kin+anis2)/tau'
-      inputs = 'phi2 sum_phi_sq u anis2 a2m1_2'
+      expression = 'fdw:=2*phi2*(1-phi2)*(1-2*phi2); ov:=2*gamma*phi2*(sum_phi_sq-phi2*phi2); gp:=6*phi2*(1-phi2); (-fdw-ov-lambda*u*gp+anis2)/tau'
+      inputs = 'phi2 sum_phi_sq u anis2'
     []
     [Rphi3]
       type = ParsedCompute
       buffer = Rphi3
-      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=6*phi3*(1-phi3); kin:=1/(1+a2m1_3); ((-fdw-ov-lambda*u*gp)*kin+anis3)/tau'
-      inputs = 'phi3 sum_phi_sq u anis3 a2m1_3'
+      expression = 'fdw:=2*phi3*(1-phi3)*(1-2*phi3); ov:=2*gamma*phi3*(sum_phi_sq-phi3*phi3); gp:=6*phi3*(1-phi3); (-fdw-ov-lambda*u*gp+anis3)/tau'
+      inputs = 'phi3 sum_phi_sq u anis3'
     []
     [Rphi4]
       type = ParsedCompute
       buffer = Rphi4
-      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=6*phi4*(1-phi4); kin:=1/(1+a2m1_4); ((-fdw-ov-lambda*u*gp)*kin+anis4)/tau'
-      inputs = 'phi4 sum_phi_sq u anis4 a2m1_4'
+      expression = 'fdw:=2*phi4*(1-phi4)*(1-2*phi4); ov:=2*gamma*phi4*(sum_phi_sq-phi4*phi4); gp:=6*phi4*(1-phi4); (-fdw-ov-lambda*u*gp+anis4)/tau'
+      inputs = 'phi4 sum_phi_sq u anis4'
     []
     [Rphi5]
       type = ParsedCompute
       buffer = Rphi5
-      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=6*phi5*(1-phi5); kin:=1/(1+a2m1_5); ((-fdw-ov-lambda*u*gp)*kin+anis5)/tau'
-      inputs = 'phi5 sum_phi_sq u anis5 a2m1_5'
+      expression = 'fdw:=2*phi5*(1-phi5)*(1-2*phi5); ov:=2*gamma*phi5*(sum_phi_sq-phi5*phi5); gp:=6*phi5*(1-phi5); (-fdw-ov-lambda*u*gp+anis5)/tau'
+      inputs = 'phi5 sum_phi_sq u anis5'
     []
 
     [Rphi1bar]
@@ -450,8 +434,8 @@ r0=6
 [TensorOutputs]
   [xdmf]
     type = XDMFTensorOutput
-    buffer = 'phi1 phi2 phi3 phi4 phi5 u s a2m1_1 anis1'
-    output_mode = 'Node Node Node Node Node Node Node Node Node'
+    buffer = 'phi1 phi2 phi3 phi4 phi5 u s anis1'
+    output_mode = 'Node Node Node Node Node Node Node Node'
     enable_hdf5 = true
   []
 []
