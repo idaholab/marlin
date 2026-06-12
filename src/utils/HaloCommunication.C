@@ -17,20 +17,14 @@ namespace HaloCommunication
 {
 
 void
-exchangeGhostTensor(torch::Tensor & tensor,
-                    unsigned int ghost_layers,
-                    const DomainAction & domain)
+exchangeGhostTensor(torch::Tensor & tensor, unsigned int ghost_layers, const DomainAction & domain)
 {
   if (ghost_layers == 0)
     return;
 
-  if (!domain.isRealSpaceMode())
-    mooseError("Ghost exchange is only supported in REAL_SPACE parallel mode.");
-
   const unsigned int dim = domain.getDim();
   const auto owned = domain.getLocalGridSize();
-  const auto partitions = domain.getRealSpacePartitions();
-  const auto index = domain.getRealSpaceIndex();
+  const auto global = domain.getGridSize();
   const auto periodic = domain.getPeriodicDirections();
 
   for (unsigned int d = 0; d < dim; ++d)
@@ -58,29 +52,48 @@ exchangeGhostTensor(torch::Tensor & tensor,
   }
 
   if (halo < static_cast<int64_t>(ghost_layers))
-    mooseError("Requested ghost layers (",
-               ghost_layers,
-               ") exceed allocated halo width (",
-               halo,
-               ").");
+    mooseError(
+        "Requested ghost layers (", ghost_layers, ") exceed allocated halo width (", halo, ").");
 
   const bool use_gpu = domain.gpuAwareMPI() && tensor.is_cuda();
   const auto device_options = tensor.options();
   const auto cpu_options = tensor.options().device(torch::kCPU);
   const auto mpi_type = domain.getMPIType(tensor.scalar_type());
 
-  int my_rank = 0;
+  int my_rank = 0, n_ranks = 1;
   MPI_Comm_rank(domain.getMPIComm(), &my_rank);
+  MPI_Comm_size(domain.getMPIComm(), &n_ranks);
 
-  const auto toRank = [&](unsigned int ix, unsigned int iy, unsigned int iz)
-  { return static_cast<int>(ix + partitions[0] * (iy + partitions[1] * iz)); };
+  // The decomposition is derived generically from the per-rank owned boxes, so
+  // this works for any axis-aligned box decomposition: REAL_SPACE grids, FFT
+  // slabs (one split dimension), and FFT pencils (two split dimensions).
+  std::array<int64_t, 3> my_begin, my_end;
+  domain.getLocalBounds(my_rank, my_begin, my_end);
+
+  // find the rank owning the box that matches my bounds in all dimensions
+  // except d, where its owned range begins (or ends) at the given target
+  const auto findNeighbor = [&](unsigned int d, int64_t target, bool match_begin) -> int
+  {
+    for (int r = 0; r < n_ranks; ++r)
+    {
+      std::array<int64_t, 3> begin, end;
+      domain.getLocalBounds(r, begin, end);
+      bool match = (match_begin ? begin[d] : end[d]) == target;
+      for (unsigned int e = 0; e < dim; ++e)
+        if (e != d && (begin[e] != my_begin[e] || end[e] != my_end[e]))
+          match = false;
+      if (match)
+        return r;
+    }
+    mooseError("No neighbor rank found along direction ", d, " (target ", target, ").");
+  };
 
   for (unsigned int d = 0; d < dim; ++d)
   {
-    const unsigned int part = partitions[d];
-    if (part == 1)
+    // unpartitioned dimension: fill the halo by periodic wrap if applicable
+    if (owned[d] == global[d])
     {
-      if (periodic[d] && halo >= static_cast<int64_t>(ghost_layers))
+      if (periodic[d])
       {
         const auto owned_width = owned[d];
         auto wrap_upper = tensor.narrow(d, halo, ghost_layers);
@@ -91,8 +104,8 @@ exchangeGhostTensor(torch::Tensor & tensor,
       continue;
     }
 
-    const bool has_lower = index[d] > 0;
-    const bool has_upper = (index[d] + 1) < part;
+    const bool has_lower = my_begin[d] > 0;
+    const bool has_upper = my_end[d] < global[d];
 
     struct NeighborExchange
     {
@@ -109,27 +122,23 @@ exchangeGhostTensor(torch::Tensor & tensor,
 
     auto prepare_neighbor = [&](bool lower)
     {
-      std::array<unsigned int, 3> neighbor = index;
+      int neighbor_rank;
       if (lower)
       {
-        if (has_lower)
-          neighbor[d] = index[d] - 1;
-        else if (periodic[d])
-          neighbor[d] = part - 1;
-        else
+        if (!has_lower && !periodic[d])
           return;
+        // lower neighbor: the rank whose owned range ends at my begin (or at
+        // the global extent for the periodic wrap)
+        neighbor_rank = findNeighbor(d, has_lower ? my_begin[d] : global[d], /*match_begin=*/false);
       }
       else
       {
-        if (has_upper)
-          neighbor[d] = index[d] + 1;
-        else if (periodic[d])
-          neighbor[d] = 0;
-        else
+        if (!has_upper && !periodic[d])
           return;
+        // upper neighbor: the rank whose owned range begins at my end (or 0 for wrap)
+        neighbor_rank = findNeighbor(d, has_upper ? my_end[d] : 0, /*match_begin=*/true);
       }
 
-      const int neighbor_rank = toRank(neighbor[0], neighbor[1], neighbor[2]);
       const int64_t send_start =
           lower ? halo : halo + owned[d] - static_cast<int64_t>(ghost_layers);
       const int64_t recv_start =

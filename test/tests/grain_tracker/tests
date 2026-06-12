@@ -45,4 +45,53 @@
     min_parallel = 2
     max_parallel = 3
   []
+
+  [parallel_fft_slab]
+    type = CSVDiff
+    input = grain_tracker.i
+    csvdiff = grain_tracker_slab_out.csv
+    cli_args = "Domain/parallel_mode=FFT_SLAB Domain/periodic_directions='X Y' "
+               "Postprocessors/inactive='int_eta0 int_eta1' "
+               "Outputs/file_base=grain_tracker_slab_out"
+    requirement = 'The system shall produce identical grain tracking and remapping results with '
+                  'a parallel FFT slab decomposition, stitching grains across the slab seams.'
+    min_parallel = 2
+    max_parallel = 3
+  []
+
+  [parallel_fft_slab_3d]
+    type = CSVDiff
+    input = grain_tracker_3d.i
+    csvdiff = grain_tracker_3d_slab_out.csv
+    cli_args = "Domain/parallel_mode=FFT_SLAB Domain/periodic_directions='X Y Z' "
+               "Outputs/file_base=grain_tracker_3d_slab_out"
+    requirement = 'The system shall track and remap grains in three dimensions with a parallel '
+                  'FFT slab decomposition.'
+    min_parallel = 2
+    max_parallel = 2
+  []
+
+  [parallel_fft_pencil_3d]
+    type = CSVDiff
+    input = grain_tracker_3d.i
+    csvdiff = grain_tracker_3d_pencil_out.csv
+    cli_args = "Domain/parallel_mode=FFT_PENCIL Domain/periodic_directions='X Y Z' "
+               "Outputs/file_base=grain_tracker_3d_pencil_out"
+    requirement = 'The system shall track and remap grains in three dimensions with a parallel '
+                  'FFT pencil decomposition.'
+    min_parallel = 4
+    max_parallel = 4
+  []
+
+  [periodic_fft_slab]
+    type = CSVDiff
+    input = grain_tracker_periodic.i
+    csvdiff = grain_tracker_periodic_slab_out.csv
+    cli_args = "Domain/parallel_mode=FFT_SLAB Outputs/file_base=grain_tracker_periodic_slab_out"
+    requirement = 'The system shall detect grain adjacency across periodic boundaries in '
+                  'parallel FFT slab runs, combining the periodic wrap with rank seam '
+                  'stitching.'
+    min_parallel = 2
+    max_parallel = 2
+  []
 []

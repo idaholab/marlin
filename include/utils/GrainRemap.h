@@ -124,8 +124,7 @@ std::vector<torch::Tensor> computeColorMasks(const torch::Tensor & eta, double t
  */
 torch::Tensor labelConnectedComponents(const torch::Tensor & mask,
                                        int connectivity,
-                                       const std::array<bool, 3> & wrap = {
-                                           {false, false, false}});
+                                       const std::array<bool, 3> & wrap = {{false, false, false}});
 
 /**
  * Combine per-color compact labels (background -1, ids 0..Nc-1) into a single grid
@@ -154,9 +153,8 @@ torch::Tensor expandLabels(const torch::Tensor & labels,
  * global (local index - pad + global_begin). Labels must be a spatial integer
  * tensor with background -1.
  */
-std::vector<ComponentMoments> computeComponentMoments(const torch::Tensor & labels,
-                                                      int64_t n_labels,
-                                                      const Geometry & geom);
+std::vector<ComponentMoments>
+computeComponentMoments(const torch::Tensor & labels, int64_t n_labels, const Geometry & geom);
 
 /**
  * Detect label equivalences along the halo seams after a ghost exchange.
@@ -215,8 +213,8 @@ std::vector<std::pair<int64_t, int64_t>> extractAdjacencyPairs(const torch::Tens
                                                                    {false, false, false}});
 
 /// Build adjacency lists from unique pairs.
-std::vector<std::vector<int64_t>> buildAdjacencyLists(
-    int64_t n_grains, const std::vector<std::pair<int64_t, int64_t>> & pairs);
+std::vector<std::vector<int64_t>>
+buildAdjacencyLists(int64_t n_grains, const std::vector<std::pair<int64_t, int64_t>> & pairs);
 
 /**
  * Apply a host-side label map to a label grid: cells with label l >= 0 become

@@ -51,11 +51,19 @@ diffuse interface widths.
 
 - **Serial (any parallel mode):** periodicity (from `Domain/periodic_directions`)
   is handled by in-tensor wrap in all stages.
-- **REAL_SPACE parallel mode:** grains are stitched across rank boundaries (and
-  periodic boundaries) via ghost layer exchange; every rank computes the identical
-  global grain list deterministically (no coordinator rank).
-- **Spectral parallel modes (FFT_SLAB/FFT_PENCIL):** not supported with more than
-  one rank (no ghost communication); the tracker errors out.
+- **REAL_SPACE parallel mode:** buffers carry permanent halo padding; grains are
+  stitched across rank boundaries (and periodic boundaries) via ghost layer
+  exchange. Every rank computes the identical global grain list deterministically
+  (no coordinator rank).
+- **Spectral parallel modes (FFT_SLAB/FFT_PENCIL):** buffers are unpadded
+  slabs/pencils, so the tracker assembles its own padded work tensor, fills the
+  halo ring with an explicit ghost exchange
+  (`HaloCommunication::exchangeGhostTensor`, which derives the neighbor topology
+  generically from the per-rank owned boxes), runs the identical stitching
+  pipeline, and writes back only the owned region. Tracking results are
+  bit-identical to serial runs.
+- **Replicated layouts** (every rank owns the full domain) fall back to the
+  serial path on each rank.
 
 ## Algorithm
 

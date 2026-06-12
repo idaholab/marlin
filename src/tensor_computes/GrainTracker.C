@@ -158,15 +158,15 @@ GrainTracker::GrainTracker(const InputParameters & parameters)
 void
 GrainTracker::check()
 {
-  int n_ranks = 1;
-  MPI_Comm_size(_domain.getMPIComm(), &n_ranks);
-  if (n_ranks > 1 && !_domain.isRealSpaceMode())
-    mooseError("Parallel grain tracking requires the REAL_SPACE parallel mode (ghost cell "
-               "communication). Spectral parallel modes are not supported.");
+  const auto owned = _domain.getLocalGridSize();
+  const auto global = _domain.getGridSize();
 
-  if (_domain.isRealSpaceMode())
-  {
-    const auto owned = _domain.getLocalGridSize();
+  bool partitioned = false;
+  for (unsigned int d = 0; d < _dim; ++d)
+    if (owned[d] != global[d])
+      partitioned = true;
+
+  if (_domain.isRealSpaceMode() || partitioned)
     for (unsigned int d = 0; d < _dim; ++d)
       if (static_cast<int64_t>(_halo_width) > owned[d])
         mooseError("halo_width (",
@@ -176,7 +176,6 @@ GrainTracker::check()
                    ") in direction ",
                    d,
                    ".");
-  }
 }
 
 void
@@ -248,10 +247,31 @@ GrainTracker::trackAndRemap()
   std::array<int64_t, 3> begin, end;
   _domain.getLocalBounds(rank, begin, end);
   const auto periodic = _domain.getPeriodicDirections();
-  const auto partitions = _domain.getRealSpacePartitions();
+
+  // Layouts:
+  // - REAL_SPACE: buffers carry a permanent halo padding; ghosts are exchanged
+  //   by the problem and the tracker works on cropped views (owned + hw ring).
+  // - partitioned spectral (FFT_SLAB/FFT_PENCIL): buffers are unpadded owned
+  //   slabs/pencils; the tracker assembles its own padded work tensor and fills
+  //   the ring with an explicit ghost exchange.
+  // - serial or replicated: full domain on every rank; periodicity is handled
+  //   by in-tensor wrap, no ring is needed.
+  bool partitioned = false;
+  for (int d = 0; d < spatial_dim; ++d)
+    if (owned[d] != global[d])
+      partitioned = true;
+  const bool spectral_parallel = !realspace && partitioned;
 
   const int64_t buffer_pad = realspace ? _tensor_problem.getMaxGhostLayer() : 0;
-  const int64_t hw = std::min<int64_t>(_halo_width, buffer_pad);
+  const int64_t hw = realspace ? std::min<int64_t>(_halo_width, buffer_pad)
+                               : (spectral_parallel ? _halo_width : 0);
+
+  // ranks participating in tracking collectives; on replicated layouts every
+  // rank sees the full domain and computes the identical result locally
+  const bool distributed = realspace || partitioned;
+  const int comm_ranks = distributed ? n_ranks : 1;
+  const int my_part = distributed ? rank : 0;
+  const bool ghosted = distributed && hw > 0;
 
   Geometry geom;
   geom.spatial_dim = spatial_dim;
@@ -264,10 +284,10 @@ GrainTracker::trackAndRemap()
     geom.periodic[d] = periodic[d];
   }
 
-  // in non-REAL_SPACE (serial) operation periodicity is handled by in-tensor wrap;
-  // with ghost exchange it is handled through the halo ring
+  // without a ghost ring periodicity is handled by in-tensor wrap; with one it
+  // is handled through the (wrap-copied or exchanged) halo ring
   std::array<bool, 3> wrap{{false, false, false}};
-  if (!realspace)
+  if (!ghosted)
     for (int d = 0; d < spatial_dim; ++d)
       wrap[d] = periodic[d];
 
@@ -281,14 +301,34 @@ GrainTracker::trackAndRemap()
   options.wrap = wrap;
 
   // assemble the stacked working field (owned region + active halo ring)
-  auto crops = cropOpBuffers(buffer_pad, hw);
-  auto eta = torch::stack(crops, -1);
+  std::vector<torch::Tensor> crops;
+  torch::Tensor eta;
+  if (spectral_parallel)
+  {
+    // unpadded buffers: build a padded work tensor and fill the ring explicitly
+    crops = cropOpBuffers(/*buffer_pad=*/0, /*hw=*/0);
+    std::vector<int64_t> padded_shape;
+    for (int d = 0; d < spatial_dim; ++d)
+      padded_shape.push_back(owned[d] + 2 * hw);
+    padded_shape.push_back(n_colors);
+    eta = torch::zeros(padded_shape, crops[0].options());
+    auto inner = eta;
+    for (int d = 0; d < spatial_dim; ++d)
+      inner = inner.narrow(d, hw, owned[d]);
+    inner.copy_(torch::stack(crops, -1));
+    HaloCommunication::exchangeGhostTensor(eta, hw, _domain);
+  }
+  else
+  {
+    crops = cropOpBuffers(buffer_pad, hw);
+    eta = torch::stack(crops, -1);
+  }
 
   // detection masks; blank out halo rings that no exchange refreshes
   auto masks = computeColorMasks(eta, _threshold);
   if (hw > 0)
     for (int d = 0; d < spatial_dim; ++d)
-      if (partitions[d] == 1 && !periodic[d])
+      if (owned[d] == global[d] && !periodic[d])
         for (auto & mask : masks)
         {
           mask.narrow(d, 0, hw).fill_(false);
@@ -305,17 +345,17 @@ GrainTracker::trackAndRemap()
   auto labels = buildGlobalContiguousLabels(per_color_labels, color_offsets, color_counts);
 
   // globally unique label numbering across ranks
-  std::vector<int64_t> all_counts(static_cast<std::size_t>(n_colors) * n_ranks);
-  if (n_ranks == 1)
+  std::vector<int64_t> all_counts(static_cast<std::size_t>(n_colors) * comm_ranks);
+  if (comm_ranks == 1)
     all_counts = color_counts;
   else
     MPI_Allgather(
         color_counts.data(), n_colors, MPI_INT64_T, all_counts.data(), n_colors, MPI_INT64_T, comm);
 
-  std::vector<int64_t> rank_base(n_ranks, 0);
+  std::vector<int64_t> rank_base(comm_ranks, 0);
   int64_t n_labels = 0;
   std::vector<int> label_color;
-  for (int r = 0; r < n_ranks; ++r)
+  for (int r = 0; r < comm_ranks; ++r)
   {
     rank_base[r] = n_labels;
     for (int c = 0; c < n_colors; ++c)
@@ -337,12 +377,12 @@ GrainTracker::trackAndRemap()
     return;
   }
 
-  if (rank_base[rank] != 0)
-    labels = torch::where(labels >= 0, labels + rank_base[rank], labels);
+  if (rank_base[my_part] != 0)
+    labels = torch::where(labels >= 0, labels + rank_base[my_part], labels);
 
   // additive moments for all global labels (other ranks' entries stay zero)
   auto moments = computeComponentMoments(labels, n_labels, geom);
-  if (n_ranks > 1)
+  if (comm_ranks > 1)
   {
     std::vector<double> packed(static_cast<std::size_t>(n_labels) * ComponentMoments::packed_size);
     for (int64_t l = 0; l < n_labels; ++l)
@@ -355,14 +395,14 @@ GrainTracker::trackAndRemap()
 
   // stitch labels across rank seams and periodic boundaries via ghost exchange
   std::vector<std::pair<int64_t, int64_t>> equivalences;
-  if (realspace && hw > 0)
+  if (ghosted)
   {
     auto pre = labels.clone();
     HaloCommunication::exchangeGhostTensor(labels, hw, _domain);
     equivalences = detectSeamEquivalences(pre, labels, geom);
   }
-  if (n_ranks > 1)
-    equivalences = allgatherPairs(equivalences, comm, n_ranks);
+  if (comm_ranks > 1)
+    equivalences = allgatherPairs(equivalences, comm, comm_ranks);
 
   int64_t n_grains = 0;
   const auto label_to_grain = mergeLabels(n_labels, equivalences, n_grains);
@@ -376,12 +416,12 @@ GrainTracker::trackAndRemap()
   // adjacency between grains within 2*halo_width of each other
   auto grain_ids = applyLabelMap(labels, label_to_grain);
   auto expanded = expandLabels(grain_ids, static_cast<int>(_halo_width), wrap);
-  if (realspace && hw > 0)
+  if (ghosted)
     HaloCommunication::exchangeGhostTensor(expanded, hw, _domain);
 
   auto adjacency_pairs = extractAdjacencyPairs(expanded, options.connectivity, wrap);
-  if (n_ranks > 1)
-    adjacency_pairs = allgatherPairs(adjacency_pairs, comm, n_ranks);
+  if (comm_ranks > 1)
+    adjacency_pairs = allgatherPairs(adjacency_pairs, comm, comm_ranks);
   const auto adjacency = buildAdjacencyLists(n_grains, adjacency_pairs);
 
   // recolor, processing large grains first (deterministic across ranks)
@@ -437,12 +477,30 @@ GrainTracker::trackAndRemap()
     const auto changed_expanded = applyLabelMap(expanded, changed_map);
 
     remapOrderParameters(eta, changed_expanded, old_color_vec, new_color_vec);
-    for (int c = 0; c < n_colors; ++c)
-      crops[c].copy_(eta.select(-1, c));
+    if (spectral_parallel)
+    {
+      // write back the owned region of the padded work tensor
+      auto inner = eta;
+      for (int d = 0; d < spatial_dim; ++d)
+        inner = inner.narrow(d, hw, owned[d]);
+      for (int c = 0; c < n_colors; ++c)
+        crops[c].copy_(inner.select(-1, c));
+    }
+    else
+      for (int c = 0; c < n_colors; ++c)
+        crops[c].copy_(eta.select(-1, c));
 
-    // remap the time integrator history consistently
+    // remap the time integrator history consistently. Stored states have the
+    // buffer layout: padded in REAL_SPACE mode, unpadded owned otherwise.
     if (_remap_old_states)
     {
+      auto changed_states = changed_expanded;
+      if (spectral_parallel)
+        for (int d = 0; d < spatial_dim; ++d)
+          changed_states = changed_states.narrow(d, hw, owned[d]);
+      const int64_t state_off = realspace ? buffer_pad - hw : 0;
+      const int64_t state_ring = realspace ? hw : 0;
+
       std::size_t n_states = std::numeric_limits<std::size_t>::max();
       for (auto * buf : _op_buffers)
         n_states = std::min(n_states, buf ? buf->getOldTensorRef().size() : std::size_t(0));
@@ -463,14 +521,14 @@ GrainTracker::trackAndRemap()
           }
           auto crop = state;
           for (unsigned int d = 0; d < _dim; ++d)
-            crop = crop.narrow(d, buffer_pad - hw, owned[d] + 2 * hw);
+            crop = crop.narrow(d, state_off, owned[d] + 2 * state_ring);
           old_crops.push_back(crop);
         }
         if (!usable)
           continue;
 
         auto old_eta = torch::stack(old_crops, -1);
-        remapOrderParameters(old_eta, changed_expanded, old_color_vec, new_color_vec);
+        remapOrderParameters(old_eta, changed_states, old_color_vec, new_color_vec);
         for (int c = 0; c < n_colors; ++c)
           old_crops[c].copy_(old_eta.select(-1, c));
       }
@@ -486,11 +544,15 @@ GrainTracker::trackAndRemap()
     for (std::size_t i = 0; i < grains.size(); ++i)
       persistent_map[i] = grains[i].persistent_id;
     auto id_grid = applyLabelMap(grain_ids, persistent_map);
+    if (spectral_parallel)
+      for (int d = 0; d < spatial_dim; ++d)
+        id_grid = id_grid.narrow(d, hw, owned[d]);
 
     auto out = torch::full(_op_tensors[0]->sizes(), -1.0, MooseTensor::floatTensorOptions());
     auto out_crop = out;
-    for (unsigned int d = 0; d < _dim; ++d)
-      out_crop = out_crop.narrow(d, buffer_pad - hw, owned[d] + 2 * hw);
+    if (realspace)
+      for (unsigned int d = 0; d < _dim; ++d)
+        out_crop = out_crop.narrow(d, buffer_pad - hw, owned[d] + 2 * hw);
     out_crop.copy_(id_grid.to(out.dtype()));
     *_grain_id_buffer = out;
   }
