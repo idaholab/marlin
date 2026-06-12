@@ -581,7 +581,8 @@ std::vector<int64_t>
 matchPersistentGrains(const std::vector<GrainMeta> & previous,
                       std::vector<GrainMeta> & current,
                       const GrainRemapOptions & options,
-                      const Geometry & geom)
+                      const Geometry & geom,
+                      int64_t first_new_id)
 {
   std::vector<int64_t> persistent(current.size(), -1);
   if (current.empty())
@@ -631,7 +632,7 @@ matchPersistentGrains(const std::vector<GrainMeta> & previous,
       }
     }
 
-  int64_t next_persistent = 0;
+  int64_t next_persistent = first_new_id;
   for (const auto & g : previous)
     next_persistent = std::max(next_persistent, g.persistent_id + 1);
 

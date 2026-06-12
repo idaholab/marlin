@@ -194,12 +194,16 @@ std::vector<GrainMeta> finalizeGrains(const std::vector<ComponentMoments> & labe
  * Track grains across remap steps by mutual-nearest centroid matching with
  * minimum-image distances for periodic dimensions and a relative volume guard.
  * Sets persistent_id on `current`; colors are not modified (the detected color is
- * authoritative). Returns the persistent ids.
+ * authoritative). Unmatched grains receive fresh ids starting at
+ * max(first_new_id, max persistent id in `previous` + 1); pass a monotone
+ * counter as first_new_id to prevent ids of vanished grains from being reused.
+ * Returns the persistent ids.
  */
 std::vector<int64_t> matchPersistentGrains(const std::vector<GrainMeta> & previous,
                                            std::vector<GrainMeta> & current,
                                            const GrainRemapOptions & options,
-                                           const Geometry & geom);
+                                           const Geometry & geom,
+                                           int64_t first_new_id = 0);
 
 /**
  * Extract unique adjacency pairs (grain_a, grain_b), a < b, from a grid of

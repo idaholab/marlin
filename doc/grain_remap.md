@@ -81,11 +81,7 @@ the op buffers, cropped to the owned region plus a `halo_width`-wide ghost ring.
    post-exchange labels differ yield equivalence pairs; pairs are allgathered and
    merged with a union-find into dense grain ids (deterministic: ordered by
    smallest label).
-6. **Persistence:** mutual-nearest-centroid matching against the previous step
-   with minimum-image distances on periodic dimensions and a relative volume
-   guard. Matched grains keep their persistent id; unmatched grains get new ids.
-   The OP a grain occupies is always taken from detection (argmax), never from
-   tracking bookkeeping.
+6. **Persistence:** see *Grain identity across steps* below.
 7. **Adjacency (device):** the grain id grid is expanded by `halo_width` using
    breadth-first label fronts (cells belong to the nearest grain; first-arrival
    ownership, never overwritten), ghost-exchanged, and scanned for neighboring
@@ -100,6 +96,55 @@ the op buffers, cropped to the owned region plus a `halo_width`-wide ghost ring.
    including sub-threshold interface tails of all other grains — are bit-identical
    untouched. Old states are remapped with the same mapping. When nothing changed
    the field is not written at all.
+
+## Grain identity across steps
+
+Within one tracking step grains carry dense ids 0..N-1 (an artifact of the
+labeling order, not stable). Stable identity is provided by the
+`persistent_id`, maintained by `matchPersistentGrains`:
+
+1. Every grain is characterized by its volume-weighted centroid (in global cell
+   coordinates, exact even for grains spanning periodic boundaries via the
+   circular-mean moments) and its volume.
+2. The full distance matrix between the current grain list and the previous
+   step's list is evaluated with **minimum-image distances** on periodic
+   dimensions, giving for each current grain its nearest previous grain and
+   vice versa.
+3. A pair is matched only if it is **mutually nearest** (each is the other's
+   closest), the distance is within `tracking_tolerance` (cells), and the
+   volume ratio is within `tracking_volume_ratio`. Mutual nearestness makes the
+   matching one-to-one without a global assignment solve; the guards reject
+   coincidental proximity of a nucleated or drastically changed grain.
+4. Matched grains inherit the previous grain's `persistent_id`. Unmatched
+   grains receive fresh ids from a **monotone counter** held by the
+   `GrainTracker` (`_next_persistent_id`), so ids of vanished grains are never
+   reused for later nucleations.
+
+Since the grain list (volumes, centroids) is reduced identically on all ranks,
+the matching is deterministic and needs no communication; the previous list is
+simply each rank's stored copy.
+
+Event semantics:
+
+- **Vanished grain:** its previous entry finds no mutual partner; the id simply
+  drops out of the list (and is never reassigned).
+- **Nucleated grain:** no partner within tolerance; gets a fresh id.
+- **Merging grains:** the merged grain is mutually nearest to (usually) the
+  larger parent and inherits that id; the other parent's id ends.
+- **Splitting grain:** one fragment (usually the larger) keeps the id, other
+  fragments are treated as new grains.
+- A fast-moving grain that travels more than `tracking_tolerance` cells between
+  tracking steps loses its identity — choose `interval` and the tolerance so
+  expected boundary migration per tracking interval stays well below it.
+
+There is intentionally no remap-coupling in identity bookkeeping: the OP a
+grain occupies is always re-detected from the field (argmax), never inferred
+from the previous step's color assignment, so a tracking mismatch can never
+read a grain from the wrong channel during remapping.
+
+Possible future refinement (as in MOOSE's GrainTracker): halo-overlap based
+matching, which handles fast motion and merge/split events more explicitly than
+centroid proximity.
 
 ## Library layer
 

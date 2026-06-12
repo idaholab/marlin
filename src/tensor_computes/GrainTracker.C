@@ -134,6 +134,7 @@ GrainTracker::GrainTracker(const InputParameters & parameters)
     _remap_old_states(getParam<bool>("remap_old_states")),
     _on_conflict(getParam<MooseEnum>("on_conflict")),
     _grain_id_buffer(nullptr),
+    _next_persistent_id(0),
     _execution_count(0),
     _total_remaps(0),
     _last_conflicts(0)
@@ -368,7 +369,9 @@ GrainTracker::trackAndRemap()
   auto grains = finalizeGrains(moments, label_to_grain, label_color, n_grains, geom);
 
   // persistent grain identities
-  matchPersistentGrains(_grains, grains, options, geom);
+  matchPersistentGrains(_grains, grains, options, geom, _next_persistent_id);
+  for (const auto & g : grains)
+    _next_persistent_id = std::max(_next_persistent_id, g.persistent_id + 1);
 
   // adjacency between grains within 2*halo_width of each other
   auto grain_ids = applyLabelMap(labels, label_to_grain);

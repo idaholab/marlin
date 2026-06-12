@@ -324,6 +324,35 @@ TEST(GrainRemap, matchPersistentGrains)
   EXPECT_EQ(ids[2], 13); // volume guard rejected the match -> new id
 }
 
+TEST(GrainRemap, persistentIdsOfVanishedGrainsAreNotReused)
+{
+  GrainRemap::Geometry geom;
+  geom.spatial_dim = 2;
+  geom.owned = {{48, 48, 0}};
+  geom.global = {{48, 48, 0}};
+
+  GrainRemap::GrainRemapOptions options;
+  options.tracking_tolerance = 3.0;
+
+  // grain 7 vanished in an earlier step; only grain 3 survives
+  std::vector<GrainRemap::GrainMeta> previous(1);
+  previous[0].persistent_id = 3;
+  previous[0].centroid = {{10, 10, 0}};
+  previous[0].volume = 100;
+
+  std::vector<GrainRemap::GrainMeta> current(2);
+  current[0].centroid = {{10, 10, 0}}; // matches previous grain 3
+  current[0].volume = 100;
+  current[1].centroid = {{40, 40, 0}}; // nucleated grain
+  current[1].volume = 100;
+
+  // without a monotone counter the new grain would reuse the vanished id 7+
+  auto ids =
+      GrainRemap::matchPersistentGrains(previous, current, options, geom, /*first_new_id=*/8);
+  EXPECT_EQ(ids[0], 3);
+  EXPECT_EQ(ids[1], 8);
+}
+
 TEST(GrainRemap, remapStepSeparatesCloseGrains)
 {
   const int64_t n = 64;

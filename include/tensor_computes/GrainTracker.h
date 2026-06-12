@@ -79,6 +79,8 @@ protected:
 
   /// grain metadata of the last tracking step (identical on all ranks)
   std::vector<GrainRemap::GrainMeta> _grains;
+  /// monotone persistent id counter (ids of vanished grains are never reused)
+  int64_t _next_persistent_id;
   /// number of executions
   unsigned int _execution_count;
   /// cumulative remap moves
