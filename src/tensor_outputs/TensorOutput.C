@@ -34,6 +34,7 @@ TensorOutput::validParams()
   exec_enum.addAvailableFlags(EXEC_TIMESTEP_END);
   exec_enum = {EXEC_INITIAL, EXEC_TIMESTEP_END};
   params.addParam<ExecFlagEnum>("execute_on", exec_enum, exec_enum.getDocString());
+  params.addParam<std::size_t>("interval", 1, "Output every N time steps.");
 
   params.addClassDescription("TensorOutput object.");
   return params;
@@ -50,7 +51,8 @@ TensorOutput::TensorOutput(const InputParameters & parameters)
     _time(_tensor_problem.outputTime()),
     _file_base(isParamValid("file_base") ? getParam<std::string>("file_base")
                                          : _app.getOutputFileBase(true)),
-    _execute_on(getParam<ExecFlagEnum>("execute_on"))
+    _execute_on(getParam<ExecFlagEnum>("execute_on")),
+    _interval(getParam<std::size_t>("interval"))
 {
   for (const auto & name : getParam<std::vector<TensorInputBufferName>>("buffer"))
     _out_buffers[name] = &_tensor_problem.getBufferBase(name).getRawCPUTensor();
@@ -59,7 +61,13 @@ TensorOutput::TensorOutput(const InputParameters & parameters)
 bool
 TensorOutput::shouldRun(const ExecFlagType & execute_flag) const
 {
-  return _execute_on.isValueSet(execute_flag);
+  if (!_execute_on.isValueSet(execute_flag))
+    return false;
+
+  if (execute_flag == EXEC_TIMESTEP_END && (_tensor_problem.timeStep() % _interval != 0))
+    return false;
+
+  return true;
 }
 
 void

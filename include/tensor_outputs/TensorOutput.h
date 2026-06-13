@@ -53,4 +53,7 @@ protected:
   std::map<std::string, const torch::Tensor *> _out_buffers;
 
   const ExecFlagEnum _execute_on;
+
+  /// output every N time steps
+  const std::size_t _interval;
 };
