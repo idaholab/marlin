@@ -65,17 +65,20 @@ f0 = '((gr0^4/4 - gr0^2/2) + (gr1^4/4 - gr1^2/2) + (gr2^4/4 - gr2^2/2) + gamma_0
         [grad_gr0]
             type = GradientVector
             buffer = grad_gr0
-            input = gr0
+            input = gr0_bar
+            input_is_reciprocal = true
         []
         [grad_gr1]
             type = GradientVector
             buffer = grad_gr1
-            input = gr1
+            input = gr1_bar
+            input_is_reciprocal = true
         []
         [grad_gr2]
             type = GradientVector
             buffer = grad_gr2
-            input = gr2
+            input = gr2_bar
+            input_is_reciprocal = true
         []
 
         [sigma_gr0_gr1]
