@@ -29,8 +29,8 @@
       neml2_input_file = neml2_input.i
       neml2_model = multiply
       marlin_inputs = 'A B'
-      neml2_inputs = 'forces/A forces/B'
-      neml2_outputs = 'state/C'
+      neml2_inputs = 'A B'
+      neml2_outputs = 'C'
       marlin_outputs = 'C'
     []
   []
