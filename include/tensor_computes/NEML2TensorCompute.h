@@ -11,7 +11,6 @@
 #include "TensorOperatorBase.h"
 
 #ifdef NEML2_ENABLED
-#include "neml2/base/LabeledAxisAccessor.h"
 #include "neml2/models/Model.h"
 #endif
 
@@ -35,7 +34,7 @@ protected:
 #ifdef NEML2_ENABLED
   std::shared_ptr<neml2::Model> _model;
 
-  std::vector<std::pair<const torch::Tensor *, neml2::LabeledAxisAccessor>> _input_mapping;
-  std::vector<std::pair<neml2::LabeledAxisAccessor, torch::Tensor *>> _output_mapping;
+  std::vector<std::pair<const torch::Tensor *, neml2::VariableName>> _input_mapping;
+  std::vector<std::pair<neml2::VariableName, torch::Tensor *>> _output_mapping;
 #endif
 };

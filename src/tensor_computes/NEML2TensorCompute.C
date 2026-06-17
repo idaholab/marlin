@@ -13,7 +13,6 @@
 
 #ifdef NEML2_ENABLED
 #include "neml2/neml2.h"
-#include "neml2/models/map_types_fwd.h"
 #include "neml2/tensors/Scalar.h"
 #include "neml2/tensors/Vec.h"
 #include "neml2/tensors/R2.h"
@@ -71,17 +70,14 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
        getParam<TensorInputBufferName, std::string>("marlin_inputs", "neml2_inputs"))
   {
     const auto * input_buffer = &getInputBufferByName<>(marlin_input_name);
-    _input_mapping.emplace_back(
-        input_buffer, neml2::LabeledAxisAccessor(NEML2Utils::parseVariableName(neml2_input_name)));
+    _input_mapping.emplace_back(input_buffer, neml2_input_name);
   }
 
   for (const auto & [neml2_output_name, marlin_output_name] :
        getParam<std::string, TensorInputBufferName>("neml2_outputs", "marlin_outputs"))
   {
     auto * output_buffer = &getOutputBufferByName<>(marlin_output_name);
-    _output_mapping.emplace_back(
-        neml2::LabeledAxisAccessor(NEML2Utils::parseVariableName(neml2_output_name)),
-        output_buffer);
+    _output_mapping.emplace_back(neml2_output_name, output_buffer);
   }
 #endif
 }
