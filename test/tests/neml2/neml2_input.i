@@ -5,8 +5,8 @@
 [Models]
   [multiply]
     type = ScalarMultiplication
-    from_var = 'forces/A forces/B'
-    to_var = 'state/C'
+    from = 'A B'
+    to = 'C'
   []
 []
 
