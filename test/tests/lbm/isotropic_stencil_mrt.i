@@ -104,11 +104,6 @@
       buffer = speed
       velocity = velocity
     []
-    [residual]
-      type = LBMComputeResidual
-      buffer = speed
-      speed = speed
-    []
   []
   [Boundary]
     [top]
@@ -135,6 +130,7 @@
 [Problem]
   type = LatticeBoltzmannProblem
   substeps = 11
+  residual_tensor = speed
 []
 
 [Postprocessors]

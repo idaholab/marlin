@@ -137,11 +137,6 @@
       buffer = speed
       velocity = velocity
     []
-    [residual]
-      type = LBMComputeResidual
-      buffer = speed
-      speed = speed
-    []
   []
   [Boundary]
     [wall]

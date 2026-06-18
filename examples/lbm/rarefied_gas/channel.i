@@ -137,11 +137,6 @@
       buffer = speed
       velocity = velocity
     []
-    [residual]
-      type = LBMComputeResidual
-      buffer = speed
-      speed = speed
-    []
   []
   [Boundary]
     [wall]
@@ -158,7 +153,6 @@
   type = LBMStream
   buffer = f
   f_old = fpc
-  root_compute = residual
 []
 
 [Postprocessors]
@@ -175,6 +169,7 @@
   substeps = 2000
   print_debug_output = true
   binary_media = domain
+  residual_tensor = speed
 []
 
 [Executioner]

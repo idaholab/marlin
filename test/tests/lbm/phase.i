@@ -291,11 +291,6 @@ D = 4
     rho_g = '${rho_g}'
     is_dynamic_relaxation = true
   []
-  [residual]
-    type = LBMComputeResidual
-    buffer = phi
-    speed = phi
-  []
 []
 
 [TensorSolver]

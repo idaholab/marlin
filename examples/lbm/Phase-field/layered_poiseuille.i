@@ -320,11 +320,6 @@ Gx = 2.53e-07 #  '${uc} * (${mu_l}  + ${mu_g}) / (${h}^2)'
     buffer = speed
     velocity = velocity
   []
-  [residual]
-    type = LBMComputeResidual
-    buffer = speed
-    speed = speed
-  []
 []
 
 [TensorComputes/Boundary]
@@ -358,7 +353,6 @@ Gx = 2.53e-07 #  '${uc} * (${mu_l}  + ${mu_g}) / (${h}^2)'
   type = LBMStream
   buffer = 'h f'
   f_old = 'h_post_collision f_post_collision'
-  root_compute = residual
 []
 
 [Problem]
@@ -368,6 +362,7 @@ Gx = 2.53e-07 #  '${uc} * (${mu_l}  + ${mu_g}) / (${h}^2)'
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
+  residual_tensor = speed
 []
 
 [Executioner]

@@ -104,11 +104,6 @@
         buffer = speed
         velocity = velocity
       []
-      [residual]
-        type = LBMComputeResidual
-        buffer = speed
-        speed = speed
-      []
     []
   []
   [Boundary]
@@ -131,7 +126,6 @@
   type = LBMStream
   buffer = f
   f_old = fpc
-  root_compute = root
 []
 
 [Problem]
