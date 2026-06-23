@@ -69,6 +69,7 @@
       requirement = 'with two corrector steps of second order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # memory heavy
     []
   []
 

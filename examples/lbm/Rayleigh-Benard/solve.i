@@ -74,11 +74,4 @@
     forces = F
     tau0 = tau_f
   []
-
-  [Residual]
-    type = LBMComputeResidual
-    speed = T
-    # TODO this buffer is redundant, but avoids 'missing parameter' error
-    buffer = T
-  []
 []
