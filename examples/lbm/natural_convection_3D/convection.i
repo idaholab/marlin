@@ -210,13 +210,6 @@
       forces = F
       tau0 = tau_f
     []
-
-    [Residual]
-      type = LBMComputeResidual
-      speed = T
-      # TODO this buffer is redundant, but avoids 'missing parameter' error
-      buffer = T
-    []
   []
 
   #### Boundary ####
@@ -258,7 +251,6 @@
   type = LBMStream
   buffer = 'f g'
   f_old = 'fpc gpc'
-  root_compute = Residual
 []
 
 [Problem]
@@ -268,6 +260,7 @@
   scalar_constant_values = '1.0 1.0 1.05 0.55 0.55 0.01'
   substeps = 100
   print_debug_output = true
+  residual_tensor = speed
 []
 
 [Executioner]

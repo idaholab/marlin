@@ -49,17 +49,22 @@ public:
   const std::vector<int64_t> & getExtendedShape() { return _shape_extended; }
   const std::vector<int64_t> & getExtendedShapeQ() { return _shape_extended_to_q; }
 
-  /// sets convergence residual
-  void setSolverResidual(const Real & residual) { _convergence_residual = residual; };
-
   /// sets tensor to a value (normally zeros) at solid nodes
   void maskedFillSolids(torch::Tensor & t, const Real & value);
 
 protected:
+  void computeLBMResidual();
+
   /// LBM mesh/media
   torch::Tensor _binary_media;
   torch::Tensor _binary_media_owned;
   const bool _is_binary_media;
+
+  /// residual monitoring
+  const bool _is_residual_compute;
+  torch::Tensor _residual_tensor;
+  torch::Tensor _residual_tensor_previous;
+  Real _convergence_residual = 1;
 
   ///
   std::vector<int64_t> _shape_extended;
@@ -79,9 +84,6 @@ protected:
 
   /// used to restrict construction of lbm stencils to only one
   unsigned int _stencil_counter = 0;
-
-  /// convergence residual
-  Real _convergence_residual = 1;
 
   /// total number of time steps taken
   int _t_total = 0;

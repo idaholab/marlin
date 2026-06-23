@@ -296,11 +296,6 @@ D = 5
     rho_g = '${rho_g}'
     is_dynamic_relaxation = true
   []
-  [residual]
-    type = LBMComputeResidual
-    buffer = phi
-    speed = phi
-  []
 []
 
 [TensorComputes/Boundary]
@@ -335,7 +330,6 @@ D = 5
   type = LBMStream
   buffer = 'h f'
   f_old = 'h_post_collision f_post_collision'
-  root_compute = residual
 []
 
 [Problem]
@@ -344,6 +338,7 @@ D = 5
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
+  residual_tensor = speed
 []
 
 [Executioner]

@@ -113,11 +113,6 @@
       buffer = speed
       velocity = u
     []
-    [Residual]
-      type = LBMComputeResidual
-      buffer = speed
-      speed = speed
-    []
   []
   [Boundary]
     [wall]
@@ -155,6 +150,7 @@
   substeps = 5
   print_debug_output=true
   binary_media = binary_media
+  residual_tensor = speed
 []
 
 [Postprocessors]

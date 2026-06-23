@@ -128,12 +128,6 @@
       buffer=speed
       velocity=u
     []
-
-    [residual]
-      type = LBMComputeResidual
-      buffer = speed
-      speed = speed
-    []
   []
 
   [Boundary]
@@ -164,7 +158,6 @@
 
 [TensorSolver]
   type = LBMStream
-  root_compute = residual
   buffer = f
   f_old = fpc
 []
@@ -183,6 +176,7 @@
   substeps = 100
   print_debug_output = true
   binary_media = binary_media
+  residual_tensor = speed
 []
 
 [Executioner]
