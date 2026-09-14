@@ -519,9 +519,10 @@ TensorProblem::addTensorBuffer(const std::string & buffer_type,
 
     bool is_nodal;
     const auto & var = aux.getVariable(0, var_name);
-    if (var.feType() == FEType(FIRST, LAGRANGE))
+    const auto & fe_type = var.feType();
+    if (fe_type.order == FIRST && fe_type.family == LAGRANGE)
       is_nodal = true;
-    else if (var.feType() == FEType(CONSTANT, MONOMIAL))
+    else if (fe_type.order == CONSTANT && fe_type.family == MONOMIAL)
       is_nodal = false;
     else
       mooseError("Only first order lagrange and constant monomial variables are supported for "
