@@ -44,7 +44,7 @@ chunk_size = int(1e3)
 probe_chunk_size = int(2e3)
 
 dim = 3
-device = "cuda"
+device = "cpu"
 dtype = torch.float64
 
 beta = 50.0
