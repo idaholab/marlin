@@ -44,9 +44,8 @@ GradientEnergyDensity::computeBuffer()
     const auto & gradient_buffer = getInputBufferByName(name);
 
     if (gradient_buffer.dim() < 1 || gradient_buffer.size(-1) != 3)
-      mooseError("Gradient buffer '",
-                name,
-                "' must have a trailing component dimension of size 3.");
+      mooseError(
+          "Gradient buffer '", name, "' must have a trailing component dimension of size 3.");
 
     std::vector<int64_t> this_shape(gradient_buffer.sizes().begin(),
                                     gradient_buffer.sizes().end() - 1);

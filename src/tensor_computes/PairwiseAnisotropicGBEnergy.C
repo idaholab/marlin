@@ -85,7 +85,7 @@ PairwiseAnisotropicGBEnergy::computeBuffer()
 
   if (_grad_grain1.size(-1) != 3 || _grad_grain2.size(-1) != 3)
     mooseError("grad_grain1_buffer and grad_grain2_buffer must have trailing component dimensions "
-              "of size 3 each.");
+               "of size 3 each.");
 
   if (_grad_grain1.sizes() != _grad_grain2.sizes())
     mooseError("grad_grain1_buffer and grad_grain2_buffer must have identical shapes.");
@@ -110,8 +110,7 @@ PairwiseAnisotropicGBEnergy::computeBuffer()
   // entries chunk-by-chunk. After all chunks have been evaluated, any remaining
   // NaNs are replaced with the largest GBE calculated anywhere in the domain, to
   // avoid an artificial low-energy region in the bulk.
-  auto gamma_full =
-      torch::full({batch_size}, std::numeric_limits<float>::quiet_NaN(), opts);
+  auto gamma_full = torch::full({batch_size}, std::numeric_limits<float>::quiet_NaN(), opts);
 
   // Derivatives remain zero outside the evaluated interface region: there is no
   // torque contribution where there is no interface.

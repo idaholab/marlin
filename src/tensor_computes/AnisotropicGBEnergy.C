@@ -83,8 +83,8 @@ AnisotropicGBEnergy::computeBuffer()
   // dsigma_dn stays zero there; the energy itself is set to the maximum
   // measured value below rather than left at zero, to avoid an artificial
   // low-energy region in the bulk.
-  auto gamma_full = torch::full(
-      {batch_size}, std::numeric_limits<float>::quiet_NaN(), gb_gradient.options());
+  auto gamma_full =
+      torch::full({batch_size}, std::numeric_limits<float>::quiet_NaN(), gb_gradient.options());
   auto dsigma_dg_full = torch::zeros({batch_size, 3}, gb_gradient.options());
 
   if (N_interface > 0)
