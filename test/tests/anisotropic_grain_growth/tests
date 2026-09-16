@@ -1,0 +1,25 @@
+[Tests]
+  issues = '#TBD'
+
+  [analytic_hull]
+    type = CSVDiff
+    input = analytic_hull.i
+    csvdiff = analytic_hull_out.csv
+    requirement = 'The system shall evolve a single order parameter using an inclination-dependent grain-boundary energy given by a closed-form TorchScript model.'
+    design = 'AnisotropicGBEnergy.md AnisotropyTorque.md GradientEnergyDensity.md'
+    capabilities = libtorch
+    compute_devices = 'cpu cuda mps xpu'
+    max_parallel = 1
+  []
+
+  [sigma3_circular_grain]
+    type = CSVDiff
+    input = sigma3_circular_grain.i
+    csvdiff = sigma3_circular_grain_out.csv
+    requirement = 'The system shall evolve two order parameters representing a circular grain at a Sigma-3 misorientation using an inclination-dependent grain-boundary energy given by a TorchScript convex-hull surrogate.'
+    design = 'PairwiseAnisotropicGBEnergy.md AnisotropyTorque.md GradientEnergyDensity.md'
+    capabilities = libtorch
+    compute_devices = 'cpu cuda mps xpu'
+    max_parallel = 1
+  []
+[]
