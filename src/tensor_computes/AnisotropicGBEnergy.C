@@ -10,9 +10,8 @@
 
 #include "MarlinUtils.h"
 
-#include <limits>
-
 #include <cmath>
+#include <limits>
 
 registerMooseObject("MarlinApp", AnisotropicGBEnergy);
 
@@ -29,7 +28,8 @@ AnisotropicGBEnergy::validParams()
       "Output tensor buffer for the derivative of GB energy with respect to the normal tensor.");
   params.addRequiredParam<DataFileName>(
       "libtorch_model_file", "Path to the TorchScript file containing the GB energy model.");
-  params.addRequiredParam<Real>("interface_width", "Coarsest interface width in model.");
+  params.addRequiredRangeCheckedParam<Real>(
+      "interface_width", "interface_width > 0", "Coarsest interface width in model.");
   return params;
 }
 
@@ -45,6 +45,11 @@ AnisotropicGBEnergy::AnisotropicGBEnergy(const InputParameters & parameters)
   _surrogate->to(ref.device(), ref.scalar_type(), /* non_blocking = */ false);
   _surrogate->eval();
 
+  // The gb_gradient_buffer magnitude falls below this threshold outside the
+  // diffuse interface, where |grad eta| ~ (1/interface_width) / cosh(2*d/W)^2
+  // for a tanh profile of half-width W/4 and d the signed distance from the
+  // interface centre; d = W evaluates cosh(4), giving a negligible-gradient
+  // cutoff one interface width out.
   _gradient_threshold = 2 / (cosh(4) * cosh(4)) / _interface_width;
 }
 
@@ -65,18 +70,22 @@ AnisotropicGBEnergy::computeBuffer()
 
   auto gb_gradient = _gb_gradient_buffer.reshape({batch_size, 3}).contiguous().detach();
 
-  // ── 1. Compute valid mask on full grid (cheap) ────────────────────────
+  // Compute the valid (interface) mask on the full grid, then pre-filter to
+  // interface points only before running the surrogate model.
   auto grad_mag =
       torch::sqrt((gb_gradient * gb_gradient).sum(/*dim=*/1, /*keepdim=*/true)); // [B, 1]
   auto valid_mask = (grad_mag.squeeze(1) >= _gradient_threshold);                // [B]
 
-  // ── 2. Pre-filter to interface points only ────────────────────────────
   auto valid_idx = torch::where(valid_mask)[0]; // [N_interface]
   const auto N_interface = valid_idx.size(0);
 
-  // Initialize full-grid outputs to zero
-  auto gamma_full = torch::zeros({batch_size}, gb_gradient.options());
-  auto dσ_dg_full = torch::zeros({batch_size, 3}, gb_gradient.options());
+  // Outside the interface there is no gradient to differentiate, so
+  // dsigma_dn stays zero there; the energy itself is set to the maximum
+  // measured value below rather than left at zero, to avoid an artificial
+  // low-energy region in the bulk.
+  auto gamma_full = torch::full(
+      {batch_size}, std::numeric_limits<float>::quiet_NaN(), gb_gradient.options());
+  auto dsigma_dg_full = torch::zeros({batch_size, 3}, gb_gradient.options());
 
   if (N_interface > 0)
   {
@@ -97,12 +106,19 @@ AnisotropicGBEnergy::computeBuffer()
                                        /*retain_graph=*/false,
                                        /*create_graph=*/false,
                                        /*allow_unused=*/false);
-    auto dσ_dg_valid = grads[0];
+    auto dsigma_dg_valid = grads[0];
 
-    gamma_full.index_put_({valid_idx}, gamma_valid.detach());
-    dσ_dg_full.index_put_({valid_idx}, dσ_dg_valid.detach());
+    gamma_valid = gamma_valid.detach();
+    gamma_full.index_put_({valid_idx}, gamma_valid);
+    dsigma_dg_full.index_put_({valid_idx}, dsigma_dg_valid.detach());
+
+    // Fill the remaining non-interface points with the largest GBE actually
+    // measured, to avoid an artificial low-energy region in the bulk.
+    gamma_full = torch::where(torch::isnan(gamma_full), gamma_valid.max(), gamma_full);
   }
+  else
+    gamma_full.fill_(1.0);
 
   _u = gamma_full.reshape(output_shape);
-  _dsigma_dn = dσ_dg_full.reshape(normal_shape);
+  _dsigma_dn = dsigma_dg_full.reshape(normal_shape);
 }

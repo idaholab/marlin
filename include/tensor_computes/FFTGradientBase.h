@@ -28,9 +28,6 @@ public:
 
 protected:
   torch::Tensor computeGradientComponent(unsigned int direction) const;
-  torch::Tensor computeGradientComponent(const torch::Tensor & input,
-                                        bool input_is_reciprocal,
-                                        unsigned int direction) const;
   torch::Tensor computeGradientComponent(const torch::Tensor & reciprocal_input,
                                          unsigned int direction) const;
   torch::Tensor reciprocalInput() const;
@@ -78,16 +75,7 @@ template <typename T>
 torch::Tensor
 FFTGradientBase<T>::computeGradientComponent(unsigned int direction) const
 {
-  return computeGradientComponent(_input, _input_is_reciprocal, direction);
-}
-
-template <typename T>
-torch::Tensor
-FFTGradientBase<T>::computeGradientComponent(const torch::Tensor & input,
-                                             bool input_is_reciprocal,
-                                             unsigned int direction) const
-{
-  return computeGradientComponent(_input_is_reciprocal ? input : _domain.fft(input), direction);
+  return computeGradientComponent(reciprocalInput(), direction);
 }
 
 template <typename T>

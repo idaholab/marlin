@@ -8,12 +8,14 @@
 
 #include "AnisotropyTorque.h"
 
+#include "DomainAction.h"
+
 registerMooseObject("MarlinApp", AnisotropyTorque);
 
 InputParameters
 AnisotropyTorque::validParams()
 {
-  InputParameters params = FFTGradientBase<>::validParams();
+  InputParameters params = TensorOperator<>::validParams();
   params.addClassDescription(
       "Computes the anisotropy torque as the sum of FFT gradient components of dmu_dn * g.");
   params.addRequiredParam<TensorInputBufferName>(
@@ -23,9 +25,11 @@ AnisotropyTorque::validParams()
 }
 
 AnisotropyTorque::AnisotropyTorque(const InputParameters & parameters)
-  : FFTGradientBase<>(parameters),
+  : TensorOperator<>(parameters),
     _dmu_dn(getInputBuffer("dmu_dn")),
-    _g(getInputBuffer("g"))
+    _g(getInputBuffer("g")),
+    _imaginary_unit(
+        torch::tensor(c10::complex<double>(0.0, 1.0), MooseTensor::complexFloatTensorOptions()))
 {
 }
 
@@ -45,6 +49,7 @@ AnisotropyTorque::computeBuffer()
   for (const auto i : make_range(_dim))
   {
     auto weighted_component = _dmu_dn.select(-1, i) * _g;
-    _u += computeGradientComponent(weighted_component, /* input_is_reciprocal = */ false, i);
+    _u += _domain.ifft(_domain.fft(weighted_component) * _domain.getReciprocalAxis(i) *
+                       _imaginary_unit);
   }
 }

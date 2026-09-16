@@ -14,7 +14,9 @@
 #include <torch/script.h>
 
 /**
- * Evaluate anisotropic grain-boundary energy from a TorchScript model.
+ * Evaluate anisotropic grain-boundary energy between a pair of grains from a
+ * TorchScript model, given the gradient buffers of each grain's order
+ * parameter.
  */
 class PairwiseAnisotropicGBEnergy : public TensorOperator<>
 {
@@ -37,4 +39,7 @@ protected:
 
   const Real _interface_width;
   Real _gradient_threshold;
+
+  /// Maximum number of spatial points evaluated in a single chunk
+  const unsigned int _chunk_size;
 };
