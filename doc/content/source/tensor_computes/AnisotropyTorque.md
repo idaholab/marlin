@@ -2,7 +2,7 @@
 
 !syntax description /TensorComputes/Solve/AnisotropyTorque
 
-AnisotropyTorque computes the anisotropy torque by summing FFT gradient components of a vector-valued `dmu_dn` field multiplied by a scalar weighting field `g`.
+`AnisotropyTorque` computes the anisotropy torque by summing FFT gradient components of a vector-valued `dmu_dn` field multiplied by a scalar weighting field `g`.
 
 ## Overview
 
@@ -21,7 +21,7 @@ using the same FFT-based gradient machinery as the other gradient computes.
 
 ## Example Input File Syntax
 
-!listing test/tests/anisotropic_grain_growth/circular_grain.i block=TensorComputes/Solve/anisotropy_torque
+!listing test/tests/anisotropic_grain_growth/sigma3_circular_grain.i block=TensorComputes/Solve/torque_01_gr0
 
 !syntax parameters /TensorComputes/Solve/AnisotropyTorque
 
