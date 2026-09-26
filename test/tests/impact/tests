@@ -1,0 +1,16 @@
+[Tests]
+  issues = '#160'
+  [slug_3d_thermal_mult_ri]
+    type = RunApp
+    input = '../../../examples/impact/3d_slug_thermal_mult_ri.i'
+    expect_out = 'Time Step 100'
+    requirement = 'The system shall run a three-dimensional thermomechanical Johnson-Cook slug impact for 100 explicit time steps with reduced integration and hourglass stabilization.'
+    compute_devices = 'cpu'
+    capabilities = 'method=opt & neml2'
+    max_parallel = 1
+    max_threads = 1
+    max_time = 60
+    recover = false
+    restep = false
+  []
+[]
