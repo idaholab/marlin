@@ -27,6 +27,9 @@ public:
   T & getTensor();
   const std::vector<T> & getOldTensor(std::size_t states_requested);
 
+  /// mutable access to the old states (e.g. for grain remapping of the history)
+  std::vector<T> & getOldTensorRef() { return _u_old; }
+
   virtual const torch::Tensor & getRawTensor() const override;
   virtual const torch::Tensor & getRawCPUTensor() override;
 

@@ -445,10 +445,11 @@ template <typename T>
 T &
 TensorProblem::getCompute(const std::string & name) const
 {
-  for (const auto & tcb : _computes)
-    if (std::dynamic_pointer_cast<MooseObject>(tcb)->name() == name)
-      if (const auto ptr = std::dynamic_pointer_cast<T>(tcb); ptr)
-        return *ptr;
+  for (const auto * list : {&_ics, &_computes, &_pps})
+    for (const auto & tcb : *list)
+      if (std::dynamic_pointer_cast<MooseObject>(tcb)->name() == name)
+        if (const auto ptr = std::dynamic_pointer_cast<T>(tcb); ptr)
+          return *ptr;
 
   mooseError(
       "No compute with name '", name, "' of type ", libMesh::demangle(typeid(T).name()), " found.");
