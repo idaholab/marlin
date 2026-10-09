@@ -32,6 +32,7 @@ public:
 
 protected:
   virtual void output() override;
+  virtual bool runAsynchronously() const override;
 
   torch::Tensor extendTensor(torch::Tensor tensor);
   torch::Tensor upsampleTensor(torch::Tensor tensor);
@@ -94,6 +95,9 @@ private:
 #ifdef LIBMESH_HAVE_HDF5
   const bool _enable_hdf5;
   const bool _hdf5_compression;
+
+  /// whether libhdf5 was built thread-safe (serializes HDF5 calls from different threads)
+  bool _hdf5_threadsafe;
 
   /// HDF5 file name (rank-specific)
   const std::string _hdf5_name;
