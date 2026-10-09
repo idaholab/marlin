@@ -15,6 +15,12 @@ When running with more than one MPI rank, this output currently supports only `C
 rank writes its local data to rank-suffixed files and rank 0 emits the global XDMF collection that
 references those blocks.
 
+!alert note title=Asynchronous output
+Output is written in a separate thread while the simulation continues. When
+[!param](/TensorOutputs/XDMFTensorOutput/enable_hdf5) is set and the HDF5 library is not thread-safe,
+the output is written synchronously instead, as its HDF5 calls would otherwise race with other HDF5
+users in the process (such as the Exodus output through netCDF).
+
 ## Overview
 
 Writes one or more buffers selected by

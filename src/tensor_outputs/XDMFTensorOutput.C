@@ -100,7 +100,8 @@ XDMFTensorOutput::XDMFTensorOutput(const InputParameters & parameters)
   // Check if the library is thread-safe
   hbool_t is_threadsafe;
   H5is_library_threadsafe(&is_threadsafe);
-  if (!is_threadsafe)
+  _hdf5_threadsafe = is_threadsafe;
+  if (!_hdf5_threadsafe)
   {
     for (const auto & output : _tensor_problem.getOutputs())
       if (output.get() != this && dynamic_cast<XDMFTensorOutput *>(output.get()))
@@ -244,14 +245,30 @@ XDMFTensorOutput::prepareForOutput()
   _has_cached_domain = true;
 }
 
+bool
+XDMFTensorOutput::runAsynchronously() const
+{
+#ifdef LIBMESH_HAVE_HDF5
+  // A non-threadsafe libhdf5 has no global lock, so HDF5 calls from an output thread would race
+  // with HDF5 calls made elsewhere in the process (e.g. netCDF initializing its HDF5 layer when
+  // the Exodus output creates its file), which can silently drop datasets or corrupt the heap.
+  if (_enable_hdf5 && !_hdf5_threadsafe)
+    return false;
+#endif
+  return true;
+}
+
 void
 XDMFTensorOutput::output()
 {
   writeLocalData();
 
 #ifdef LIBMESH_HAVE_HDF5
-  if (_enable_hdf5)
-    H5Fflush(_hdf5_file_id, H5F_SCOPE_GLOBAL);
+  if (_enable_hdf5 && H5Fflush(_hdf5_file_id, H5F_SCOPE_GLOBAL) < 0)
+  {
+    H5Eprint(H5E_DEFAULT, stderr);
+    mooseError("Error flushing HDF5 file '", _hdf5_name, "'.");
+  }
 #endif
 
   if (_is_parallel && _rank != 0)
@@ -654,14 +671,21 @@ addDataToHDF5(hid_t file_id,
   }
 
   // Write data to the dataset
-  status = H5Dwrite(dataset_id, type, H5S_ALL, dataspace_id, H5P_DEFAULT, data);
+  const herr_t write_status = H5Dwrite(dataset_id, type, H5S_ALL, dataspace_id, H5P_DEFAULT, data);
 
   // Close resources carefully (only close plist_id if we actually created it)
   if (enable_compression)
     H5Pclose(plist_id);
 
-  H5Dclose(dataset_id);
+  // closing a chunked dataset flushes its chunk cache, so a failure here also loses the data
+  const herr_t close_status = H5Dclose(dataset_id);
   H5Sclose(dataspace_id);
+
+  if (write_status < 0 || close_status < 0)
+  {
+    H5Eprint(H5E_DEFAULT, stderr);
+    mooseError("Error writing dataset '", dataset_name, "' to HDF5 file.");
+  }
 }
 }
 #endif
