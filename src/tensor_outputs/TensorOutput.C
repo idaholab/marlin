@@ -70,6 +70,11 @@ TensorOutput::startOutput()
   if (_output_thread.joinable())
     mooseError("Output thread is already running. Must call waitForCompletion() first. This is a "
                "code error.");
+  if (!runAsynchronously())
+  {
+    output();
+    return;
+  }
   _output_thread = std::move(std::thread(&TensorOutput::output, this));
 }
 

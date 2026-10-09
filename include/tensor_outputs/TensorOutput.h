@@ -38,6 +38,9 @@ public:
 protected:
   virtual void output() = 0;
 
+  /// Whether output() may run in a dedicated thread (otherwise it runs in the calling thread)
+  virtual bool runAsynchronously() const { return true; }
+
   TensorProblem & _tensor_problem;
   const DomainAction & _domain;
 
