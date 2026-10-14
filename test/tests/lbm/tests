@@ -405,6 +405,25 @@
     max_parallel = 4
     min_slots = 2 # memory heavy
   []
+
+  [convert_to_physical]
+    design = 'LBMComputePhysicalVelocity.md LBMComputePhysicalPressure.md'
+    issues = '#146'
+    requirement = 'The system shall be able to convert dimensionless LBM quantities into their physical counterparts in'
+    [2D]
+      type = CSVDiff
+      input = 'convert_to_physical_2D.i'
+      csvdiff = 'convert_to_physical_2D_out.csv'
+      compute_devices = 'cpu cuda mps xpu'
+      detail = '2D, and'
+    []
+    [3D]
+      type = CSVDiff
+      input = 'convert_to_physical_3D.i'
+      csvdiff = 'convert_to_physical_3D_out.csv'
+      compute_devices = 'cpu cuda mps xpu'
+      detail = '3D.'
+    []
   [rarefied_gas_flow]
     type = CSVDiff
     input = rarefied_gas.i
