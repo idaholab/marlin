@@ -130,11 +130,18 @@ MarlinApp::registerAll(Factory & f, ActionFactory & af, Syntax & syntax)
   registerDeep("TensorComputes/Initialize", "add_tensor_ic");
   addTaskDependency("add_tensor_ic", "add_tensor_buffer");
 
-  // TensorComputes/Boundary Actions
+  // TensorComputes/Boundary Actions (LBM-specific lattice boundary conditions)
   registerSyntaxTask("AddLBMBCAction", "TensorComputes/Boundary/*", "add_tensor_bc");
   syntax.registerSyntaxType("TensorComputes/Boundary/*", "TensorComputeName");
   registerMooseObjectTask("add_tensor_bc", TensorOperator, false);
   addTaskDependency("add_tensor_bc", "add_tensor_buffer");
+
+  // TensorComputes/BCs Actions (generic, non-LBM boundary conditions for the real-space FD
+  // path; distinct from the LBM-only TensorComputes/Boundary block above)
+  registerSyntaxTask("AddTensorBCAction", "TensorComputes/BCs/*", "add_tensor_boundary_condition");
+  syntax.registerSyntaxType("TensorComputes/BCs/*", "TensorComputeName");
+  registerMooseObjectTask("add_tensor_boundary_condition", TensorOperator, false);
+  addTaskDependency("add_tensor_boundary_condition", "add_tensor_buffer");
 
   // TensorComputes/Solve Action
   registerDeep("TensorComputes/Solve", "add_tensor_compute");

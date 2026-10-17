@@ -571,6 +571,10 @@ FunctionCall::simplify() const
       result = std::sqrt(const_values[0]);
     else if (_name == "abs" && const_values.size() == 1)
       result = std::abs(const_values[0]);
+    else if (_name == "erf" && const_values.size() == 1)
+      result = std::erf(const_values[0]);
+    else if (_name == "erfc" && const_values.size() == 1)
+      result = std::erfc(const_values[0]);
     else if (_name == "ceil" && const_values.size() == 1)
       result = std::ceil(const_values[0]);
     else if (_name == "floor" && const_values.size() == 1)
@@ -640,6 +644,20 @@ FunctionCall::differentiate(const std::string & var) const
   else if (_name == "exp")
     return std::make_shared<BinaryOp>(
         BinaryOp::Op::Mul, std::make_shared<FunctionCall>("exp", std::vector<ExprPtr>{arg}), darg);
+  else if (_name == "erf" || _name == "erfc")
+  {
+    // d/dx erf(x) = (2/sqrt(pi)) * exp(-x^2); d/dx erfc(x) = -(2/sqrt(pi)) * exp(-x^2)
+    const double two_over_sqrt_pi = 2.0 / std::sqrt(M_PI);
+    auto neg_x2 = std::make_shared<UnaryOp>(
+        UnaryOp::Op::Neg, std::make_shared<BinaryOp>(BinaryOp::Op::Mul, arg, arg));
+    ExprPtr deriv = std::make_shared<BinaryOp>(
+        BinaryOp::Op::Mul,
+        std::make_shared<Constant>(two_over_sqrt_pi),
+        std::make_shared<FunctionCall>("exp", std::vector<ExprPtr>{neg_x2}));
+    if (_name == "erfc")
+      deriv = std::make_shared<UnaryOp>(UnaryOp::Op::Neg, deriv);
+    return std::make_shared<BinaryOp>(BinaryOp::Op::Mul, deriv, darg);
+  }
   else if (_name == "exp2")
   {
     // d/dx[2^x] = 2^x * ln(2) * dx
@@ -917,6 +935,10 @@ FunctionCall::buildGraph(torch::jit::Graph & graph,
     return graph.insert(torch::jit::aten::rsqrt, {arg_vals[0]});
   else if (_name == "abs" && arg_vals.size() == 1)
     return graph.insert(torch::jit::aten::abs, {arg_vals[0]});
+  else if (_name == "erf" && arg_vals.size() == 1)
+    return graph.insert(torch::jit::aten::erf, {arg_vals[0]});
+  else if (_name == "erfc" && arg_vals.size() == 1)
+    return graph.insert(torch::jit::aten::erfc, {arg_vals[0]});
   else if (_name == "ceil" && arg_vals.size() == 1)
     return graph.insert(torch::jit::aten::ceil, {arg_vals[0]});
   else if (_name == "floor" && arg_vals.size() == 1)

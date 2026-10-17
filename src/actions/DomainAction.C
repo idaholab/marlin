@@ -151,13 +151,6 @@ DomainAction::DomainAction(const InputParameters & parameters)
       _parallel_mode = ParallelMode::FFT_PENCIL;
   }
 
-  // TODO: Implement non-periodic BCs
-  if (_parallel_mode == ParallelMode::REAL_SPACE)
-    for (const auto i : make_range(_dim))
-      if (!_periodic[i])
-        paramError("periodic_directions",
-                   "Domain must be periodic in all directions with `parallel_mode = REAL_SPACE`.");
-
   auto marlin_app = dynamic_cast<MarlinApp *>(&_app);
   if (_n_rank == 1)
   {

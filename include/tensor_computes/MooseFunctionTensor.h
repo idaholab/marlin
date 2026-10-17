@@ -24,6 +24,7 @@ public:
   MooseFunctionTensor(const InputParameters & parameters);
 
   virtual void computeBuffer() override;
+  virtual void realSpaceComputeBuffer() override;
 
   /// MOOSE functions are not traceable by PyTorch JIT
   virtual bool supportsJIT() const override { return false; }

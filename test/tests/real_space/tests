@@ -44,7 +44,100 @@
       input = diffusion.i
       csvdiff = diffusion_out.csv
       compute_devices = 'cpu cuda mps xpu'
+      min_slots = 2 # memory heavy
       detail = 'using a 3x3 stencil.'
+    []
+  []
+
+  [dirichlet_bc]
+    issues = '#122'
+    design = TensorDirichletBC.md
+    requirement = 'The system shall be able to apply a Dirichlet boundary condition in real space '
+    [laplacian_check]
+      type = CSVDiff
+      input = dirichlet_laplacian_check.i
+      csvdiff = dirichlet_laplacian_check_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      detail = 'and reproduce the discrete Laplacian expected from an initial condition that is consistent with the boundary values up to a small required perturbation.'
+    []
+    [relaxation]
+      type = CSVDiff
+      input = dirichlet_linear.i
+      csvdiff = dirichlet_linear_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      detail = 'and relax an initial condition that does not satisfy the boundary values toward the exact linear steady-state profile they imply.'
+    []
+    [2d_corners]
+      type = CSVDiff
+      input = dirichlet_2d_corners.i
+      csvdiff = dirichlet_2d_corners_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      detail = 'on a domain that is non-periodic on both axes, exercising the ghost-fill at all four domain corners.'
+    []
+  []
+
+  [analytic_verification]
+    issues = '#122'
+    design = TensorDirichletBC.md
+    requirement = 'The system shall reproduce an analytic diffusion solution from Crank, "The Mathematics of Diffusion" (2nd ed.) '
+    [semi_infinite]
+      type = CSVDiff
+      input = semi_infinite_diffusion.i
+      csvdiff = semi_infinite_diffusion_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      detail = 'for a semi-infinite medium with a constant surface concentration (Sec. 3.3(i), eq. 3.13, special case of zero initial concentration).'
+    []
+    [thin_slab]
+      type = CSVDiff
+      input = thin_slab_diffusion.i
+      csvdiff = thin_slab_diffusion_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      detail = 'for an instantaneous planar source confined to a thin slab, diffusing into an infinite medium (Sec. 2.5, eq. 2.15).'
+    []
+  []
+
+  [neumann_bc]
+    issues = '#122'
+    design = TensorNeumannBC.md
+    requirement = 'The system shall be able to apply a Neumann boundary condition in real space '
+    [conservation]
+      type = CSVDiff
+      input = neumann_conservation.i
+      csvdiff = neumann_conservation_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      detail = 'and conserve the total integral of a field under zero-flux boundary conditions on all non-periodic faces, from a non-uniform initial condition.'
+    []
+    [linear]
+      type = CSVDiff
+      input = neumann_linear.i
+      csvdiff = neumann_linear_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      min_slots = 2 # memory heavy
+      # max_error decays geometrically toward 0 as the field relaxes to the exact steady
+      # profile, reaching the double-precision noise floor (~1e-14) partway through the run.
+      # Once it drops below ~1e-9, serial-vs-parallel/threaded floating-point summation-order
+      # differences in the matrix-free stencil convolution (not a logic defect: observed to
+      # match bit-for-bit on an independent serial/4-rank-MPI run on a different architecture)
+      # dominate the relative diff. Floor max_error's comparison at 1e-8 (~1e-8 of its peak
+      # value of ~2.3), far below any value that would indicate a real relaxation failure.
+      override_columns = 'max_error'
+      override_rel_err = '5.5e-6'
+      override_abs_zero = '1e-8'
+      detail = 'and relax an initial condition toward the exact linear steady-state profile implied by a Dirichlet condition on one face and a nonzero-flux Neumann condition on the other.'
+    []
+  []
+
+  [robin_bc]
+    issues = '#122'
+    design = TensorRobinBC.md
+    requirement = 'The system shall be able to apply a general Robin boundary condition in real space and relax an initial condition toward the exact linear steady-state profile it implies, cross-validated against '
+    [steady_state]
+      type = CSVDiff
+      input = robin_steady_state.i
+      csvdiff = robin_steady_state_out.csv
+      compute_devices = 'cpu cuda mps xpu'
+      min_slots = 2 # memory heavy
+      detail = 'the elliptic Robin benchmark from the OpenGeoSys documentation (opengeosys.org/6.5.7/docs/benchmarks/elliptic/elliptic-robin).'
     []
   []
 []

@@ -13,6 +13,7 @@
 #include "UniformTensorMesh.h"
 
 #include "TensorOperatorBase.h"
+#include "TensorBoundaryCondition.h"
 #include "TensorTimeIntegrator.h"
 #include "TensorOutput.h"
 #include "DomainAction.h"
@@ -188,10 +189,8 @@ TensorProblem::execute(const ExecFlagType & exec_type)
   }
 
   if (exec_type == EXEC_TIMESTEP_END)
-  {
     // run outputs
     executeTensorOutputs(EXEC_TIMESTEP_END);
-  }
 
   FEProblem::execute(exec_type);
 }
@@ -561,6 +560,14 @@ TensorProblem::addTensorComputePostprocess(const std::string & compute_name,
 }
 
 void
+TensorProblem::addTensorComputeBC(const std::string & compute_name,
+                                  const std::string & name,
+                                  InputParameters & parameters)
+{
+  addTensorCompute(compute_name, name, parameters, _bcs);
+}
+
+void
 TensorProblem::addTensorCompute(const std::string & compute_type,
                                 const std::string & compute_name,
                                 InputParameters & parameters,
@@ -577,6 +584,19 @@ TensorProblem::addTensorCompute(const std::string & compute_type,
   list.push_back(compute_object);
 }
 
+TensorBoundaryCondition *
+TensorProblem::getBoundaryConditionFor(const std::string & buffer_name, unsigned int face) const
+{
+  for (const auto & bc_base : _bcs)
+  {
+    const auto bc = std::dynamic_pointer_cast<TensorBoundaryCondition>(bc_base);
+    if (bc && bc->getVariableName() == buffer_name &&
+        static_cast<unsigned int>(bc->getFace()) == face && bc->ownsFace())
+      return bc.get();
+  }
+  return nullptr;
+}
+
 void
 TensorProblem::addTensorOutput(const std::string & output_type,
                                const std::string & output_name,
@@ -590,6 +610,29 @@ TensorProblem::addTensorOutput(const std::string & output_type,
   auto output_object = _factory.create<TensorOutput>(output_type, output_name, parameters, 0);
   logAdd("TensorOutput", output_name, output_type, parameters);
   _outputs.push_back(output_object);
+}
+
+void
+TensorProblem::fillBoundaryGhosts(const std::string & buffer_name,
+                                  torch::Tensor & tensor,
+                                  unsigned int d,
+                                  bool lower,
+                                  unsigned int ghost_layers,
+                                  int64_t halo,
+                                  int64_t owned_extent)
+{
+  const unsigned int face = 2 * d + (lower ? 0u : 1u);
+  auto * bc = getBoundaryConditionFor(buffer_name, face);
+  if (!bc)
+    mooseError("No boundary condition registered for field '",
+               buffer_name,
+               "' on the non-periodic ",
+               (lower ? "lower" : "upper"),
+               " face of direction ",
+               d,
+               ". REAL_SPACE mode with periodic_directions not covering this axis requires a "
+               "[TensorComputes][BCs] block for every field that requests ghost layers on it.");
+  bc->fillGhostCells(tensor, ghost_layers, halo, owned_extent, _domain.getGridSpacing()(d));
 }
 
 void
@@ -644,13 +687,21 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
     const unsigned int part = partitions[d];
     if (part == 1)
     {
-      if (periodic[d] && halo >= static_cast<int64_t>(ghost_layers))
+      if (periodic[d])
       {
-        const auto owned_width = owned[d];
-        auto wrap_upper = tensor.narrow(d, halo, ghost_layers);
-        auto wrap_lower = tensor.narrow(d, halo + owned_width - ghost_layers, ghost_layers);
-        tensor.narrow(d, halo - ghost_layers, ghost_layers).copy_(wrap_lower);
-        tensor.narrow(d, halo + owned_width, ghost_layers).copy_(wrap_upper);
+        if (halo >= static_cast<int64_t>(ghost_layers))
+        {
+          const auto owned_width = owned[d];
+          auto wrap_upper = tensor.narrow(d, halo, ghost_layers);
+          auto wrap_lower = tensor.narrow(d, halo + owned_width - ghost_layers, ghost_layers);
+          tensor.narrow(d, halo - ghost_layers, ghost_layers).copy_(wrap_lower);
+          tensor.narrow(d, halo + owned_width, ghost_layers).copy_(wrap_upper);
+        }
+      }
+      else
+      {
+        fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/true, ghost_layers, halo, owned[d]);
+        fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/false, ghost_layers, halo, owned[d]);
       }
       continue;
     }
@@ -682,7 +733,10 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
         else if (periodic[d])
           neighbor[d] = part - 1;
         else
+        {
+          fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/true, ghost_layers, halo, owned[d]);
           return;
+        }
       }
       else
       {
@@ -691,7 +745,10 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
         else if (periodic[d])
           neighbor[d] = 0;
         else
+        {
+          fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/false, ghost_layers, halo, owned[d]);
           return;
+        }
       }
 
       const int neighbor_rank = toRank(neighbor[0], neighbor[1], neighbor[2]);
