@@ -44,8 +44,9 @@ LBMBoundaryCondition::LBMBoundaryCondition(const InputParameters & parameters)
   if (end[2] == n_global[2])
     _boundary_rank |= (1 << 5); // Mark as BACK
 
-  // for binary media
-  if (_lb_problem.isBinaryMedia())
+  // for binary media: only wall/regional boundaries need their own (marked) copy of the media,
+  // and only until their boundary entries are indexed on the first step
+  if (_lb_problem.isBinaryMedia() && (_boundary == Boundary::wall || _boundary == Boundary::regional))
   {
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();
@@ -58,6 +59,10 @@ LBMBoundaryCondition::LBMBoundaryCondition(const InputParameters & parameters)
 void
 LBMBoundaryCondition::maskBoundary()
 {
+  // face boundaries do not keep a copy of the media
+  if (!_binary_mesh.defined())
+    return;
+
   // If rank > 0, we have ghost layers, so we use 0 padding (consume the ghosts)
   int p = (_domain.comm().size() > 1) ? 0 : 1;
 
@@ -107,10 +112,20 @@ LBMBoundaryCondition::maskBoundary()
   owned_mesh.copy_(torch::where(boundary_mask, torch::full_like(owned_mesh, -1), owned_mesh));
 }
 
+std::vector<torch::indexing::TensorIndex>
+LBMBoundaryCondition::nonzeroIndex(const torch::Tensor & mask)
+{
+  const auto idx = torch::nonzero(mask);
+  std::vector<torch::indexing::TensorIndex> columns;
+  for (const auto d : make_range(idx.size(1)))
+    columns.emplace_back(idx.select(1, d).contiguous());
+  return columns;
+}
+
 bool
 LBMBoundaryCondition::isBoundaryOwned(const int & value)
 {
-  if (!_lb_problem.isBinaryMedia())
+  if (!_lb_problem.isBinaryMedia() || !_binary_mesh.defined())
     return false;
 
   if (_binary_mesh.sum().item<int64_t>() == 0)

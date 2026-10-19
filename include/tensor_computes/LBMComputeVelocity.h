@@ -31,5 +31,10 @@ protected:
   const Real & _body_force_constant_z;
   bool _is_force_applied;
 
+  /// cached parameters (getParam is a string lookup)
+  const bool _enable_forces;
+  const bool _add_body_force;
+
+  /// constant body force [1, dim]
   torch::Tensor _body_forces;
 };

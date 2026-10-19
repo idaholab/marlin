@@ -51,7 +51,7 @@ LBMPressureCorrectedEquilibrium::computeBuffer()
   auto usqr = vel_flat.square().sum(/*dim=*/-1, /*keepdim=*/true); // [N, 1]
 
   // rho * s_i(u) directly into u_flat
-  u_flat.copy_(edotu).square_().div_(2.0 * _lb_problem._cs4);
+  torch::square_out(u_flat, edotu).div_(2.0 * _lb_problem._cs4);
   u_flat.add_(edotu, /*alpha=*/1.0 / _lb_problem._cs2);
   u_flat.sub_(usqr, /*alpha=*/1.0 / (2.0 * _lb_problem._cs2));
   u_flat.mul_(w_flat);

@@ -31,6 +31,9 @@ protected:
 
   torch::Tensor _source_term;
 
+  /// lattice velocity components (x, y, z) as floating point tensors [1, 1, 1, Q]
+  std::array<torch::Tensor, 3> _e_q;
+
   const Real _tau;
   const Real _rho_l;
   const Real _rho_g;

@@ -120,7 +120,7 @@ amplitude = '${Ny}/100.0'
   scalar_constant_values = '1.0  1.05  1.0  1.1  0.7   0.7   0.0001'
   substeps = 100
   print_debug_output = true
-  residual_tensor = speed
+  residual_tensor = T
 []
 
 [Executioner]

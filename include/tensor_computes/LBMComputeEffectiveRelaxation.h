@@ -33,4 +33,10 @@ protected:
   // precomputed Constants
   Real _C1;
   Real _C2;
+
+  /// inputs/output (and their version counters) at the last evaluation, to skip recomputing
+  torch::Tensor _last_pore_size;
+  torch::Tensor _last_knudsen;
+  torch::Tensor _last_u;
+  std::array<int64_t, 3> _last_versions{};
 };

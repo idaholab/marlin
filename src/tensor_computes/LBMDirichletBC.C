@@ -41,7 +41,6 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
     _velocity(getInputBuffer("velocity", _radius)),
     _boundary_value(getParam<Real>("value"))
 {
-  _feq_boundary = torch::zeros_like(_feq);
 
   if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
@@ -53,34 +52,44 @@ LBMDirichletBC::LBMDirichletBC(const InputParameters & parameters)
     maskBoundary();
 }
 
-void
-LBMDirichletBC::computeBoundaryEquilibrium()
+torch::Tensor
+LBMDirichletBC::boundaryEquilibrium(const torch::Tensor & velocity, const torch::Tensor & /*rho*/)
 {
+  // equilibrium at the given nodes only (leading dims of velocity), shape [..., Q]
   const unsigned int dim = _domain.getDim();
-  auto vel_owned = ownedView(_velocity);
-
-  const int64_t N = vel_owned.numel() / vel_owned.size(-1);
-  auto vel_flat = vel_owned.slice(-1, 0, dim).reshape({N, dim});
+  const int64_t N = velocity.numel() / velocity.size(-1);
+  const int64_t Q = _stencil._q;
+  auto vel_flat = velocity.slice(-1, 0, dim).reshape({N, dim});
 
   // macroscopic variables
   auto usqr = vel_flat.square().sum(-1, /*keepdim=*/true);
   auto edotu = torch::mm(vel_flat, _e_mat.t());
 
-  auto edotu_spatial = edotu.reshape_as(_feq_boundary_owned);
-
-  auto usqr_shape = _feq_boundary_owned.sizes().vec();
-  usqr_shape.back() = 1;
-  auto usqr_spatial = usqr.reshape(usqr_shape);
-
-  // In-place polynomial: feq_b = w * rho_bc * (1 + edotu/cs2 + edotu^2/2cs4 - usqr/2cs2)
-  _feq_boundary_owned.copy_(edotu_spatial).square_().div_(2.0 * _lb_problem._cs4);
-  _feq_boundary_owned.add_(edotu_spatial, 1.0 / _lb_problem._cs2);
-  _feq_boundary_owned.sub_(usqr_spatial, 1.0 / (2.0 * _lb_problem._cs2));
-  _feq_boundary_owned.add_(1.0);
-  _feq_boundary_owned.mul_(_w);
+  // feq_b = w * rho_bc * (1 + edotu/cs2 + edotu^2/2cs4 - usqr/2cs2)
+  auto feq_b = torch::square(edotu).div_(2.0 * _lb_problem._cs4);
+  feq_b.add_(edotu, 1.0 / _lb_problem._cs2);
+  feq_b.sub_(usqr, 1.0 / (2.0 * _lb_problem._cs2));
+  feq_b.add_(1.0);
+  feq_b.mul_(_w.view({1, Q}));
 
   // Multiply by the scalar boundary density
-  _feq_boundary_owned.mul_(_boundary_value);
+  feq_b.mul_(_boundary_value);
+
+  auto shape = velocity.sizes().vec();
+  shape.back() = Q;
+  return feq_b.view(shape);
+}
+
+torch::Tensor
+LBMDirichletBC::faceEquilibrium(int64_t dim, int64_t index)
+{
+  return boundaryEquilibrium(ownedView(_velocity).select(dim, index), torch::Tensor());
+}
+
+torch::Tensor
+LBMDirichletBC::nodeEquilibrium(const std::vector<torch::indexing::TensorIndex> & index)
+{
+  return boundaryEquilibrium(ownedView(_velocity).index(index), torch::Tensor());
 }
 
 void
@@ -88,7 +97,7 @@ LBMDirichletBC::topBoundary()
 {
   // select() completely eliminates the loop over Q. It applies to all velocities instantly.
   auto u_face = _u_owned.select(1, _shape[1] - 1);
-  auto feq_b_face = _feq_boundary_owned.select(1, _shape[1] - 1);
+  auto feq_b_face = faceEquilibrium(1, _shape[1] - 1);
   auto f_old_face = _f_old_owned.select(1, _shape[1] - 1);
   auto feq_face = _feq_owned.select(1, _shape[1] - 1);
 
@@ -99,7 +108,7 @@ void
 LBMDirichletBC::bottomBoundary()
 {
   auto u_face = _u_owned.select(1, 0);
-  auto feq_b_face = _feq_boundary_owned.select(1, 0);
+  auto feq_b_face = faceEquilibrium(1, 0);
   auto f_old_face = _f_old_owned.select(1, 0);
   auto feq_face = _feq_owned.select(1, 0);
 
@@ -110,7 +119,7 @@ void
 LBMDirichletBC::leftBoundary()
 {
   auto u_face = _u_owned.select(0, 0);
-  auto feq_b_face = _feq_boundary_owned.select(0, 0);
+  auto feq_b_face = faceEquilibrium(0, 0);
   auto f_old_face = _f_old_owned.select(0, 0);
   auto feq_face = _feq_owned.select(0, 0);
 
@@ -121,7 +130,7 @@ void
 LBMDirichletBC::rightBoundary()
 {
   auto u_face = _u_owned.select(0, _shape[0] - 1);
-  auto feq_b_face = _feq_boundary_owned.select(0, _shape[0] - 1);
+  auto feq_b_face = faceEquilibrium(0, _shape[0] - 1);
   auto f_old_face = _f_old_owned.select(0, _shape[0] - 1);
   auto feq_face = _feq_owned.select(0, _shape[0] - 1);
 
@@ -132,7 +141,7 @@ void
 LBMDirichletBC::frontBoundary()
 {
   auto u_face = _u_owned.select(2, 0);
-  auto feq_b_face = _feq_boundary_owned.select(2, 0);
+  auto feq_b_face = faceEquilibrium(2, 0);
   auto f_old_face = _f_old_owned.select(2, 0);
   auto feq_face = _feq_owned.select(2, 0);
 
@@ -143,7 +152,7 @@ void
 LBMDirichletBC::backBoundary()
 {
   auto u_face = _u_owned.select(2, _shape[2] - 1);
-  auto feq_b_face = _feq_boundary_owned.select(2, _shape[2] - 1);
+  auto feq_b_face = faceEquilibrium(2, _shape[2] - 1);
   auto f_old_face = _f_old_owned.select(2, _shape[2] - 1);
   auto feq_face = _feq_owned.select(2, _shape[2] - 1);
 
@@ -153,32 +162,34 @@ LBMDirichletBC::backBoundary()
 void
 LBMDirichletBC::wallBoundary()
 {
+  // all directions of the marked nodes: gather/scatter whole [K, Q] rows
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1);
-    _boundary_mask = _boundary_mask.to(torch::kBool);
+    _boundary_index = nonzeroIndex(ownedView(_binary_mesh) == -1);
+    // the media copy is not needed once the boundary entries are indexed
+    _binary_mesh = torch::Tensor();
   }
 
   // Computed in a single vectorized pass
-  _u_owned.index_put_({_boundary_mask},
-                      _feq_boundary_owned.index({_boundary_mask}) +
-                          _f_old_owned.index({_boundary_mask}) -
-                          _feq_owned.index({_boundary_mask}));
+  _u_owned.index_put_(_boundary_index,
+                      nodeEquilibrium(_boundary_index) +
+                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
 }
 
 void
 LBMDirichletBC::regionalBoundary()
 {
+  // all directions of the marked nodes: gather/scatter whole [K, Q] rows
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == _region_id);
-    _boundary_mask = _boundary_mask.to(torch::kBool);
+    _boundary_index = nonzeroIndex(ownedView(_binary_mesh) == _region_id);
+    // the media copy is not needed once the boundary entries are indexed
+    _binary_mesh = torch::Tensor();
   }
 
-  _u_owned.index_put_({_boundary_mask},
-                      _feq_boundary_owned.index({_boundary_mask}) +
-                          _f_old_owned.index({_boundary_mask}) -
-                          _feq_owned.index({_boundary_mask}));
+  _u_owned.index_put_(_boundary_index,
+                      nodeEquilibrium(_boundary_index) +
+                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
 }
 
 void
@@ -191,8 +202,6 @@ LBMDirichletBC::computeBuffer()
 
   // Cache owned views for the step to avoid repeated allocations in the loops
   _feq_owned = ownedView(_feq);
-  _feq_boundary_owned = ownedView(_feq_boundary);
 
-  computeBoundaryEquilibrium();
   LBMBoundaryCondition::computeBuffer(); // Executes the boundary assignments
 }

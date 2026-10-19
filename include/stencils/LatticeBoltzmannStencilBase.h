@@ -11,6 +11,8 @@
 #include "torch/torch.h"
 
 #include "MooseObject.h"
+
+#include <optional>
 #include "MarlinTypes.h"
 #include "MarlinUtils.h"
 
@@ -59,6 +61,20 @@ public:
   // indices of shear viscosity relaxation
   torch::Tensor _id_kinematic_visc;
 
-  // reorder indices to cosntruct square/cube
+  // reorder indices to construct square/cube
   torch::Tensor _reorder_indices;
+
+  /// host (CPU) copies of the stencil tables, for scalar lookups in per-step loops
+  /// (item() on a device tensor is a host-device synchronization)
+  struct HostTables
+  {
+    std::vector<int64_t> ex, ey, ez, op, left, right, bottom, top, front, back;
+    std::vector<Real> weights;
+  };
+
+  /// host tables, built on first use (after the derived stencil has filled the tensors)
+  const HostTables & host() const;
+
+private:
+  mutable std::optional<HostTables> _host;
 };

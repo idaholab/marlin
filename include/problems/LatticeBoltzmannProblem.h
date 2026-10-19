@@ -65,6 +65,11 @@ protected:
   torch::Tensor _binary_media_owned;
   const bool _is_binary_media;
 
+  /// cached (_binary_media_owned == 0), built after initial conditions
+  torch::Tensor _solid_mask;
+  /// flat indices of the solid nodes in _solid_mask
+  torch::Tensor _solid_index;
+
   /// residual monitoring
   const bool _is_residual_compute;
   torch::Tensor _residual_tensor;

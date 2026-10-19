@@ -97,11 +97,6 @@ LatticeBoltzmannProblem::init()
 
     exchangeGhostLayers(getParam<TensorInputBufferName>("binary_media"), _ghost_radius);
   }
-  else
-  {
-    _binary_media = torch::ones(_shape, MooseTensor::intTensorOptions());
-    _binary_media_owned = _binary_media;
-  }
 }
 
 void
@@ -128,8 +123,13 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
     // in the future we need a better way to handle this
     if (_is_binary_media)
       _binary_media = getBuffer(getParam<TensorInputBufferName>("binary_media"));
-    else
-      _binary_media = torch::ones(_shape, MooseTensor::intTensorOptions());
+
+    // the media is fixed from here on, so build the solid mask used by maskedFillSolids once
+    if (_is_binary_media)
+    {
+      _solid_mask = (_binary_media_owned == 0);
+      _solid_index = torch::nonzero(_solid_mask.flatten()).squeeze(1);
+    }
 
     executeTensorOutputs(EXEC_INITIAL);
   }
@@ -196,12 +196,15 @@ LatticeBoltzmannProblem::computeLBMResidual()
     return;
   }
 
-  Real sum_current = owned.sum().item<Real>();
+  // both sums in one device-to-host transfer and one reduction
+  const auto current = owned.sum();
   _residual_tensor_previous.sub_(owned).abs_();
-  Real sum_diff = _residual_tensor_previous.sum().item<Real>();
-
-  _domain.comm().sum(sum_diff);
-  _domain.comm().sum(sum_current);
+  const auto sums_cpu =
+      torch::stack({current, _residual_tensor_previous.sum()}).to(torch::kCPU).to(torch::kFloat64);
+  std::vector<Real> sums{sums_cpu[0].item<Real>(), sums_cpu[1].item<Real>()};
+  _domain.comm().sum(sums);
+  const Real sum_current = sums[0];
+  const Real sum_diff = sums[1];
 
   _convergence_residual = (sum_current == 0 || sum_diff == 0) ? 1.0 : sum_diff / sum_current;
 
@@ -236,23 +239,30 @@ LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t,
                                           const int & solid_node,
                                           const Real & value)
 {
-  const auto tensor_shape = t.sizes();
-  if (_is_binary_media)
+  if (!_is_binary_media)
+    return;
+
+  // the cached _solid_mask/_solid_index are built for the solid marker 0 only; any other marker
+  // (e.g. solid_values = '0 2' for one fluid of a multi-fluid media) needs its own mask
+  const bool cached = solid_node == 0 && _solid_mask.defined();
+
+  // fast path for contiguous tensors over the owned nodes: fill only the solid rows, so the cost
+  // scales with the number of solid nodes instead of every entry of t
+  if (cached && _solid_index.defined() && t.is_contiguous() && t.dim() >= _solid_mask.dim() &&
+      t.sizes().slice(0, _solid_mask.dim()) == _solid_mask.sizes())
   {
-    if (t.dim() == _binary_media_owned.dim())
-    {
-      // 3D
-      const auto solid_mask = (_binary_media_owned == solid_node);
-      t.masked_fill_(solid_mask, value);
-    }
-    else
-    {
-      // 2D and 1D
-      const auto solid_mask =
-          (_binary_media_owned == solid_node).unsqueeze(-1).expand(tensor_shape);
-      t.masked_fill_(solid_mask, value);
-    }
+    t.view({_solid_mask.numel(), -1}).index_fill_(0, _solid_index, value);
+    return;
   }
+
+  const auto solid_mask = cached ? _solid_mask : (_binary_media_owned == solid_node);
+
+  if (t.dim() == solid_mask.dim())
+    // 3D
+    t.masked_fill_(solid_mask, value);
+  else
+    // 2D and 1D
+    t.masked_fill_(solid_mask.unsqueeze(-1).expand(t.sizes()), value);
 }
 
 void

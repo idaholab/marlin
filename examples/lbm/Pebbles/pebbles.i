@@ -9,7 +9,7 @@
   device_names='cpu'
   # floating_precision = 'single'
   parallel_mode = REAL_SPACE
-  periodic_directions = 'X Y'
+  periodic_directions = 'X Y Z'
 []
 
 [Stencil]
@@ -90,7 +90,7 @@
     [velocity]
       type = LBMConstantTensor
       buffer = velocity
-      constants = '0.0 0.0'
+      constants = '0.0 0.0 0.0'
     []
 
     [temperature]
@@ -348,7 +348,6 @@
   scalar_constant_names = 'rho0 T_C T_H tau_f tau_T g u0'
   scalar_constant_values = '1.0 1.0 1.2 0.9 0.9 0.001 0.001'
 
-  is_binary_media = true
   binary_media = binary_media
   residual_tensor = speed
 []

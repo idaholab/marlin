@@ -41,7 +41,6 @@ LBMNeumannBC::LBMNeumannBC(const InputParameters & parameters)
     _velocity(getInputBuffer("velocity", _radius)),
     _gradient_value(getParam<Real>("gradient"))
 {
-  _feq_boundary = torch::zeros_like(_feq, MooseTensor::floatTensorOptions());
 
   if (isParamValid("region_id") && _lb_problem.isBinaryMedia())
   {
@@ -68,36 +67,44 @@ LBMNeumannBC::LBMNeumannBC(const InputParameters & parameters)
   cache_dirs(_stencil._front, _front_dirs, _back_dirs);
 }
 
-void
-LBMNeumannBC::computeBoundaryEquilibrium()
+torch::Tensor
+LBMNeumannBC::boundaryEquilibrium(const torch::Tensor & velocity, const torch::Tensor & rho)
 {
+  // equilibrium at the given nodes only (leading dims of velocity), shape [..., Q]
   const unsigned int dim = _domain.getDim();
-  auto vel_owned = ownedView(_velocity);
-  auto rho_owned = ownedView(_rho);
+  const int64_t N = velocity.numel() / velocity.size(-1);
+  const int64_t Q = _stencil._q;
+  auto vel_flat = velocity.slice(-1, 0, dim).reshape({N, dim});
 
-  const int64_t N = vel_owned.numel() / vel_owned.size(-1);
-
-  auto vel_flat = vel_owned.slice(-1, 0, dim).reshape({N, dim});
-  auto rho_flat = rho_owned.reshape({N, 1});
-
+  // macroscopic variables
   auto usqr = vel_flat.square().sum(-1, /*keepdim=*/true);
   auto edotu = torch::mm(vel_flat, _e_mat.t());
 
-  auto edotu_spatial = edotu.reshape_as(_feq_boundary_owned);
-
-  auto spatial_shape = _feq_boundary_owned.sizes().vec();
-  spatial_shape.back() = 1;
-  auto usqr_spatial = usqr.reshape(spatial_shape);
-  auto rho_spatial = rho_flat.reshape(spatial_shape);
-
-  _feq_boundary_owned.copy_(edotu_spatial).square_().div_(2.0 * _lb_problem._cs4);
-  _feq_boundary_owned.add_(edotu_spatial, 1.0 / _lb_problem._cs2);
-  _feq_boundary_owned.sub_(usqr_spatial, 1.0 / (2.0 * _lb_problem._cs2));
-  _feq_boundary_owned.add_(1.0);
-  _feq_boundary_owned.mul_(_w);
+  // feq_b = w * rho_bc * (1 + edotu/cs2 + edotu^2/2cs4 - usqr/2cs2)
+  auto feq_b = torch::square(edotu).div_(2.0 * _lb_problem._cs4);
+  feq_b.add_(edotu, 1.0 / _lb_problem._cs2);
+  feq_b.sub_(usqr, 1.0 / (2.0 * _lb_problem._cs2));
+  feq_b.add_(1.0);
+  feq_b.mul_(_w.view({1, Q}));
 
   // Multiply by the scalar boundary density + gradient
-  _feq_boundary_owned.mul_(torch::add(rho_spatial, _gradient_value));
+  feq_b.mul_(torch::add(rho.reshape({N, 1}), _gradient_value));
+
+  auto shape = velocity.sizes().vec();
+  shape.back() = Q;
+  return feq_b.view(shape);
+}
+
+torch::Tensor
+LBMNeumannBC::faceEquilibrium(int64_t dim, int64_t index)
+{
+  return boundaryEquilibrium(ownedView(_velocity).select(dim, index), ownedView(_rho).select(dim, index));
+}
+
+torch::Tensor
+LBMNeumannBC::nodeEquilibrium(const std::vector<torch::indexing::TensorIndex> & index)
+{
+  return boundaryEquilibrium(ownedView(_velocity).index(index), ownedView(_rho).index(index));
 }
 
 void
@@ -107,7 +114,7 @@ LBMNeumannBC::topBoundary()
     return;
   auto u_face = _u_owned.select(1, _shape[1] - 1);
 
-  auto update = _feq_boundary_owned.select(1, _shape[1] - 1).index_select(-1, _top_dirs) +
+  auto update = faceEquilibrium(1, _shape[1] - 1).index_select(-1, _top_dirs) +
                 _f_old_owned.select(1, _shape[1] - 1).index_select(-1, _top_dirs) -
                 _feq_owned.select(1, _shape[1] - 1).index_select(-1, _top_dirs);
 
@@ -121,7 +128,7 @@ LBMNeumannBC::bottomBoundary()
     return;
   auto u_face = _u_owned.select(1, 0);
 
-  auto update = _feq_boundary_owned.select(1, 0).index_select(-1, _bottom_dirs) +
+  auto update = faceEquilibrium(1, 0).index_select(-1, _bottom_dirs) +
                 _f_old_owned.select(1, 0).index_select(-1, _bottom_dirs) -
                 _feq_owned.select(1, 0).index_select(-1, _bottom_dirs);
 
@@ -135,7 +142,7 @@ LBMNeumannBC::leftBoundary()
     return;
   auto u_face = _u_owned.select(0, 0);
 
-  auto update = _feq_boundary_owned.select(0, 0).index_select(-1, _left_dirs) +
+  auto update = faceEquilibrium(0, 0).index_select(-1, _left_dirs) +
                 _f_old_owned.select(0, 0).index_select(-1, _left_dirs) -
                 _feq_owned.select(0, 0).index_select(-1, _left_dirs);
 
@@ -149,7 +156,7 @@ LBMNeumannBC::rightBoundary()
     return;
   auto u_face = _u_owned.select(0, _shape[0] - 1);
 
-  auto update = _feq_boundary_owned.select(0, _shape[0] - 1).index_select(-1, _right_dirs) +
+  auto update = faceEquilibrium(0, _shape[0] - 1).index_select(-1, _right_dirs) +
                 _f_old_owned.select(0, _shape[0] - 1).index_select(-1, _right_dirs) -
                 _feq_owned.select(0, _shape[0] - 1).index_select(-1, _right_dirs);
 
@@ -163,7 +170,7 @@ LBMNeumannBC::frontBoundary()
     return;
   auto u_face = _u_owned.select(2, 0);
 
-  auto update = _feq_boundary_owned.select(2, 0).index_select(-1, _front_dirs) +
+  auto update = faceEquilibrium(2, 0).index_select(-1, _front_dirs) +
                 _f_old_owned.select(2, 0).index_select(-1, _front_dirs) -
                 _feq_owned.select(2, 0).index_select(-1, _front_dirs);
 
@@ -177,7 +184,7 @@ LBMNeumannBC::backBoundary()
     return;
   auto u_face = _u_owned.select(2, _shape[2] - 1);
 
-  auto update = _feq_boundary_owned.select(2, _shape[2] - 1).index_select(-1, _back_dirs) +
+  auto update = faceEquilibrium(2, _shape[2] - 1).index_select(-1, _back_dirs) +
                 _f_old_owned.select(2, _shape[2] - 1).index_select(-1, _back_dirs) -
                 _feq_owned.select(2, _shape[2] - 1).index_select(-1, _back_dirs);
 
@@ -187,31 +194,33 @@ LBMNeumannBC::backBoundary()
 void
 LBMNeumannBC::wallBoundary()
 {
+  // all directions of the marked nodes: gather/scatter whole [K, Q] rows
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1);
-    _boundary_mask = _boundary_mask.to(torch::kBool);
+    _boundary_index = nonzeroIndex(ownedView(_binary_mesh) == -1);
+    // the media copy is not needed once the boundary entries are indexed
+    _binary_mesh = torch::Tensor();
   }
 
-  _u_owned.index_put_({_boundary_mask},
-                      _feq_boundary_owned.index({_boundary_mask}) +
-                          _f_old_owned.index({_boundary_mask}) -
-                          _feq_owned.index({_boundary_mask}));
+  _u_owned.index_put_(_boundary_index,
+                      nodeEquilibrium(_boundary_index) +
+                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
 }
 
 void
 LBMNeumannBC::regionalBoundary()
 {
+  // all directions of the marked nodes: gather/scatter whole [K, Q] rows
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask = (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == _region_id);
-    _boundary_mask = _boundary_mask.to(torch::kBool);
+    _boundary_index = nonzeroIndex(ownedView(_binary_mesh) == _region_id);
+    // the media copy is not needed once the boundary entries are indexed
+    _binary_mesh = torch::Tensor();
   }
 
-  _u_owned.index_put_({_boundary_mask},
-                      _feq_boundary_owned.index({_boundary_mask}) +
-                          _f_old_owned.index({_boundary_mask}) -
-                          _feq_owned.index({_boundary_mask}));
+  _u_owned.index_put_(_boundary_index,
+                      nodeEquilibrium(_boundary_index) +
+                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
 }
 
 void
@@ -224,8 +233,6 @@ LBMNeumannBC::computeBuffer()
 
   // Cache owned views for the step to avoid repeated allocations
   _feq_owned = ownedView(_feq);
-  _feq_boundary_owned = ownedView(_feq_boundary);
 
-  computeBoundaryEquilibrium();
   LBMBoundaryCondition::computeBuffer(); // Executes the boundary assignments
 }
