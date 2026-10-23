@@ -89,7 +89,7 @@ LBMBoundaryCondition::isBoundaryOwned(const int & value)
   if (!_lb_problem.isBinaryMedia())
     return false;
 
-  if (_binary_mesh.sum().item<long>() == 0)
+  if (_binary_mesh.sum().item<int64_t>() == 0)
     return false;
 
   return torch::any(_binary_mesh == value).item<bool>();

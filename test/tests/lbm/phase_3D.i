@@ -112,7 +112,7 @@ D = 4
     type = ParsedCompute
     buffer = phi
     extra_symbols = true
-    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y + 43.12*z)*2*pi)'
+    expression = '0.3333 + 0.01*sin((12.9898*x + 78.233*y + 43.1201 *z)*2*pi)'
   []
   [grad_phi_init]
     type = LBMIsotropicGradient
