@@ -1,5 +1,5 @@
 [Tests]
-  design = 'ImplicitFDSolver.md TimeDerivativeOperator.md'
+  design = 'ImplicitFDSolver.md TimeDerivativeOperator.md FiniteDifferenceBiharmonic.md'
   issues = '#184'
 
   [backward_euler]
@@ -203,6 +203,127 @@
     []
   []
 
+  [biharmonic]
+    requirement = 'The system shall integrate a periodic Fourier mode of u_t = -M kappa Laplacian(Laplacian(u)) with implicit backward Euler finite differences, reproducing the exact discrete amplification factor in every step,'
+    [3pt_torch]
+      type = CSVDiff
+      input = biharmonic_mode.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=biharmonic_mode_3pt'
+      csvdiff = biharmonic_mode_3pt.csv
+      # the gold is the exact amplification; max_error is the solve error
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'with the composed 3-point stencil and the torch preconditioned conjugate gradient solver,'
+    []
+    [5pt_torch]
+      type = CSVDiff
+      input = biharmonic_mode.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG stencil=5 Outputs/file_base=biharmonic_mode_5pt'
+      csvdiff = biharmonic_mode_5pt.csv
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'with the composed 5-point stencil and the torch preconditioned conjugate gradient solver,'
+    []
+    [3pt_torch_mps]
+      type = CSVDiff
+      input = biharmonic_mode.i
+      # MPS has no double precision: a single precision reachable tolerance
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorSolver/l_tol=1e-5 Outputs/file_base=biharmonic_mode_3pt'
+      csvdiff = biharmonic_mode_3pt.csv
+      # max_error is the single precision solve error at l_tol = 1e-5 (1.3e-5 measured)
+      abs_zero = 1e-4
+      rel_err = 1e-5
+      compute_devices = 'mps'
+      detail = 'with the composed 3-point stencil and the torch preconditioned conjugate gradient solver in single precision on MPS,'
+    []
+    [3pt_petsc]
+      type = CSVDiff
+      input = biharmonic_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=biharmonic_mode_3pt'
+      csvdiff = biharmonic_mode_3pt.csv
+      abs_zero = 1e-8
+      prereq = 'biharmonic/3pt_torch'
+      compute_devices = 'cpu'
+      detail = 'with the composed 3-point stencil and the PETSc multigrid solver,'
+    []
+    [5pt_petsc]
+      type = CSVDiff
+      input = biharmonic_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC stencil=5 Outputs/file_base=biharmonic_mode_5pt'
+      csvdiff = biharmonic_mode_5pt.csv
+      abs_zero = 1e-8
+      prereq = 'biharmonic/5pt_torch'
+      compute_devices = 'cpu'
+      detail = 'with the composed 5-point stencil and the PETSc multigrid solver,'
+    []
+    [3pt_petsc_cuda]
+      type = CSVDiff
+      input = biharmonic_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=biharmonic_mode_3pt'
+      csvdiff = biharmonic_mode_3pt.csv
+      abs_zero = 1e-8
+      prereq = 'biharmonic/3pt_torch'
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'with the composed 3-point stencil and the PETSc multigrid solver on CUDA,'
+    []
+    [3d_3pt_torch]
+      type = CSVDiff
+      input = biharmonic_mode3d.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=biharmonic_mode_3d_3pt'
+      csvdiff = biharmonic_mode_3d_3pt.csv
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'in 3D with the composed 3-point stencil and the torch preconditioned conjugate gradient solver,'
+    []
+    [3d_5pt_torch]
+      type = CSVDiff
+      input = biharmonic_mode3d.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG stencil=5 Outputs/file_base=biharmonic_mode_3d_5pt'
+      csvdiff = biharmonic_mode_3d_5pt.csv
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'in 3D with the composed 5-point stencil and the torch preconditioned conjugate gradient solver,'
+    []
+    [3d_3pt_petsc]
+      type = CSVDiff
+      input = biharmonic_mode3d.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=biharmonic_mode_3d_3pt'
+      csvdiff = biharmonic_mode_3d_3pt.csv
+      abs_zero = 1e-8
+      prereq = 'biharmonic/3d_3pt_torch'
+      compute_devices = 'cpu'
+      detail = 'in 3D with the composed 3-point stencil and the PETSc multigrid solver,'
+    []
+    [3d_5pt_petsc]
+      type = CSVDiff
+      input = biharmonic_mode3d.i
+      cli_args = 'TensorSolver/linear_solver=PETSC stencil=5 Outputs/file_base=biharmonic_mode_3d_5pt'
+      csvdiff = biharmonic_mode_3d_5pt.csv
+      abs_zero = 1e-8
+      prereq = 'biharmonic/3d_5pt_torch'
+      compute_devices = 'cpu'
+      detail = 'in 3D with the composed 5-point stencil and the PETSc multigrid solver, and'
+    []
+    [3d_5pt_petsc_cuda]
+      type = CSVDiff
+      input = biharmonic_mode3d.i
+      cli_args = 'TensorSolver/linear_solver=PETSC stencil=5 Outputs/file_base=biharmonic_mode_3d_5pt'
+      csvdiff = biharmonic_mode_3d_5pt.csv
+      abs_zero = 1e-8
+      prereq = 'biharmonic/3d_5pt_torch'
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'in 3D with the composed 5-point stencil and the PETSc multigrid solver on CUDA.'
+    []
+  []
+
   [grid_independence]
     requirement = 'The system shall solve the singular steady periodic Poisson problem with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size'
     [n64]
@@ -267,11 +388,67 @@
     [last_step]
       type = RunApp
       input = be_mode.i
-      # the default Chebyshev smoother takes 2 iterations
+      # the default smoother takes 2 iterations
       cli_args = 'TensorSolver/linear_solver=PETSC Outputs/csv=false -u_mg_levels_ksp_max_it 3 -u_ksp_view'
       expect_out = 'Time Step 10,.*KSP Object: \(u_mg_levels_1_\).*maximum iterations=3'
       compute_devices = 'cpu'
       detail = 'for the multigrid levels, still applied in the last time step.'
+    []
+  []
+
+  [smoother]
+    requirement = 'The system shall smooth every multigrid level of the PETSc solve but the coarsest (LU) '
+    [chebyshev]
+      type = RunApp
+      input = biharmonic_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/csv=false -u_ksp_view'
+      expect_out = 'KSP Object: \(u_mg_levels_1_\)[^\n]*\n\s+type: chebyshev.*PC Object: \(u_mg_levels_1_\)[^\n]*\n\s+type: sor.*KSP Object: \(u_mg_levels_2_\)[^\n]*\n\s+type: chebyshev.*PC Object: \(u_mg_levels_2_\)[^\n]*\n\s+type: jacobi'
+      compute_devices = 'cpu'
+      detail = 'by Chebyshev with SOR on the coarse levels and Jacobi on the fine level by default,'
+    []
+    [chebyshev_new_dt]
+      type = RunApp
+      input = biharmonic_mode.i
+      # Jacobi on the levels, as on CUDA: Chebyshev bounds of the coarse levels kept from
+      # dt = 1e-6 made the preconditioner indefinite at dt = 100
+      cli_args = "TensorSolver/linear_solver=PETSC n=64 Outputs/csv=false Executioner/num_steps=2 "
+                 "Executioner/TimeStepper/type=FunctionDT "
+                 "Executioner/TimeStepper/function='if(t<1e-6,1e-6,100)' -u_mg_levels_pc_type jacobi "
+                 "-u_ksp_converged_reason"
+      expect_out = 'Time Step 2,.*Linear u_ solve converged due to CONVERGED_RTOL'
+      compute_devices = 'cpu'
+      detail = 'with the Chebyshev eigenvalue bounds of every level estimated again when the time step changes,'
+    []
+    [weight]
+      type = RunApp
+      input = biharmonic_mode.i
+      # fine level: 1/dt = 100 and the 13-point stencil of Mkappa = 1e-3 at h = 1/32
+      # give rho = 1 + 44 Mkappa / h^4 / (100 + 20 Mkappa / h^4), omega = 0.418031
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorSolver/smoother=DAMPED_JACOBI Outputs/csv=false -u_ksp_view'
+      expect_out = 'KSP Object: \(u_mg_levels_2_\)[^\n]*\n\s+type: richardson\n\s+damping factor=0.418031'
+      compute_devices = 'cpu'
+      detail = 'by damped Jacobi with the weight 4/(3 rho), rho the Gershgorin bound of the level operator, when requested,'
+    []
+    [user_weight]
+      type = RunApp
+      input = biharmonic_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorSolver/smoother=DAMPED_JACOBI Outputs/csv=false -u_mg_levels_ksp_richardson_scale 0.3 -u_ksp_view'
+      expect_out = 'Time Step 10,.*KSP Object: \(u_mg_levels_2_\)[^\n]*\n\s+type: richardson\n\s+damping factor=0.3\n'
+      compute_devices = 'cpu'
+      detail = 'with a damped Jacobi weight set on the command line instead, still applied in the last time step.'
+    []
+  []
+
+  [divergence_test]
+    requirement = 'The system shall not stop a converging PETSc solve of a large implicit time step on the divergence test'
+    [biharmonic_large_dt]
+      type = RunApp
+      input = biharmonic_mode.i
+      # warm started from u_old, ||r0|| / ||b|| = dt Mkappa lambda^2 ~ 6e3 at dt = 1000; the
+      # first CG residual exceeded the default divtol of 1e4 times ||b||; it converges in 22
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorSolver/smoother=DAMPED_JACOBI n=128 dt=1000 Executioner/num_steps=1 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL'
+      compute_devices = 'cpu'
     []
   []
 
@@ -313,8 +490,15 @@
       input = be_mode.i
       cli_args = "TensorSolver/linear_solver=TORCH_PCG TensorSolver/petsc_options_iname='-pc_type' "
                  "TensorSolver/petsc_options_value='jacobi'"
-      expect_err = 'PETSc options are not used by linear_solver = TORCH_PCG'
+      expect_err = 'This parameter is not used by linear_solver = TORCH_PCG'
       detail = 'with PETSc options for the torch linear solver,'
+    []
+    [smoother_with_torch_pcg]
+      type = RunException
+      input = be_mode.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorSolver/smoother=DAMPED_JACOBI'
+      expect_err = 'smoother.*This parameter is not used by linear_solver = TORCH_PCG'
+      detail = 'with a multigrid smoother for the torch linear solver,'
     []
     [failed_solve_without_cutback]
       type = RunException
@@ -337,7 +521,15 @@
       input = be_mode.i
       cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorComputes/Solve/lap/input=gold'
       expect_err = "acts on 'gold' rather than on the solved field 'u'"
-      detail = 'with an operator acting on a field other than the solved field, or'
+      detail = 'with an operator acting on a field other than the solved field,'
+    []
+    [mg_levels]
+      type = RunException
+      input = be_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC -u_pc_mg_levels 2'
+      expect_err = '-u_pc_mg_levels is not supported'
+      compute_devices = 'cpu'
+      detail = 'with a multigrid level count from the PETSc options,'
     []
     [not_fd_operator]
       type = RunException

@@ -208,4 +208,44 @@
       detail = 'or, with two ghost layers, when a/2 + b/(3dx) is zero.'
     []
   []
+
+  [integral_change]
+    issues = '#122'
+    design = TensorIntegralChangePostprocessor.md
+    requirement = 'The system shall compute the integral of the absolute change of a buffer over the last solver substep from the owned cells only, independent of the ghost layers and the number of ranks, '
+    [double]
+      type = CSVDiff
+      input = diffusion.i
+      cli_args = 'Postprocessors/change/type=TensorIntegralChangePostprocessor Postprocessors/change/buffer=u Outputs/file_base=diffusion_change_out'
+      csvdiff = diffusion_change_out.csv
+      compute_devices = 'cpu cuda xpu'
+      detail = 'in double precision,'
+    []
+    [double_2_ranks]
+      type = CSVDiff
+      input = diffusion.i
+      cli_args = 'Postprocessors/change/type=TensorIntegralChangePostprocessor Postprocessors/change/buffer=u Outputs/file_base=diffusion_change_out'
+      csvdiff = diffusion_change_out.csv
+      prereq = 'integral_change/double'
+      min_parallel = 2
+      max_parallel = 2
+      compute_devices = 'cpu'
+      detail = 'in double precision on 2 ranks, and'
+    []
+    [mps]
+      type = CSVDiff
+      input = diffusion.i
+      cli_args = 'Postprocessors/change/type=TensorIntegralChangePostprocessor Postprocessors/change/buffer=u Outputs/file_base=diffusion_change_out'
+      csvdiff = diffusion_change_out.csv
+      # single precision: late in the run the change (~4e-9) is at the float32 rounding
+      # of u, so it is compared only above 1e-7 (measured: U and max_u within 8.4e-6,
+      # change within 2.6e-4 above 1e-7)
+      rel_err = 1e-5
+      override_columns = 'change'
+      override_rel_err = '1e-3'
+      override_abs_zero = '1e-7'
+      compute_devices = 'mps'
+      detail = 'in single precision on MPS.'
+    []
+  []
 []

@@ -277,6 +277,11 @@ assembleStencilOperator(DM da, const std::vector<FDStencilEntry> & stencil, Pets
     values.push_back(value);
   }
 
+  // a MATPREALLOCATOR (createStencilMatrix) is never assembled and has no values
+  PetscBool assembled;
+  PetscCallAbort(comm, MatAssembled(B, &assembled));
+  if (assembled)
+    PetscCallAbort(comm, MatZeroEntries(B));
   std::vector<MatStencil> cols(offsets.size());
   for (PetscInt k = info.start[2]; k < info.start[2] + info.size[2]; ++k)
     for (PetscInt j = info.start[1]; j < info.start[1] + info.size[1]; ++j)
@@ -284,7 +289,8 @@ assembleStencilOperator(DM da, const std::vector<FDStencilEntry> & stencil, Pets
       {
         MatStencil row{};
         row.i = i, row.j = j, row.k = k;
-        // periodic wrap of indices outside the domain is done by the DMDA
+        // periodic wrap of indices outside the domain is done by the DMDA; offsets that
+        // wrap onto the same column (e.g. +-4 on 8 cells) are added, hence ADD_VALUES
         for (const auto q : index_range(offsets))
         {
           cols[q] = row;
@@ -295,10 +301,49 @@ assembleStencilOperator(DM da, const std::vector<FDStencilEntry> & stencil, Pets
         PetscCallAbort(
             comm,
             MatSetValuesStencil(
-                B, 1, &row, PetscInt(cols.size()), cols.data(), values.data(), INSERT_VALUES));
+                B, 1, &row, PetscInt(cols.size()), cols.data(), values.data(), ADD_VALUES));
       }
   PetscCallAbort(comm, MatAssemblyBegin(B, MAT_FINAL_ASSEMBLY));
   PetscCallAbort(comm, MatAssemblyEnd(B, MAT_FINAL_ASSEMBLY));
+}
+
+Mat
+createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil)
+{
+  const MPI_Comm comm = PetscObjectComm((PetscObject)da);
+
+  // the DMDA preallocates the whole (2w + 1)^dim box of a box stencil (729 entries per
+  // row for the 5-point biharmonic in 3D, of which 73 are used), so it only provides
+  // the layout and the stencil numbering here
+  Mat B;
+  PetscCallAbort(comm, DMSetMatrixPreallocateSkip(da, PETSC_TRUE));
+  PetscCallAbort(comm, DMCreateMatrix(da, &B));
+  PetscCallAbort(comm, DMSetMatrixPreallocateSkip(da, PETSC_FALSE));
+
+  // record the stencil's columns in a preallocator with the same numbering
+  Mat preallocator;
+  PetscInt m, n, M, N;
+  PetscCallAbort(comm, MatGetLocalSize(B, &m, &n));
+  PetscCallAbort(comm, MatGetSize(B, &M, &N));
+  PetscCallAbort(comm, MatCreate(comm, &preallocator));
+  PetscCallAbort(comm, MatSetType(preallocator, MATPREALLOCATOR));
+  PetscCallAbort(comm, MatSetSizes(preallocator, m, n, M, N));
+  PetscCallAbort(comm, MatSetUp(preallocator));
+  ISLocalToGlobalMapping ltog;
+  PetscCallAbort(comm, DMGetLocalToGlobalMapping(da, &ltog));
+  PetscCallAbort(comm, MatSetLocalToGlobalMapping(preallocator, ltog, ltog));
+  const auto info = getInfo(da);
+  std::array<PetscInt, 3> starts, dims;
+  PetscCallAbort(
+      comm,
+      DMDAGetGhostCorners(da, &starts[0], &starts[1], &starts[2], &dims[0], &dims[1], &dims[2]));
+  PetscCallAbort(comm, MatSetStencil(preallocator, info.dim, dims.data(), starts.data(), 1));
+  assembleStencilOperator(da, stencil, 1.0, preallocator);
+
+  // preallocate exactly those columns and insert zeros there; any other column is an error
+  PetscCallAbort(comm, MatPreallocatorPreallocate(preallocator, PETSC_TRUE, B));
+  PetscCallAbort(comm, MatDestroy(&preallocator));
+  return B;
 }
 
 Mat

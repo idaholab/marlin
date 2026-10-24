@@ -10,9 +10,12 @@ documentation clear for users.
 
 ## Overview
 
-Reports the change in the integral of a buffer between successive executions, useful for monitoring
-mass conservation or convergence. Select the input with
-[!param](/Postprocessors/TensorIntegralChangePostprocessor/buffer).
+Reports $\int |u - u_\text{old}|\,dV$ for the buffer $u$ selected with
+[!param](/Postprocessors/TensorIntegralChangePostprocessor/buffer), where $u_\text{old}$ is its
+previous state. The tensor solver advances the state every substep, so this is the change over the
+last substep. Before the first old state exists (the first time step) it reports $\int |u|\,dV$.
+The integral runs over each rank's owned cells (no ghost layers) and is summed over the ranks.
+It is useful for detecting a steady state, e.g. with a `Terminator`.
 
 ## Example Input File Syntax
 

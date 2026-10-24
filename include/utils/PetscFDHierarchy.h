@@ -88,11 +88,19 @@ void buildHierarchy(const Partition & partition,
 
 /**
  * Assemble scale * (the stencil) on the periodic DMDA da into B (from
- * DMCreateMatrix). Stencil offsets are in Marlin axis order, and entries with
- * the same offset are summed.
+ * createStencilMatrix), replacing its values. Stencil offsets are in Marlin axis order,
+ * and entries that land on the same column (same offset, or offsets that wrap
+ * onto each other on a small periodic grid) are summed.
  */
 void
 assembleStencilOperator(DM da, const std::vector<FDStencilEntry> & stencil, PetscReal scale, Mat B);
+
+/**
+ * An AIJ matrix on the DMDA da (of the DM's matrix type) preallocated for exactly the
+ * columns of the stencil, which assembleStencilOperator then fills. Any stencil with
+ * the same offsets can be assembled into it.
+ */
+Mat createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil);
 
 /**
  * Cell-centred multilinear interpolation from the coarse to the fine DMDA (each

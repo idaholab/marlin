@@ -141,7 +141,7 @@ Layer & Owner & Mechanism \\
 \endhead
 Krylov method, convergence tests & PETSc & \texttt{KSPCG} (SPD), \texttt{KSPGMRES}/\texttt{KSPFGMRES} otherwise \\
 Multigrid cycle and coarse solve & PETSc & \texttt{PCMG}; coarse level is a small assembled \texttt{Mat} \\
-Default smoother & PETSc & \texttt{KSPCHEBYSHEV} + \texttt{PCJACOBI} per level \\
+Default smoother & PETSc & PCMG's Chebyshev (SOR on CPU coarse levels, Jacobi on the fine level and on CUDA); \texttt{smoother = DAMPED\_JACOBI} gives Gershgorin-weighted \texttt{KSPRICHARDSON} + \texttt{PCJACOBI}, for when Chebyshev's estimated bounds go indefinite (PR3b) \\
 Later: SNES, TS, AMG & PETSc & AMG on an assembled \texttt{Pmat} (PR4a) \\
 Level operator action and diagonal & torch & \texttt{MATSHELL} \texttt{MatMult}/\texttt{GetDiagonal} running the \texttt{LinearFDOperator} stencil \\
 Restriction / prolongation & torch & \texttt{MATSHELL}s via \texttt{PCMGSetRestriction}/\texttt{PCMGSetInterpolation} \\

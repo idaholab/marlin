@@ -7,6 +7,7 @@
 /**********************************************************************/
 #include "PetscFDHierarchy.h"
 #include "FiniteDifferenceLaplacian.h"
+#include "FiniteDifferenceBiharmonic.h"
 #include "gtest/gtest.h"
 
 #include "libmesh/int_range.h"
@@ -249,8 +250,7 @@ TEST(PetscFDHierarchyTest, AssembledOperatorIsRediscretisation)
           dx[d] = L[d] / nc;
         const auto stencil = FiniteDifferenceLaplacian::buildStencil(dim, wide, dx, -1.0);
 
-        Mat B;
-        PetscCallAbort(PETSC_COMM_WORLD, DMCreateMatrix(h.dms[1], &B));
+        Mat B = PetscFD::createStencilMatrix(h.dms[1], stencil);
         PetscFD::assembleStencilOperator(h.dms[1], stencil, 1.0, B);
 
         // symbol of -Laplacian on axis d for the mode cos(2 pi k x / L), theta = 2 pi k / nc
@@ -289,4 +289,106 @@ TEST(PetscFDHierarchyTest, AssembledOperatorIsRediscretisation)
       }
       MPI_Comm_free(&comm);
     }
+}
+
+// On the coarsest level (8 cells per axis) the 5-point biharmonic's offsets +4 and -4
+// land on the same column; both must be added. A periodic mode is an eigenvector with
+// eigenvalue the square of the 5-point Laplacian symbol.
+TEST(PetscFDHierarchyTest, AssembledOperatorAddsWrappedOffsets)
+{
+  // each rank needs 4 coarse cells (the stencil width): at most 2 ranks
+  int size;
+  MPI_Comm_size(MPI_COMM_WORLD, &size);
+  if (size > 2)
+    GTEST_SKIP() << "needs at most 2 ranks";
+
+  const double pi = M_PI;
+  const int64_t n = 16;
+  const auto partition = uniformPartition(1, n);
+  MPI_Comm comm = PetscFD::dmdaComm(partition);
+  {
+    PetscFD::Hierarchy h;
+    PetscFD::buildHierarchy(partition, comm, 2, 4, false, h);
+
+    const int64_t nc = n / 2;
+    const std::vector<Real> dx{1.0 / nc};
+    const auto stencil = FiniteDifferenceBiharmonic::buildStencil(1, true, dx, 1.0);
+
+    Mat B = PetscFD::createStencilMatrix(h.dms[1], stencil);
+    PetscFD::assembleStencilOperator(h.dms[1], stencil, 1.0, B);
+
+    for (const int k : {1, 2, 3, 4})
+    {
+      const double theta = 2.0 * pi * k / nc;
+      const double symbol =
+          (2.5 - 8.0 / 3.0 * std::cos(theta) + 1.0 / 6.0 * std::cos(2.0 * theta)) / (dx[0] * dx[0]);
+      Vec u, Bu, expected;
+      PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[1], &u));
+      PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[1], &Bu));
+      PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[1], &expected));
+      const auto mode = [&](const std::array<double, 3> & x)
+      { return std::cos(2.0 * pi * k * x[0] + 0.3); };
+      fillVec(h.dms[1], u, mode);
+      fillVec(h.dms[1],
+              expected,
+              [&](const std::array<double, 3> & x) { return symbol * symbol * mode(x); });
+      PetscCallAbort(PETSC_COMM_WORLD, MatMult(B, u, Bu));
+      EXPECT_LT(maxDiff(Bu, expected), 1e-10 * symbol * symbol) << "k " << k;
+      PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&u));
+      PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&Bu));
+      PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&expected));
+    }
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+  }
+  MPI_Comm_free(&comm);
+}
+
+// The coarse matrices store only the stencil's columns, not the DMDA's (2w + 1)^dim box:
+// 73 entries per row for the 5-point biharmonic in 3D on a box DMDA (729 in the box),
+// and the assembled operator still maps a periodic mode to its symbol.
+TEST(PetscFDHierarchyTest, StencilMatrixStoresOnlyTheStencil)
+{
+  // each rank needs 4 cells (the stencil width): at most 4 ranks on 16 cells per axis
+  const double pi = M_PI;
+  const int64_t n = 16;
+  const auto partition = uniformPartition(3, n);
+  MPI_Comm comm = PetscFD::dmdaComm(partition);
+  {
+    PetscFD::Hierarchy h;
+    PetscFD::buildHierarchy(partition, comm, 1, 4, true, h);
+
+    const std::vector<Real> dx(3, 1.0 / n);
+    const auto stencil = FiniteDifferenceBiharmonic::buildStencil(3, true, dx, 1.0);
+    Mat B = PetscFD::createStencilMatrix(h.dms[0], stencil);
+    PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, B);
+
+    MatInfo info;
+    PetscInt rows;
+    PetscCallAbort(PETSC_COMM_WORLD, MatGetInfo(B, MAT_GLOBAL_SUM, &info));
+    PetscCallAbort(PETSC_COMM_WORLD, MatGetSize(B, &rows, nullptr));
+    EXPECT_EQ(info.nz_allocated, 73.0 * rows);
+    EXPECT_EQ(info.nz_used, 73.0 * rows);
+
+    // cos(2 pi x_0 + 0.3): eigenvalue the squared axis-0 5-point Laplacian symbol
+    const double theta = 2.0 * pi / n;
+    const double symbol =
+        (2.5 - 8.0 / 3.0 * std::cos(theta) + 1.0 / 6.0 * std::cos(2.0 * theta)) * n * n;
+    Vec u, Bu, expected;
+    PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &u));
+    PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &Bu));
+    PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &expected));
+    const auto mode = [&](const std::array<double, 3> & x)
+    { return std::cos(2.0 * pi * x[0] + 0.3); };
+    fillVec(h.dms[0], u, mode);
+    fillVec(h.dms[0],
+            expected,
+            [&](const std::array<double, 3> & x) { return symbol * symbol * mode(x); });
+    PetscCallAbort(PETSC_COMM_WORLD, MatMult(B, u, Bu));
+    EXPECT_LT(maxDiff(Bu, expected), 1e-10 * symbol * symbol);
+    PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&u));
+    PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&Bu));
+    PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&expected));
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+  }
+  MPI_Comm_free(&comm);
 }

@@ -31,23 +31,22 @@ TensorIntegralChangePostprocessor::TensorIntegralChangePostprocessor(
 }
 
 void
-TensorIntegralChangePostprocessor::initialSetup()
+TensorIntegralChangePostprocessor::execute()
 {
-  if (_communicator.size() > 1 && _tensor_problem.getMaxGhostLayer() > 0)
-    mooseError("TensorIntegralChangePostprocessor does not yet work with ghost layer exhanges. "
-               "(need to implement ownedView() for old tensors)");
+  // owned cells only, so that ghost layers are not counted and the ranks' sums add up
+  const auto u = _buffer_base.ownedView();
+  if (!_u_old.empty())
+    _integral = torch::abs(u - _buffer_base.ownedViewOf(_u_old[0])).sum().cpu().item<double>();
+  else
+    _integral = torch::abs(u).sum().cpu().item<double>();
+  for (const auto dim : make_range(_domain.getDim()))
+    _integral *= _domain.getGridSpacing()(dim);
 }
 
 void
-TensorIntegralChangePostprocessor::execute()
+TensorIntegralChangePostprocessor::finalize()
 {
-  if (!_u_old.empty())
-    _integral = torch::abs(_u - _u_old[0]).sum().cpu().item<double>();
-  else
-    _integral = torch::abs(_u).sum().cpu().item<double>();
-
-  for (const auto dim : make_range(_domain.getDim()))
-    _integral *= _domain.getGridSpacing()(dim);
+  gatherSum(_integral);
 }
 
 PostprocessorValue

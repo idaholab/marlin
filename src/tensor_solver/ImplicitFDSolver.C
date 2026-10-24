@@ -68,6 +68,13 @@ ImplicitFDSolver::validParams()
       "l_tol", 1e-8, "l_tol > 0", "Relative tolerance on the unpreconditioned residual norm");
   params.addRangeCheckedParam<unsigned int>(
       "l_max_its", 10000, "l_max_its > 0", "Maximum number of linear iterations");
+  MooseEnum smoother("CHEBYSHEV DAMPED_JACOBI", "CHEBYSHEV");
+  params.addParam<MooseEnum>(
+      "smoother",
+      smoother,
+      "Multigrid level smoother of the PETSC linear solver. CHEBYSHEV is PCMG's default, with "
+      "SOR on the coarse levels on CPU and Jacobi on the fine level and on CUDA; DAMPED_JACOBI "
+      "is Jacobi weighted by the Gershgorin bound of each level operator.");
 
   // PETSc options of the PETSC backend, applied with the prefix <buffer>_
   params += Moose::PetscSupport::getPetscValidParams();
@@ -81,7 +88,8 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
   : TensorSolver(parameters),
     IterativeTensorSolverInterface(),
     _l_tol(getParam<Real>("l_tol")),
-    _l_max_its(getParam<unsigned int>("l_max_its"))
+    _l_max_its(getParam<unsigned int>("l_max_its")),
+    _damped_jacobi(getParam<MooseEnum>("smoother") == "DAMPED_JACOBI")
 {
   // backend selection
   const auto device = MooseTensor::floatTensorOptions().device();
@@ -113,9 +121,10 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                  "linear_solver = TORCH_PCG.");
   }
   else
-    for (const auto & name : {"petsc_options", "petsc_options_iname", "petsc_options_value"})
+    for (const auto & name :
+         {"petsc_options", "petsc_options_iname", "petsc_options_value", "smoother"})
       if (isParamSetByUser(name))
-        paramError(name, "PETSc options are not used by linear_solver = TORCH_PCG.");
+        paramError(name, "This parameter is not used by linear_solver = TORCH_PCG.");
 
   // the operators act on ghosted real space buffers
   if (!_domain.isRealSpaceMode())
@@ -335,15 +344,42 @@ ImplicitFDSolver::applyOperator(Field & field, const torch::Tensor & x)
   return y;
 }
 
+namespace
+{
+/// the stencil entries of all operators at the given spacing (empty: the domain's)
+std::vector<FDStencilEntry>
+fieldStencil(const std::vector<const LinearFDOperator *> & fd_operators,
+             const std::vector<Real> & grid_spacing = {})
+{
+  std::vector<FDStencilEntry> stencil;
+  for (const auto * fd_op : fd_operators)
+  {
+    const auto entries = grid_spacing.empty() ? fd_op->stencilAt() : fd_op->stencilAt(grid_spacing);
+    stencil.insert(stencil.end(), entries.begin(), entries.end());
+  }
+  return stencil;
+}
+
+/// summed centre coefficient and sum of |a_o| over the other entries of a stencil; the
+/// centre of a positive (semi)definite nonzero operator is positive
+std::pair<Real, Real>
+centreAndOffDiagonal(const std::vector<FDStencilEntry> & stencil)
+{
+  Real centre = 0.0, off_diagonal = 0.0;
+  for (const auto & entry : stencil)
+    if (std::all_of(entry.offset.begin(), entry.offset.end(), [](int o) { return o == 0; }))
+      centre += entry.coefficient;
+    else
+      off_diagonal += std::abs(entry.coefficient);
+  mooseAssert(centre > 0.0, "The centre stencil coefficient must be positive");
+  return {centre, off_diagonal};
+}
+}
+
 Real
 ImplicitFDSolver::diagonal(const Field & field) const
 {
-  Real diag = 0.0;
-  for (const auto * fd_op : field._fd_operators)
-    for (const auto & entry : fd_op->stencilAt())
-      if (std::all_of(entry.offset.begin(), entry.offset.end(), [](int o) { return o == 0; }))
-        diag += entry.coefficient;
-  return diag;
+  return centreAndOffDiagonal(fieldStencil(field._fd_operators)).first;
 }
 
 ImplicitFDSolver::SolveResult
@@ -391,20 +427,6 @@ ImplicitFDSolver::PetscSolve::~PetscSolve()
 
 namespace
 {
-/// the stencil entries of all operators at the given spacing (empty: the domain's)
-std::vector<FDStencilEntry>
-fieldStencil(const std::vector<const LinearFDOperator *> & fd_operators,
-             const std::vector<Real> & grid_spacing = {})
-{
-  std::vector<FDStencilEntry> stencil;
-  for (const auto * fd_op : fd_operators)
-  {
-    const auto entries = grid_spacing.empty() ? fd_op->stencilAt() : fd_op->stencilAt(grid_spacing);
-    stencil.insert(stencil.end(), entries.begin(), entries.end());
-  }
-  return stencil;
-}
-
 bool
 sameStencil(const std::vector<FDStencilEntry> & a, const std::vector<FDStencilEntry> & b)
 {
@@ -414,6 +436,16 @@ sameStencil(const std::vector<FDStencilEntry> & a, const std::vector<FDStencilEn
     if (a[i].offset != b[i].offset || a[i].coefficient != b[i].coefficient)
       return false;
   return true;
+}
+
+/// Gershgorin bound on the spectrum of D^-1 A for the periodic constant-coefficient
+/// operator with this stencil (D the summed centre coefficient): 1 + sum_{o != 0} |a_o| / D.
+/// Entries are not merged by offset; the triangle inequality keeps it an upper bound.
+Real
+jacobiSpectrumBound(const std::vector<FDStencilEntry> & stencil)
+{
+  const auto [centre, off_diagonal] = centreAndOffDiagonal(stencil);
+  return 1.0 + off_diagonal / centre;
 }
 
 #if MARLIN_PETSC_CUDA
@@ -521,10 +553,10 @@ ImplicitFDSolver::setupPetsc(Field & field)
   if (field._singular)
     PetscCallAbort(comm, MatNullSpaceCreate(comm, PETSC_TRUE, 0, nullptr, &ps.nullspace));
 
-  // coarse levels: rediscretised and assembled
+  // coarse levels: rediscretised and assembled, with the fine stencil's offsets
   ps.coarse.resize(levels - 1);
   for (const auto l : index_range(ps.coarse))
-    PetscCallAbort(comm, DMCreateMatrix(hierarchy.dms[l + 1], &ps.coarse[l]));
+    ps.coarse[l] = PetscFD::createStencilMatrix(hierarchy.dms[l + 1], stencil);
 
   if (field._singular)
   {
@@ -550,7 +582,11 @@ ImplicitFDSolver::setupPetsc(Field & field)
   PetscCallAbort(comm, KSPSetOperators(ps.ksp, ps.fine, ps.fine));
   PetscCallAbort(comm, KSPSetType(ps.ksp, KSPCG));
   PetscCallAbort(comm, KSPSetNormType(ps.ksp, KSP_NORM_UNPRECONDITIONED));
-  PetscCallAbort(comm, KSPSetTolerances(ps.ksp, _l_tol, PETSC_CURRENT, PETSC_CURRENT, _l_max_its));
+  // no divergence test, as in TORCH_PCG: with the warm start x0 = u_old the residual is
+  // compared to ||b|| ~ ||u_old|| / dt, so at large dt ||r0|| / ||b|| ~ dt ||B u_old|| / ||u_old||
+  // already nears the default divtol and CG's nonmonotone residual crosses it
+  PetscCallAbort(comm,
+                 KSPSetTolerances(ps.ksp, _l_tol, PETSC_CURRENT, PETSC_UNLIMITED, _l_max_its));
   PetscCallAbort(comm, KSPSetInitialGuessNonzero(ps.ksp, PETSC_TRUE));
 
   PC pc;
@@ -571,14 +607,18 @@ ImplicitFDSolver::setupPetsc(Field & field)
     PetscCallAbort(comm, KSPSetOperators(smoother, B, B));
   }
   // PCMG's default smoother is Chebyshev + SOR. The fine shell has no SOR, so it uses
-  // Jacobi from its diagonal. On CUDA the coarse levels use Jacobi too, since PETSc's
-  // SOR runs on the host. PCMG level 0 is the coarse LU when levels > 1.
-  for (const auto i : make_range(levels))
-    if (i == levels - 1 || (cuda && i > 0))
+  // Jacobi from its diagonal. On CUDA the coarse levels use Jacobi too, since PETSc's SOR
+  // runs on the host. Chebyshev estimates its eigenvalue bounds with a few Krylov steps;
+  // DAMPED_JACOBI (Richardson + Jacobi, weighted in assembleCoarseLevels) needs no
+  // estimate. PCMG level 0 is the coarse LU when levels > 1.
+  for (const auto i : make_range(levels > 1 ? 1u : 0u, levels))
+    if (_damped_jacobi || i == levels - 1 || cuda)
     {
       KSP smoother;
       PC smoother_pc;
       PetscCallAbort(comm, PCMGGetSmoother(pc, PetscInt(i), &smoother));
+      if (_damped_jacobi)
+        PetscCallAbort(comm, KSPSetType(smoother, KSPRICHARDSON));
       PetscCallAbort(comm, KSPGetPC(smoother, &smoother_pc));
       PetscCallAbort(comm, PCSetType(smoother_pc, PCJACOBI));
     }
@@ -596,6 +636,16 @@ ImplicitFDSolver::setupPetsc(Field & field)
   assembleCoarseLevels(field);
 
   insertPetscOptions(field);
+  // PCMG would build new levels without the hierarchy above (and fail in PCSetUp)
+  PetscBool user_levels;
+  PetscCallAbort(comm,
+                 PetscOptionsHasName(
+                     nullptr, petscPrefix(field._name).c_str(), "-pc_mg_levels", &user_levels));
+  if (user_levels)
+    mooseError("-",
+               petscPrefix(field._name),
+               "pc_mg_levels is not supported: ImplicitFDSolver sets the number of multigrid "
+               "levels from the grid and the stencil width.");
   PetscCallAbort(comm, KSPSetFromOptions(ps.ksp));
 
   // b and x get the solver's tensors placed before every solve
@@ -623,29 +673,69 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
 
   const auto comm = ps.comm;
   const auto & grid_spacing = _domain.getGridSpacing();
-  for (const auto l : index_range(ps.coarse))
+  const auto levels = ps.coarse.size() + 1;
+  PC pc;
+  PetscCallAbort(comm, KSPGetPC(ps.ksp, &pc));
+  // the smoother weights are set only for PCMG (not e.g. for -<buffer>_pc_type jacobi)
+  PetscBool is_mg;
+  PetscCallAbort(comm, PetscObjectTypeCompare((PetscObject)pc, PCMG, &is_mg));
+  const bool set_weights = is_mg && _damped_jacobi;
+
+  // hierarchy level k (0 = fine) has spacing 2^k h and is PCMG level levels - 1 - k
+  for (const auto k : make_range(levels))
   {
-    // level k = l + 1 has spacing 2^k h. PCMG restricts with P^T, whose column sums
-    // are 2^dim per level, so the rediscretised operator is scaled by 2^(dim k) to
-    // match P^T A P on smooth fields. This scales only the preconditioner.
-    const auto k = l + 1;
     std::vector<Real> spacing(_dim);
     for (const auto d : make_range(_dim))
       spacing[d] = grid_spacing(d) * Real(1 << k);
-    const PetscReal scale = std::pow(2.0, Real(_dim * k));
-    auto & B = ps.coarse[l];
-    PetscFD::assembleStencilOperator(
-        ps.hierarchy->dms[k], fieldStencil(field._fd_operators, spacing), scale, B);
-    // assembly clears MAT_SPD
-    if (!field._singular)
+    const auto level_stencil = fieldStencil(field._fd_operators, spacing);
+
+    if (k > 0)
     {
-      PetscCallAbort(comm, MatSetOption(B, MAT_SPD, PETSC_TRUE));
-      PetscCallAbort(comm, MatSetOption(B, MAT_SPD_ETERNAL, PETSC_TRUE));
+      // PCMG restricts with P^T, whose column sums are 2^dim per level, so the
+      // rediscretised operator is scaled by 2^(dim k) to match P^T A P on smooth fields.
+      // This scales only the preconditioner.
+      const PetscReal scale = std::pow(2.0, Real(_dim * k));
+      auto & B = ps.coarse[k - 1];
+      PetscFD::assembleStencilOperator(ps.hierarchy->dms[k], level_stencil, scale, B);
+      // assembly clears MAT_SPD
+      if (!field._singular)
+      {
+        PetscCallAbort(comm, MatSetOption(B, MAT_SPD, PETSC_TRUE));
+        PetscCallAbort(comm, MatSetOption(B, MAT_SPD_ETERNAL, PETSC_TRUE));
+      }
+      // without a DM, PCMG only sets up the fine smoother again on a new matrix; resetting
+      // the operators makes the coarse smoothers redo theirs too (Chebyshev bounds)
+      if (is_mg)
+      {
+        KSP smoother;
+        PetscCallAbort(comm, PCMGGetSmoother(pc, PetscInt(levels - 1 - k), &smoother));
+        PetscCallAbort(comm, KSPSetOperators(smoother, B, B));
+      }
     }
+
+    // damped Jacobi weight of the level smoother (PCMG level 0 is the coarse LU when
+    // levels > 1). The spectrum of D^-1 A lies in [0, rho], rho the Gershgorin bound (the
+    // 2^(dim k) scaling cancels); omega = 4 / (3 rho) damps the upper half [rho/2, rho]
+    // by at least 1/3 per sweep and keeps |1 - omega lambda| < 1 on (0, rho].
+    const auto pcmg_level = levels - 1 - k;
+    if (!set_weights || (levels > 1 && pcmg_level == 0))
+      continue;
+    KSP smoother;
+    PetscCallAbort(comm, PCMGGetSmoother(pc, PetscInt(pcmg_level), &smoother));
+    // a user set -<buffer>_mg_levels_ksp_richardson_scale wins
+    const char * prefix;
+    PetscBool user_scale;
+    PetscCallAbort(comm, KSPGetOptionsPrefix(smoother, &prefix));
+    PetscCallAbort(comm,
+                   PetscOptionsHasName(nullptr, prefix, "-ksp_richardson_scale", &user_scale));
+    // KSPRichardsonSetScale is a no-op if the user changed the smoother type
+    if (!user_scale)
+      PetscCallAbort(
+          comm, KSPRichardsonSetScale(smoother, 4.0 / (3.0 * jacobiSpectrumBound(level_stencil))));
   }
 
   // the shell's action changed too; bump its state and reset the KSP operators so
-  // that PCMG sets up every level again (Chebyshev bounds, coarse factorisation)
+  // that PCMG sets up again (the fine smoother, the coarse factorisation)
   PetscCallAbort(comm, PetscObjectStateIncrease((PetscObject)ps.fine));
   PetscCallAbort(comm, KSPSetOperators(ps.ksp, ps.fine, ps.fine));
   ps.assembled_stencil = stencil;

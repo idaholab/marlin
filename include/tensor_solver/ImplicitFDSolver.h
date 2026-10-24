@@ -110,7 +110,7 @@ protected:
   /// create the hierarchy, the level operators and the KSP of a field
   void setupPetsc(Field & field);
 
-  /// (re)assemble the coarse levels from the current stencil if it changed
+  /// (re)assemble the coarse levels and set the smoother weights if the stencil changed
   void assembleCoarseLevels(Field & field);
 
   /// put the block's PETSc options (prefix <buffer>_) and the command line into the global database
@@ -134,6 +134,9 @@ protected:
 
   /// maximum number of linear iterations
   const unsigned int _l_max_its;
+
+  /// smooth the PCMG levels by Gershgorin-weighted damped Jacobi instead of Chebyshev
+  const bool _damped_jacobi;
 
   std::vector<Field> _fields;
 

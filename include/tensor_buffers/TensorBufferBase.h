@@ -49,6 +49,9 @@ public:
   /// get a view of the owned cells (excludes ghost layers)
   virtual torch::Tensor ownedView() const;
 
+  /// view of the owned cells of a tensor laid out like this buffer (e.g. an old state)
+  torch::Tensor ownedViewOf(const torch::Tensor & t) const;
+
   /// expand the tensor to full dimensions
   void expand();
 
