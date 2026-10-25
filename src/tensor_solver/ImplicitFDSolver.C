@@ -462,55 +462,41 @@ fieldStencil(const std::vector<const LinearFDOperator *> & fd_operators,
   }
   return stencil;
 }
-}
 
-Real
-ImplicitFDSolver::diagonal(const Field & field) const
+/// the homogeneous ghost relations of a field's boundary faces
+PetscFD::FaceGhosts
+faceGhosts(const std::vector<const TensorRobinBC *> & face_bcs)
 {
-  // the centre of a positive (semi)definite nonzero operator is positive
-  Real centre = 0.0;
-  for (const auto & entry : fieldStencil(field._fd_operators))
-    if (std::all_of(entry.offset.begin(), entry.offset.end(), [](int o) { return o == 0; }))
-      centre += entry.coefficient;
-  mooseAssert(centre > 0.0, "The centre stencil coefficient must be positive");
-  return centre;
+  PetscFD::FaceGhosts faces;
+  for (const auto face : index_range(face_bcs))
+    if (face_bcs[face])
+      faces.ab[face] = {face_bcs[face]->a(), face_bcs[face]->b()};
+  return faces;
+}
 }
 
 torch::Tensor
 ImplicitFDSolver::jacobiDiagonal(const Field & field) const
 {
-  auto diag = torch::full(
-      field._u_base.ownedView().sizes(), diagonal(field), MooseTensor::floatTensorOptions());
-
-  // In the cell u0 next to a boundary face, the entry reaching across the face (offset -1 or +1
-  // along the normal) multiplies the ghost coeff*u0 + const, adding coefficient*coeff to
-  // the diagonal. Deeper ghosts mirror other cells, so they are off-diagonal.
-  const auto & index = _domain.getRealSpaceIndex();
-  const auto & partitions = _domain.getRealSpacePartitions();
-  for (const auto face : index_range(field._face_bcs))
-  {
-    const auto * face_bc = field._face_bcs[face];
-    const auto d = face / 2;
-    const bool upper = face % 2;
-    if (!face_bc || index[d] != (upper ? partitions[d] - 1 : 0))
-      continue;
-
-    const auto coeff =
-        RobinGhost::coefficientOnU0(face_bc->a(), face_bc->b(), _domain.getGridSpacing()(d));
-    Real across = 0.0;
-    for (const auto * fd_op : field._fd_operators)
-      for (const auto & entry : fd_op->stencilAt())
-      {
-        auto offset = entry.offset;
-        if (offset[d] != (upper ? 1 : -1))
-          continue;
-        offset[d] = 0;
-        if (std::all_of(offset.begin(), offset.end(), [](int o) { return o == 0; }))
-          across += entry.coefficient;
-      }
-    diag.narrow(d, upper ? diag.size(d) - 1 : 0, 1).add_(across * coeff);
-  }
-  return diag;
+  // the diagonal of the folded operator the PETSc levels assemble, so in a cell next to a
+  // boundary face it includes the entries whose ghost depends on the cell itself
+  std::array<int64_t, 3> begin, end, size;
+  _domain.getLocalBounds(_domain.comm().rank(), begin, end);
+  for (const auto d : make_range(3))
+    size[d] = end[d] - begin[d];
+  const auto & dx = _domain.getGridSpacing();
+  std::vector<Real> h(_dim);
+  for (const auto d : make_range(_dim))
+    h[d] = dx(d);
+  return PetscFD::foldedDiagonal(fieldStencil(field._fd_operators),
+                                 _dim,
+                                 _domain.getGridSize(),
+                                 _domain.getPeriodicDirections(),
+                                 faceGhosts(field._face_bcs),
+                                 h,
+                                 begin,
+                                 size,
+                                 MooseTensor::floatTensorOptions());
 }
 
 ImplicitFDSolver::SolveResult
@@ -519,8 +505,7 @@ ImplicitFDSolver::solveTorchPCG(Field & field,
                                 Real b_norm,
                                 torch::Tensor & x)
 {
-  // Jacobi preconditioner; with constant coefficients the diagonal is constant away from boundary
-  // faces
+  // Jacobi preconditioner
   const auto inv_diag = jacobiDiagonal(field).reciprocal();
   const auto A = [&](const torch::Tensor & v) { return applyLinearOperator(field, v); };
   const auto M = [&inv_diag](const torch::Tensor & r) { return r * inv_diag; };
@@ -568,17 +553,6 @@ sameStencil(const std::vector<FDStencilEntry> & a, const std::vector<FDStencilEn
     if (a[i].offset != b[i].offset || a[i].coefficient != b[i].coefficient)
       return false;
   return true;
-}
-
-/// the homogeneous ghost relations of a field's boundary faces
-PetscFD::FaceGhosts
-faceGhosts(const std::vector<const TensorRobinBC *> & face_bcs)
-{
-  PetscFD::FaceGhosts faces;
-  for (const auto face : index_range(face_bcs))
-    if (face_bcs[face])
-      faces.ab[face] = {face_bcs[face]->a(), face_bcs[face]->b()};
-  return faces;
 }
 
 #if MARLIN_PETSC_CUDA

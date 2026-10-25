@@ -145,6 +145,24 @@ Real jacobiSpectrumBound(DM da,
                          const std::vector<Real> & h);
 
 /**
+ * The diagonal of the operator assembleStencilOperator builds, on a block of size cells
+ * starting at global cell begin (Marlin axis order, dim axes; options for the tensor). An
+ * entry reaches its own row when its offset is zero, wraps onto it on a periodic axis, or
+ * folds onto it: on a non-periodic axis, offset -(2i + 1) from cell i is ghost layer i of
+ * the lower face, mirrored onto cell i (likewise at the upper face). Box stencils fold on
+ * several axes at once, so corner rows get the product of the faces' factors.
+ */
+torch::Tensor foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
+                             unsigned int dim,
+                             const std::array<int64_t, 3> & n,
+                             const std::array<bool, 3> & periodic,
+                             const FaceGhosts & faces,
+                             const std::vector<Real> & h,
+                             const std::array<int64_t, 3> & begin,
+                             const std::array<int64_t, 3> & size,
+                             const torch::TensorOptions & options);
+
+/**
  * Cell-centred multilinear interpolation from the coarse to the fine DMDA (each
  * axis: 3/4 the coarse parent, 1/4 the coarse neighbour on the fine cell's side),
  * assembled as AIJ. Next to a boundary face the neighbour is the coarse ghost,

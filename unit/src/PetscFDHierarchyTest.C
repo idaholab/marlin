@@ -605,3 +605,79 @@ TEST(PetscFDHierarchyTest, JacobiSpectrumBoundWithFaces)
     MPI_Comm_free(&comm);
   }
 }
+
+// The Jacobi diagonal of the torch solver is the diagonal of the assembled folded operator,
+// with faces of every type: corner rows of the box stencil (the biharmonic) fold on two axes
+// at once.
+TEST(PetscFDHierarchyTest, FoldedDiagonalMatchesAssembled)
+{
+  const int64_t n = 16;
+  const std::vector<Real> dx{1.0 / n, 1.0 / n};
+  // Dirichlet and Neumann faces on Marlin axis 0, Robin and Dirichlet on axis 1
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = {1.0, 0.0};
+  faces.ab[1] = {0.0, 1.0};
+  faces.ab[2] = {2.0, 0.3};
+  faces.ab[3] = {1.0, 0.0};
+  for (const bool biharmonic : {false, true})
+    for (const bool periodic_y : {false, true})
+    {
+      const auto partition = boundedPartition(2, n, {false, periodic_y, true});
+      MPI_Comm comm = PetscFD::dmdaComm(partition);
+      {
+        const auto stencil = biharmonic
+                                 ? FiniteDifferenceBiharmonic::buildStencil(2, false, dx, 1.0)
+                                 : FiniteDifferenceLaplacian::buildStencil(2, false, dx, -1.0);
+        PetscFD::Hierarchy h;
+        PetscFD::buildHierarchy(partition,
+                                comm,
+                                1,
+                                PetscFD::stencilWidth(stencil),
+                                PetscFD::needsBoxStencil(stencil),
+                                faces,
+                                h);
+        Mat B = PetscFD::createStencilMatrix(h.dms[0], stencil);
+        PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, faces, dx, B);
+        Vec assembled;
+        PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &assembled));
+        PetscCallAbort(PETSC_COMM_WORLD, MatGetDiagonal(B, assembled));
+
+        // this rank's Marlin block
+        std::array<int64_t, 3> begin{{0, 0, 0}}, size{{1, 1, 1}};
+        for (const auto d : make_range(2))
+        {
+          for (const auto r : make_range(partition.index[d]))
+            begin[d] += partition.counts[d][r];
+          size[d] = partition.counts[d][partition.index[d]];
+        }
+        const auto diag = PetscFD::foldedDiagonal(stencil,
+                                                  2,
+                                                  partition.n,
+                                                  partition.periodic,
+                                                  faces,
+                                                  dx,
+                                                  begin,
+                                                  size,
+                                                  torch::TensorOptions().dtype(torch::kFloat64))
+                              .contiguous();
+
+        // the owned block of a Marlin tensor is this rank's part of the DMDA vector
+        const PetscScalar * a;
+        PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(assembled, &a));
+        const auto * t = diag.data_ptr<double>();
+        double max_diff = 0.0, max_value = 0.0;
+        for (const auto q : make_range(diag.numel()))
+        {
+          max_diff = std::max(max_diff, std::abs(t[q] - a[q]));
+          max_value = std::max(max_value, std::abs(a[q]));
+        }
+        PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(assembled, &a));
+        EXPECT_LT(max_diff, 1e-13 * max_value)
+            << "biharmonic " << biharmonic << " periodic_y " << periodic_y;
+
+        PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+        PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&assembled));
+      }
+      MPI_Comm_free(&comm);
+    }
+}

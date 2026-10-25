@@ -498,6 +498,51 @@ jacobiSpectrumBound(DM da,
   return bound;
 }
 
+torch::Tensor
+foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
+               unsigned int dim,
+               const std::array<int64_t, 3> & n,
+               const std::array<bool, 3> & periodic,
+               const FaceGhosts & faces,
+               const std::vector<Real> & h,
+               const std::array<int64_t, 3> & begin,
+               const std::array<int64_t, 3> & size,
+               const torch::TensorOptions & options)
+{
+  std::vector<int64_t> shape(size.begin(), size.begin() + dim);
+  auto diag = torch::zeros(shape, options);
+  for (const auto & entry : stencil)
+  {
+    // the entry's weight on the diagonal is a product over axes of its weight along each
+    auto weight = torch::full(shape, entry.coefficient, options);
+    for (const auto d : make_range(dim))
+    {
+      const auto o = int64_t(entry.offset[d]);
+      std::vector<Real> along(size[d], 0.0);
+      for (const auto q : make_range(size[d]))
+      {
+        const auto i = begin[d] + q;
+        const auto c = i + o;
+        if (periodic[d])
+          along[q] = o % n[d] == 0 ? 1.0 : 0.0;
+        else if (o == 0)
+          along[q] = 1.0;
+        else if (c < 0 && -c - 1 == i)
+          along[q] = faces.factor(2 * d, unsigned(i), h[d]);
+        else if (c >= n[d] && n[d] - 1 - (c - n[d]) == i)
+          along[q] = faces.factor(2 * d + 1, unsigned(c - n[d]), h[d]);
+      }
+      std::vector<int64_t> axis_shape(dim, 1);
+      axis_shape[d] = size[d];
+      weight = weight * torch::tensor(along, torch::TensorOptions().dtype(torch::kFloat64))
+                            .reshape(axis_shape)
+                            .to(options);
+    }
+    diag += weight;
+  }
+  return diag;
+}
+
 Mat
 createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil)
 {

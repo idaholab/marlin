@@ -108,11 +108,8 @@ protected:
   /// the linear part of applyOperator: sum_i A_i x - sum_i A_i 0
   torch::Tensor applyLinearOperator(Field & field, const torch::Tensor & x);
 
-  /// sum of the operators' centre stencil coefficients (the Jacobi diagonal away from boundary faces)
-  Real diagonal(const Field & field) const;
-
-  /// the Jacobi diagonal on the owned cells, including the ghost dependence on the cells
-  /// next to a boundary face
+  /// the Jacobi diagonal on the owned cells: the diagonal of the folded operator, which next to
+  /// a boundary face includes the ghosts' dependence on the cell itself
   torch::Tensor jacobiDiagonal(const Field & field) const;
 
   /// solve sum_i A_i x = b (with ||b||_2 = b_norm) by torch preconditioned CG, warm started from x
