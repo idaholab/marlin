@@ -242,7 +242,7 @@ TensorOperatorBase
   |     +-- TimeDerivativeOperator         (PR3; u/dt, rhs u^n/dt)
   |     +-- FiniteDifferenceBiharmonic     (PR3b; periodic only in the
   |     |                                   implicit solver)
-  |     +-- [planned] variable-coefficient diffusion (PR5)
+  |     +-- [planned] FiniteDifferenceDivGrad (PR5)
   |
   +-- TensorBoundaryCondition  (variable, boundary face;
   |     |                       fillGhostCells(), prepareFaceData())
@@ -283,7 +283,7 @@ separate boundary method); \texttt{stencilContribution} (built in PR1,
 removed in PR4 because nothing used it); \texttt{getGlobalIndexOffset}
 (not needed: the partition is gathered from public \texttt{DomainAction}
 getters). Still planned: \texttt{PicardTensorSolver} (PR6),
-\texttt{FiniteDifferenceDiffusion} (PR5), \texttt{assemblePreconditionerMatrix}
+\texttt{FiniteDifferenceDivGrad} (PR5), \texttt{assemblePreconditionerMatrix}
 (PR4a).
 
 \subsection{Data Flow of One Substep}
@@ -1251,7 +1251,7 @@ deferred question on coarse BC rows: rediscretised.
 \item Scope: time derivative and Laplacian; 3-point with Dirichlet, Neumann and Robin,
 5-point with Dirichlet and Neumann (5-point Robin is nonsymmetric and an error). Robin
 with $a/(a/2 + b/\Delta x) < 0$ is an error. Biharmonic with no-flux, and PFHub 1b, are a
-follow-on PR (PR4b).
+follow-on PR (PR5).
 \end{itemize}
 
 \textbf{Verification:} \texttt{test/tests/implicit\_fd/bc\_mms.i} (both
@@ -1275,26 +1275,6 @@ $5.8\times10^{-3}$, $1.7\times10^{-3}$, $6.7\times10^{-4}$ at 25, 100, 400 subst
 down to the semi-discrete floor $3.2\times10^{-4}$, both backends, golds from an independent
 dense solve. MPS and CUDA runs of the PR4 tests: not recorded here.}
 
-\pr{4b}{No-Flux Biharmonic and PFHub 1b}
-\textbf{Scope:} \texttt{FiniteDifferenceBiharmonic} with non-periodic
-boundaries in \texttt{ImplicitFDSolver} (no-flux Cahn-Hilliard:
-$\partial c/\partial n = 0$ and $\partial \mu/\partial n = 0$, or the
-equivalent conditions on the composed operator), on the fine level and the
-coarse multigrid levels; the PFHub 1b input. Today a biharmonic with boundary
-faces is an error.
-
-\textbf{Decisions needed before implementing} (physics, each a separate
-question): how the two boundary conditions of the fourth-order operator are
-imposed through ghost layers of $c$ (the composed Laplacian needs ghosts of
-the intermediate Laplacian as well); whether the result is symmetric
-positive (semi)definite for CG; how the coarse rows fold. 5-point Robin is
-unsupported (nonsymmetric) and stays so unless decided otherwise.
-
-\textbf{Verification:} MMS with no-flux faces and an independent direct
-solve, as in PR4; mass conservation; PFHub 1b against published results.
-
-\status{proposed. Follows PR4.}
-
 \pr{4a (contingent)}{AMG-Preconditioned Mixed Mode}
 \textbf{Scope:} an assembled \texttt{Pmat} from the same
 \texttt{LinearFDOperator} stencils (\texttt{stencilAt()}), passed as
@@ -1314,34 +1294,53 @@ anisotropic case, with \texttt{Pmat} assembly cost.
 \status{proposed, contingent: build only if PR5/PR6 coefficients show PCMG
 is insufficient.}
 
-\pr{5}{Variable-Coefficient Diffusion + Nonlinear Sources}
-\textbf{Scope:} a real-space $\nabla\cdot(D\nabla u)$ operator
-(design name \texttt{FiniteDifferenceDiffusion}, not built; harmonic-mean
-face coefficients proposed) implementing \texttt{LinearFDOperator}, with
-$D$ from a buffer. The lagged nonlinear remainder needs no new path: any
-explicit compute writing the \texttt{source} buffer already enters $b$
-(PR3b's 1a input does this).
+\pr{5}{Variable Coefficients and the No-Flux Biharmonic}
+\textbf{Scope} (user, 2026-10-25: the former PR4b bundled with variable
+coefficients as one capability upgrade):
+\begin{itemize}[leftmargin=*]
+\item \texttt{FiniteDifferenceDivGrad} (user-chosen name), a real-space
+$-\nabla\cdot(D\nabla u)$ implementing \texttt{LinearFDOperator}, with $D$
+from a buffer; usable for diffusion, Poisson with $\varepsilon(x)$ and variable
+mobility. Explicit and implicit share one face-flux formula.
+\item \texttt{FiniteDifferenceBiharmonic} with non-periodic faces in
+\texttt{ImplicitFDSolver} (no-flux Cahn-Hilliard); the PFHub 1b input, and 2b
+on the \texttt{pfhub\_2a\_implicit\_fd} branch. 6a stays in PR5a (it needs a
+steady field coupled to a transient one).
+\item The torch-PCG Jacobi diagonal from the folded rows, so box stencils get
+their corner terms.
+\end{itemize}
+The lagged nonlinear remainder needs no new path: any explicit compute
+writing the \texttt{source} buffer already enters $b$ (PR3b's 1a input does
+this).
 
-\textbf{Open points:} \texttt{stencilAt()} returns one constant stencil, so
-a spatially varying $D$ does not fit the interface, the Jacobi diagonal, the
-Gershgorin weight, or the coarse rediscretisation as built; the coarse
-coefficient (restricted $D$ or Galerkin) is a numerical choice to be
-decided.
+\textbf{Design:} a per-row stencil on \texttt{LinearFDOperator} for
+variable coefficients, used by the folded assembly and diagonal, with the
+constant-stencil path unchanged; $D$ restricted to the coarse levels. Folding
+the composed 13-point biharmonic stencil with the Dirichlet or Neumann ghost
+factor ($\mp1$) gives exactly $L_{bc}L_{bc}$ (1D Neumann row 0:
+$[2,-3,1]$; Dirichlet rows 0, 1: $[10,-5,1]$, $[-5,6,-4,1]$), so the coarse
+levels need no new folding; the fine level applies the two Laplacians in turn.
 
-\textbf{Verification:} MMS with spatially varying $D$; cross-validation
-against \texttt{examples/cahn\_hilliard/cahnhilliard\_fem.i} and/or
-\texttt{ReciprocalMatDiffusion} on a periodic case.
-A parallel-plate capacitor (user, 2026-10-25): two dielectric slabs
+\textbf{Decisions pending} (each a separate question before the substep that
+needs it): the biharmonic face pairs (Neumann pair required; Navier pair?);
+the condition on $w = \nabla^2 u$; 5-point biharmonic with faces; harmonic
+or arithmetic face coefficient; $D$ at boundary faces; the coarse $D$
+(restriction or Galerkin); $D \le 0$ as an error.
+
+\textbf{Verification:} MMS with no-flux faces and with spatially varying
+$D$ against independent SciPy solves; mass conservation; a unit test of the
+folded biharmonic against \texttt{MatMatMult}$(L_{bc}, L_{bc})$ and of the
+folded diagonal against \texttt{MatGetDiagonal}; PCMG iterations against
+$n$. A parallel-plate capacitor (user, 2026-10-25): two dielectric slabs
 ($\varepsilon_r$ 1 and 100) between plates at a potential difference $V$,
-plates spanning the domain with zero-flux top and bottom so the problem is
-1D; the plate charge against the series capacitance
-$C/A = \varepsilon_0 / (d_1/\varepsilon_{r1} + d_2/\varepsilon_{r2})$, a
-uniform displacement $D$ and the potential split between the slabs. Metal
-plates as $\varepsilon_r = 10^9$ inside the domain test the solver at that
-contrast (relative-residual test, coarse coefficients); Dirichlet faces in
-place of the plates give the same capacitance without it.
+zero-flux top and bottom so the problem is 1D; the plate charge against the
+series capacitance $C/A = \varepsilon_0 / (d_1/\varepsilon_{r1} +
+d_2/\varepsilon_{r2})$, a uniform displacement and the potential split
+between the slabs. Pass/fail with Dirichlet faces as the plates; metal plates
+as $\varepsilon_r = 10^9$ inside the domain are run and their error and
+iterations recorded (trouble there is evidence for PR4a, not a PR5 blocker).
 
-\status{proposed.}
+\status{in progress on branch \texttt{implicit\_fd\_pr5}, on top of PR4.}
 
 \pr{5a}{Steady Field Coupled to a Transient Field}
 \textbf{Scope:} \texttt{TimeDerivativeOperator} is built (PR3) and steady
@@ -1380,8 +1379,8 @@ per-iteration cost under the reuse policy (R3).
 \textbf{Verification:} interface evolution against the spectral
 \texttt{psi}-masked version; total-concentration conservation.
 
-\status{proposed. Depends on PR5, PR6, and PR4b if the KKS equations carry a
-fourth-order term.}
+\status{proposed. Depends on PR5 (its no-flux biharmonic if the KKS equations carry
+a fourth-order term) and PR6.}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact
@@ -1392,8 +1391,8 @@ proposed for it in PR0 was not built.
 \status{deferred until requested.}
 
 \subsection*{Outside the core PRs: PFHub 2a with the implicit FD solver}
-On branch \texttt{pfhub\_2a\_implicit\_fd} (\texttt{8937e4f}, on top of
-PR4), to be merged after the core PRs. The existing 2a inputs started $c$
+On branch \texttt{pfhub\_2a\_implicit\_fd} (on top of PR4); its PR goes up
+together with 2b, which needs PR5's no-flux biharmonic (user, 2026-10-25). The existing 2a inputs started $c$
 with $\epsilon = 0.01$; the PFHub specification uses $0.05$, corrected on
 that branch. Results posted with $0.01$ (\texttt{results.2a.1.json}) and the
 notebook's \texttt{2a\_secant\_out.csv} need regenerating.
@@ -1415,14 +1414,13 @@ PR2c & Non-SPD + torch PCSHELL smoother + fusion & spike done (\texttt{40f6977},
 PR3 & ImplicitFDSolver, periodic, matrix-free & merged (PR \#188) & MMS and BE orders 2/4; CPU 1--4 ranks, MPS, H200 \\
 PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no divergence test, preallocation, scaling script & PR \#189 open, not merged & biharmonic Fourier mode 2D/3D, both backends \\
 PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; rebased onto \#189 head, no PR yet & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
-PR4b & No-flux biharmonic, PFHub 1b & proposed & --- \\
 PR4a & AMG mixed mode, contingent & proposed & --- \\
-PR5 & Variable-coefficient diffusion & proposed & --- \\
+PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & in progress & --- \\
 PR5a & Steady + transient coupling & TimeDerivativeOperator done (PR3); coupling proposed & --- \\
 PR6 & Picard, two-field coupling & proposed & --- \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\
---- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; merge after core PRs & --- \\
+--- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
 \bottomrule
 \end{longtable}
 
