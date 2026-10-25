@@ -227,12 +227,14 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                      "factor = -D.");
       }
 
-      if (has_boundaries && dynamic_cast<const FiniteDifferenceBiharmonic *>(fd_op))
+      // the 5-point biharmonic reads four ghost layers; the ghost fill has at most two
+      if (has_boundaries && dynamic_cast<const FiniteDifferenceBiharmonic *>(fd_op) &&
+          PetscFD::stencilWidth(fd_op->stencilAt()) > 2)
         paramError("operators",
                    "Operator '",
                    op_name,
-                   "' is a FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on "
-                   "periodic domains only.");
+                   "' is a 5-point FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on "
+                   "periodic domains only. Use stencil_width = 3.");
 
       field._operators.push_back(&op);
       field._fd_operators.push_back(fd_op);
@@ -279,6 +281,23 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                    "enough grids and the operator may be indefinite.");
       if (a != 0.0)
         definite = true;
+
+      // The biharmonic applies Laplacian(Laplacian(u)) to u and its two ghost layers. Dirichlet
+      // ghosts -u_l + 2c and Neumann ghosts u_l + (2l + 1) dx c make the intermediate Laplacian
+      // w's ghost -w0 or w0: the face pairs are (u = c, Laplacian(u) = 0) and (du/dn = c,
+      // dLaplacian(u)/dn = 0), and the operator is the square of the folded Laplacian. A Robin
+      // face's second ghost layer is no reflection of w.
+      if (a != 0.0 && b != 0.0)
+        for (const auto * fd_op : field._fd_operators)
+          if (dynamic_cast<const FiniteDifferenceBiharmonic *>(fd_op))
+            paramError("buffer",
+                       "Boundary condition '",
+                       bc->name(),
+                       "' of field '",
+                       buffers[i],
+                       "' is a Robin condition (a and b nonzero), which ImplicitFDSolver does not "
+                       "support with a FiniteDifferenceBiharmonic. Use Dirichlet or Neumann "
+                       "faces.");
 
       if (a != 0.0 && b != 0.0)
         for (const auto * fd_op : field._fd_operators)

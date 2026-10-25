@@ -388,6 +388,87 @@
     []
   []
 
+  [biharmonic_bcs]
+    requirement = 'The system shall solve the implicit biharmonic on a non-periodic domain, imposing u and Laplacian(u) = 0 on a Dirichlet face and du/dn and dLaplacian(u)/dn = 0 on a Neumann face, matching an independent sparse direct solve of the same discretisation, with'
+    # golds checked against an independent SciPy assembly of M L0 (L_u u + g_u) (the homogeneous
+    # folded Laplacian applied to the data Laplacian), max_error agreeing to 1e-8; order 2.00 from
+    # n = 32 to 128 in all three cases. The Neumann mass stays at its initial 0 to round-off.
+    [steady_dirichlet]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'tf=0 ops=bih num_steps=1 TensorComputes/Initialize/active=f_ic Outputs/file_base=biharmonic_bc_steady_dirichlet'
+      csvdiff = biharmonic_bc_steady_dirichlet.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Dirichlet faces in the steady problem with torch preconditioned conjugate gradient,'
+    []
+    [be_dirichlet]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'Outputs/file_base=biharmonic_bc_be_dirichlet'
+      csvdiff = biharmonic_bc_be_dirichlet.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Dirichlet faces with backward Euler,'
+    []
+    [be_neumann]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann'
+      csvdiff = biharmonic_bc_be_neumann.csv
+      rel_err = 1e-6
+      # the mass is 0 up to round-off
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Neumann faces with backward Euler, conserving the mass,'
+    []
+    [be_neumann_petsc]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann_petsc'
+      csvdiff = biharmonic_bc_be_neumann_petsc.csv
+      rel_err = 1e-6
+      abs_zero = 1e-12
+      compute_devices = 'cpu'
+      detail = 'Neumann faces with backward Euler and the PETSc multigrid solver, and'
+    []
+    [steady_dirichlet_petsc]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC tf=0 ops=bih num_steps=1 TensorComputes/Initialize/active=f_ic Outputs/file_base=biharmonic_bc_steady_dirichlet_petsc'
+      csvdiff = biharmonic_bc_steady_dirichlet_petsc.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu'
+      detail = 'Dirichlet faces in the steady problem with the PETSc multigrid solver.'
+    []
+  []
+
+  [grid_independence_biharmonic_bcs]
+    requirement = 'The system shall solve the biharmonic on a domain with Neumann faces with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size'
+    [n64]
+      type = RunApp
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" n=64 Outputs/csv=false -u_ksp_converged_reason'
+      # 14-15 iterations measured from n = 32 to 256 (16 for steady Dirichlet); fail above 20
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[3-9][0-9]|2[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 64 x 64 grid and'
+    []
+    [n256]
+      type = RunApp
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" n=256 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[3-9][0-9]|2[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 256 x 256 grid.'
+    []
+  []
+
   [jacobi_diagonal_bcs]
     requirement = 'The system shall converge a Jacobi-preconditioned conjugate gradient solve with boundary faces in the iteration count that the diagonal including the boundary face terms gives'
     # Jacobi-preconditioned CG takes 164 iterations; with the interior diagonal also in the
@@ -750,12 +831,19 @@
       expect_err = 'has a\*b < 0, for which the ghost term a/\(a/2 \+ b/dx\) is negative on fine enough grids'
       detail = 'with a Robin face with a b < 0 on a grid where its operator is still definite,'
     []
-    [biharmonic_bc]
+    [biharmonic_5pt_bc]
       type = RunException
       input = biharmonic_mode.i
-      cli_args = 'Domain/periodic_directions=Y TensorComputes/BCs/left/type=TensorNeumannBC TensorComputes/BCs/left/variable=u TensorComputes/BCs/left/boundary=left'
-      expect_err = 'is a FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on periodic domains only'
-      detail = 'with a biharmonic operator on a non-periodic domain,'
+      cli_args = 'stencil=5 Domain/periodic_directions=Y TensorComputes/BCs/left/type=TensorNeumannBC TensorComputes/BCs/left/variable=u TensorComputes/BCs/left/boundary=left TensorComputes/BCs/right/type=TensorNeumannBC TensorComputes/BCs/right/variable=u TensorComputes/BCs/right/boundary=right'
+      expect_err = 'is a 5-point FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on periodic domains only'
+      detail = 'with a 5-point biharmonic operator on a non-periodic domain,'
+    []
+    [biharmonic_robin]
+      type = RunException
+      input = biharmonic_bc_mms.i
+      cli_args = 'TensorComputes/BCs/dirichlet_left/type=TensorRobinBC TensorComputes/BCs/dirichlet_left/a=1 TensorComputes/BCs/dirichlet_left/b=1 TensorComputes/BCs/dirichlet_left/c_function=dirichlet_value TensorComputes/BCs/dirichlet_left/value_function=""'
+      expect_err = 'is a Robin condition \(a and b nonzero\), which ImplicitFDSolver does not support with a FiniteDifferenceBiharmonic'
+      detail = 'with a biharmonic operator and a Robin face,'
     []
     [not_fd_operator]
       type = RunException

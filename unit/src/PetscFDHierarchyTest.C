@@ -606,6 +606,46 @@ TEST(PetscFDHierarchyTest, JacobiSpectrumBoundWithFaces)
   }
 }
 
+// With Dirichlet and Neumann faces the ghosts are reflections (factor -1 or +1 in both layers),
+// which commute with the Laplacian, so the folded composed biharmonic stencil is exactly the
+// square of the folded Laplacian, corner rows included: the coarse rows of the no-flux
+// biharmonic need no folding of their own. A Robin face's layers have different factors.
+TEST(PetscFDHierarchyTest, FoldedBiharmonicIsSquaredLaplacian)
+{
+  const int64_t n = 16;
+  const std::vector<Real> dx{1.0 / n, 1.0 / n};
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = {1.0, 0.0};
+  faces.ab[1] = {0.0, 1.0};
+  faces.ab[2] = {0.0, 1.0};
+  faces.ab[3] = {1.0, 0.0};
+  const auto partition = boundedPartition(2, n, {false, false, true});
+  MPI_Comm comm = PetscFD::dmdaComm(partition);
+  {
+    const auto laplacian = FiniteDifferenceLaplacian::buildStencil(2, false, dx, 1.0);
+    const auto biharmonic = FiniteDifferenceBiharmonic::buildStencil(2, false, dx, 1.0);
+    PetscFD::Hierarchy h;
+    PetscFD::buildHierarchy(partition, comm, 1, 2, true, faces, h);
+    Mat L = PetscFD::createStencilMatrix(h.dms[0], laplacian);
+    PetscFD::assembleStencilOperator(h.dms[0], laplacian, 1.0, faces, dx, L);
+    Mat B = PetscFD::createStencilMatrix(h.dms[0], biharmonic);
+    PetscFD::assembleStencilOperator(h.dms[0], biharmonic, 1.0, faces, dx, B);
+    Mat LL;
+    PetscCallAbort(PETSC_COMM_WORLD, MatMatMult(L, L, MAT_INITIAL_MATRIX, PETSC_DETERMINE, &LL));
+
+    PetscReal scale, diff;
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(LL, NORM_INFINITY, &scale));
+    PetscCallAbort(PETSC_COMM_WORLD, MatAXPY(LL, -1.0, B, DIFFERENT_NONZERO_PATTERN));
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(LL, NORM_INFINITY, &diff));
+    EXPECT_LT(diff, 1e-13 * scale);
+
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&L));
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&LL));
+  }
+  MPI_Comm_free(&comm);
+}
+
 // The Jacobi diagonal of the torch solver is the diagonal of the assembled folded operator,
 // with faces of every type: corner rows of the box stencil (the biharmonic) fold on two axes
 // at once.
