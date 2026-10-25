@@ -456,6 +456,17 @@ genuine inconsistency is not hidden. Documented in \texttt{ImplicitFDSolver.md}.
 ghost term $a/(a/2 + b/dx)$ turns negative once $dx < 2|b/a|$, after which the
 operator may be indefinite (depending on the rest of the problem), so whether a
 problem solved depended on the grid; behaviour should not change with $dx$.
+\item \textbf{\texttt{FiniteDifferenceDivGrad} face coefficient} (user,
+2026-10-25; PR5): harmonic mean $2D_iD_j/(D_i+D_j)$ by default, the exact
+series conductance for a jump on a cell face; an arithmetic option for
+coefficients that can reach zero (e.g.\ degenerate mobility), where the
+harmonic mean shuts the face. The docs say when to use which.
+\item \textbf{Sign of $D$} (user, 2026-10-25; PR5): explicit use allows any
+sign (negative $D$ is useful e.g.\ as the explicit part of an IMEX split);
+harmonic mode requires $D_iD_j > 0$ on every face. In \texttt{ImplicitFDSolver}
+$D < 0$ is an error (the operator would not be semidefinite, and whether a
+problem solved would depend on $dt$ and $dx$), and so is $D = 0$ in harmonic
+mode. Checked at every assembly.
 \item \textbf{Central advection at high cell P\'eclet deferred, CUDA graph
 capture not adopted} (user, 2026-10-18; PR2c).
 \end{enumerate}
@@ -1323,9 +1334,9 @@ levels need no new folding; the fine level applies the two Laplacians in turn.
 
 \textbf{Decisions pending} (each a separate question before the substep that
 needs it): the biharmonic face pairs (Neumann pair required; Navier pair?);
-the condition on $w = \nabla^2 u$; 5-point biharmonic with faces; harmonic
-or arithmetic face coefficient; $D$ at boundary faces; the coarse $D$
-(restriction or Galerkin); $D \le 0$ as an error.
+the condition on $w = \nabla^2 u$; 5-point biharmonic with faces;
+$D$ at boundary faces; the coarse $D$ (restriction or Galerkin).
+Decided: the face coefficient and the sign of $D$ (Section~\ref{sec:decisions}).
 
 \textbf{Verification:} MMS with no-flux faces and with spatially varying
 $D$ against independent SciPy solves; mass conservation; a unit test of the
