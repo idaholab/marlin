@@ -446,6 +446,31 @@
     []
   []
 
+  [pfhub_1b]
+    requirement = 'The system shall run PFHub benchmark 1b (spinodal decomposition with no-flux faces) on a reduced grid with the implicit finite-difference solver, conserving the total concentration up to the linear solver tolerance, with'
+    # gold from the PETSc run; the torch PCG run agrees to 1e-11 relative, 4 ranks to 1e-12
+    [petsc]
+      type = CSVDiff
+      input = pfhub_1b.i
+      csvdiff = pfhub_1b_out.csv
+      rel_err = 1e-8
+      abs_zero = 1e-8
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_1b.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=pfhub_1b_torch'
+      csvdiff = pfhub_1b_torch.csv
+      rel_err = 1e-8
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver.'
+    []
+  []
+
   [grid_independence_biharmonic_bcs]
     requirement = 'The system shall solve the biharmonic on a domain with Neumann faces with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size'
     [n64]
