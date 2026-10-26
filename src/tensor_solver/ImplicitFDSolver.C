@@ -283,11 +283,9 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
       if (a != 0.0)
         definite = true;
 
-      // The biharmonic applies Laplacian(Laplacian(u)) to u and its two ghost layers. Dirichlet
-      // ghosts -u_l + 2c and Neumann ghosts u_l + (2l + 1) dx c make the intermediate Laplacian
-      // w's ghost -w0 or w0: the face pairs are (u = c, Laplacian(u) = 0) and (du/dn = c,
-      // dLaplacian(u)/dn = 0), and the operator is the square of the folded Laplacian. A Robin
-      // face's second ghost layer is no reflection of w.
+      // The biharmonic sets the ghosts of w = Laplacian(u) to -w0 (Dirichlet) or w0 (Neumann):
+      // the face pairs are (u = c, Laplacian(u) = 0) and (du/dn = c, dLaplacian(u)/dn = 0),
+      // and the operator is the square of the folded Laplacian. With a Robin face it is not.
       if (a != 0.0 && b != 0.0)
         for (const auto * fd_op : field._fd_operators)
           if (dynamic_cast<const FiniteDifferenceBiharmonic *>(fd_op))

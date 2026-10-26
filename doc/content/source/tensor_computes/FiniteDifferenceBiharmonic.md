@@ -27,11 +27,13 @@ $u$:
   potential through the face, with $q = 0$);
 - a [TensorDirichletBC.md] gives $u = g$ and $\nabla^2 u = 0$.
 
-The ghost layers that the boundary condition fills make the inner Laplacian's
-ghosts the reflection ($+1$ for Neumann, $-1$ for Dirichlet) of its values next
-to the face, so the operator is the square of the Laplacian with the homogeneous
-condition and stays symmetric. A Robin face, and the 5-point biharmonic on a
-non-periodic domain, are errors.
+With such faces the operator is applied in two stages: the Laplacian of $u$
+with its boundary condition gives $w = \nabla^2 u$, whose ghosts are then set to
+the reflection ($+1$ for Neumann, $-1$ for Dirichlet) of its values next to the
+face, and the Laplacian of $w$ is the result. So the second condition holds for
+face data that vary along the face too. The operator is the square of the
+Laplacian with the homogeneous condition and stays symmetric. A Robin face, and
+the 5-point biharmonic on a non-periodic domain, are errors.
 
 ## Example Input File Syntax
 

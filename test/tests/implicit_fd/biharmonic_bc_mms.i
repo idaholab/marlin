@@ -6,9 +6,15 @@
 # so Laplacian(u) = Laplacian(g) and f = tf h + M Laplacian^2(g) does not depend on time. The
 # biharmonic's face pairs are (u = value, Laplacian(u) = 0) on a Dirichlet face and
 # (du/dn = flux, dLaplacian(u)/dn = 0) on a Neumann face, which u satisfies:
-#   dirichlet: g = sin(pi x) sin(pi y), h = x y; u = s x y on the faces
-#   neumann:   g = cos(pi x) cos(pi y), h = x^2 - y^2; du/dn = 2 s on the right face, -2 s on
-#              the top face, 0 on the left and bottom faces
+#   dirichlet:        g = sin(pi x) sin(pi y), h = x y; u = s x y on the faces
+#   neumann:          g = cos(pi x) cos(pi y), h = x^2 - y^2; du/dn = 2 s on the right face,
+#                     -2 s on the top face, 0 on the left and bottom faces
+#   dirichlet_curved: g as dirichlet, h = x^2 - y^2; u = s h on the faces
+#   neumann_curved:   g as neumann, h = x^3 - 3 x y^2; du/dn = 3 s y^2 (left), 3 s (1 - y^2)
+#                     (right), 0 (bottom), -6 s x (top)
+# The curved cases' face data are not linear along the faces, where d2u/dn2 (Dirichlet) or
+# d3u/dn3 (Neumann) does not vanish, so they check Laplacian(u) = 0 and dLaplacian(u)/dn = 0
+# rather than those.
 # Laplacian(g) = -2 pi^2 g vanishes on the faces (dirichlet), its normal derivative does
 # (neumann). tf = 0 is steady (Dirichlet only: with Neumann faces the biharmonic alone is
 # singular). With tf = 1 u is linear in t and the face data are taken at t + dt, so backward
@@ -55,16 +61,9 @@ linear_solver = TORCH_PCG
   []
   [dirichlet_value]
     type = ParsedFunction
-    expression = '(1 + ${tf} * t) * x*y'
-  []
-  [neumann_flux]
-    type = ParsedFunction
-    # du/dn on the right face; the top face's is its negative
-    expression = '2 * (1 + ${tf} * t)'
-  []
-  [neumann_flux_top]
-    type = ParsedFunction
-    expression = '-2 * (1 + ${tf} * t)'
+    expression = '(1 + ${tf} * t) * h'
+    symbol_names = h
+    symbol_values = h_${faces}
   []
   [g_neumann]
     type = ParsedFunction
@@ -73,6 +72,112 @@ linear_solver = TORCH_PCG
   [h_neumann]
     type = ParsedFunction
     expression = 'x^2 - y^2'
+  []
+  [g_dirichlet_curved]
+    type = ParsedFunction
+    expression = 'sin(pi*x) * sin(pi*y)'
+  []
+  [h_dirichlet_curved]
+    type = ParsedFunction
+    expression = 'x^2 - y^2'
+  []
+  [g_neumann_curved]
+    type = ParsedFunction
+    expression = 'cos(pi*x) * cos(pi*y)'
+  []
+  [h_neumann_curved]
+    type = ParsedFunction
+    expression = 'x^3 - 3*x*y^2'
+  []
+  # du/dn = -dh/dx (left), dh/dx (right), -dh/dy (bottom), dh/dy (top), times 1 + tf t
+  [flux_left_neumann]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_right_neumann]
+    type = ParsedFunction
+    expression = '2'
+  []
+  [flux_bottom_neumann]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_top_neumann]
+    type = ParsedFunction
+    expression = '-2'
+  []
+  [flux_left_neumann_curved]
+    type = ParsedFunction
+    expression = '3*y^2'
+  []
+  [flux_right_neumann_curved]
+    type = ParsedFunction
+    expression = '3*(1 - y^2)'
+  []
+  [flux_bottom_neumann_curved]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_top_neumann_curved]
+    type = ParsedFunction
+    expression = '-6*x'
+  []
+  # the flux functions are built in the Dirichlet cases too, unused
+  [flux_left_dirichlet]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_right_dirichlet]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_bottom_dirichlet]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_top_dirichlet]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_left_dirichlet_curved]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_right_dirichlet_curved]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_bottom_dirichlet_curved]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_top_dirichlet_curved]
+    type = ParsedFunction
+    expression = '0'
+  []
+  [flux_left]
+    type = ParsedFunction
+    expression = '(1 + ${tf} * t) * q'
+    symbol_names = q
+    symbol_values = flux_left_${faces}
+  []
+  [flux_right]
+    type = ParsedFunction
+    expression = '(1 + ${tf} * t) * q'
+    symbol_names = q
+    symbol_values = flux_right_${faces}
+  []
+  [flux_bottom]
+    type = ParsedFunction
+    expression = '(1 + ${tf} * t) * q'
+    symbol_names = q
+    symbol_values = flux_bottom_${faces}
+  []
+  [flux_top]
+    type = ParsedFunction
+    expression = '(1 + ${tf} * t) * q'
+    symbol_names = q
+    symbol_values = flux_top_${faces}
   []
 []
 
@@ -137,25 +242,25 @@ linear_solver = TORCH_PCG
       type = TensorNeumannBC
       variable = u
       boundary = left
-      flux = 0
+      flux_function = flux_left
     []
     [neumann_right]
       type = TensorNeumannBC
       variable = u
       boundary = right
-      flux_function = neumann_flux
+      flux_function = flux_right
     []
     [neumann_bottom]
       type = TensorNeumannBC
       variable = u
       boundary = bottom
-      flux = 0
+      flux_function = flux_bottom
     []
     [neumann_top]
       type = TensorNeumannBC
       variable = u
       boundary = top
-      flux_function = neumann_flux_top
+      flux_function = flux_top
     []
   []
   [Solve]

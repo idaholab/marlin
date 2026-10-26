@@ -22,6 +22,8 @@ public:
 
   FiniteDifferenceBiharmonic(const InputParameters & parameters);
 
+  virtual void init() override;
+
   virtual void realSpaceComputeBuffer() override;
 
   virtual void computeBuffer() override;
@@ -47,4 +49,10 @@ protected:
   const Real _factor;
   /// convolution kernel of the stencil
   torch::Tensor _kernel;
+  /// per face, the sign of the reflection that sets the ghosts of w = Laplacian(u) on this rank's
+  /// domain faces: -1 for a Dirichlet face (Laplacian(u) = 0), +1 for a Neumann face
+  /// (dLaplacian(u)/dn = 0), 0 for none (periodic, a neighbouring rank, or another condition)
+  std::vector<int> _w_reflection;
+  /// apply the Laplacian twice with the w ghosts above (3-point stencil with such faces only)
+  bool _two_stage;
 };

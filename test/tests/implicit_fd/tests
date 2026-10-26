@@ -393,6 +393,7 @@
     # golds checked against an independent SciPy assembly of M L0 (L_u u + g_u) (the homogeneous
     # folded Laplacian applied to the data Laplacian), max_error agreeing to 1e-8; order 2.00 from
     # n = 32 to 128 in all three cases. The Neumann mass stays at its initial 0 to round-off.
+    # These face data are linear along the faces.
     [steady_dirichlet]
       type = CSVDiff
       input = biharmonic_bc_mms.i
@@ -433,7 +434,7 @@
       rel_err = 1e-6
       abs_zero = 1e-12
       compute_devices = 'cpu'
-      detail = 'Neumann faces with backward Euler and the PETSc multigrid solver, and'
+      detail = 'Neumann faces with backward Euler and the PETSc multigrid solver,'
     []
     [steady_dirichlet_petsc]
       type = CSVDiff
@@ -442,7 +443,41 @@
       csvdiff = biharmonic_bc_steady_dirichlet_petsc.csv
       rel_err = 1e-6
       compute_devices = 'cpu'
-      detail = 'Dirichlet faces in the steady problem with the PETSc multigrid solver.'
+      detail = 'Dirichlet faces in the steady problem with the PETSc multigrid solver,'
+    []
+    # with face data curved along the faces the golds match an independent NumPy/SciPy model of
+    # the two-stage operator (w ghosts -w0, w0) to 1e-10; the max_error is 6.4e-3, 1.6e-3,
+    # 4.0e-4 (Dirichlet) and 5.3e-3, 1.3e-3, 3.4e-4 (Neumann) at n = 16, 32, 64. Reflecting u's
+    # ghosts instead (d2u/dn2 = 0, d3u/dn3 = 0) stalls at 1.3e-2 and 0.13.
+    [steady_dirichlet_curved]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'n=16 M=1 faces=dirichlet_curved tf=0 ops=bih num_steps=1 TensorComputes/Initialize/active=f_ic Outputs/file_base=biharmonic_bc_steady_dirichlet_curved'
+      csvdiff = biharmonic_bc_steady_dirichlet_curved.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Dirichlet face data curved along the faces,'
+    []
+    [be_neumann_curved]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'n=16 M=1 faces=neumann_curved tf=0 ops="dudt bih" num_steps=1 TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann_curved'
+      csvdiff = biharmonic_bc_be_neumann_curved.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Neumann face data curved along the faces, and'
+    []
+    [be_neumann_curved_petsc]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC n=16 M=1 faces=neumann_curved tf=0 ops="dudt bih" num_steps=1 TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann_curved'
+      csvdiff = biharmonic_bc_be_neumann_curved.csv
+      rel_err = 1e-6
+      prereq = 'biharmonic_bcs/be_neumann_curved'
+      compute_devices = 'cpu'
+      detail = 'the same with the PETSc multigrid solver.'
     []
   []
 
