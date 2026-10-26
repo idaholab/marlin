@@ -446,6 +446,90 @@
     []
   []
 
+  [divgrad]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall solve a variable-coefficient problem -div(D grad u) = f implicitly with Dirichlet and Neumann faces, matching a SciPy sparse solve of the same discretisation (second order in h), with'
+    # the golds agree with SciPy sparse solves of the same discretisation to 11 digits,
+    # and on 4 ranks with 1 rank to 1e-12
+    [steady_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'Outputs/file_base=divgrad_steady_harmonic'
+      csvdiff = divgrad_steady_harmonic.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the harmonic face mean in the steady problem,'
+    []
+    [steady_arithmetic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'face_mean=arithmetic Outputs/file_base=divgrad_steady_arithmetic'
+      csvdiff = divgrad_steady_arithmetic.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the arithmetic face mean in the steady problem, and'
+    []
+    [be_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'tf=1 ops="dudt divgrad" num_steps=2 Outputs/file_base=divgrad_be_harmonic'
+      csvdiff = divgrad_be_harmonic.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler.'
+    []
+  []
+
+  [divgrad_jacobi]
+    design = 'ImplicitFDSolver.md'
+    requirement = 'The system shall precondition the conjugate gradient solve of a variable-coefficient operator with its cell-wise diagonal, solving a coefficient jump of 100 on a 64 x 64 grid within 400 iterations.'
+    # 318 iterations measured; a constant (mean) diagonal takes 1985
+    [jump]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'n=64 Functions/D_func/expression="1 + 99*(x > 0.5) + 0*y" TensorSolver/l_max_its=400 Outputs/csv=false'
+      compute_devices = 'cpu'
+    []
+  []
+
+  [divgrad_errors]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall report an error in the implicit solve with a FiniteDifferenceDivGrad when'
+    [negative]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'face_mean=arithmetic Functions/D_func/expression="x - 0.5 + 0*y"'
+      expect_err = "The coefficient 'D' of FiniteDifferenceDivGrad 'divgrad' must be nonnegative in "
+                   "an implicit solve"
+      detail = 'the coefficient is negative somewhere,'
+    []
+    [harmonic_zero]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
+      expect_err = 'has D_i D_j <= 0 on a face, where the harmonic mean is undefined'
+      detail = 'the coefficient is zero somewhere with the harmonic face mean,'
+    []
+    [decoupled_cells]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
+      expect_err = 'has a nonpositive diagonal in some cells, so it is not positive definite there'
+      detail = 'the coefficient is zero on every face of some cells in a steady problem,'
+    []
+    [petsc]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC'
+      expect_err = "Operator 'divgrad' is a FiniteDifferenceDivGrad, which ImplicitFDSolver supports "
+                   "with linear_solver = TORCH_PCG only"
+      detail = 'and the PETSc multigrid solver is selected.'
+    []
+  []
+
   [pfhub_1b]
     requirement = 'The system shall run PFHub benchmark 1b (spinodal decomposition with no-flux faces) on a reduced grid with the implicit finite-difference solver, conserving the total concentration up to the linear solver tolerance, with'
     # gold from the PETSc run; the torch PCG run agrees to 1e-11 relative, 4 ranks to 1e-12
