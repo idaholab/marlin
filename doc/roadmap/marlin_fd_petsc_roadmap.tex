@@ -475,7 +475,11 @@ $\nabla^2 u = 0$; Robin faces and the 5-point biharmonic with faces are errors.
 cell's own $D_0$ (a mirrored $D$ ghost, the same under either mean). Exact for
 $D$ constant next to the face, $O(h)$ in the face coefficient for a smooth $D$.
 A Neumann face still gives $\partial u/\partial n$, so its physical flux is
-$D_0$ times the given value; the docs say so.
+$D_0$ times the given value; the docs say so. Measured in 1D (NumPy, $n$ = 32 to
+256): second order on Dirichlet and no-flux faces, first order on a Neumann face
+with a nonzero flux where $D$ varies; kept over linear extrapolation of $D$ (second
+order, but it can lose $D$'s sign and reaches across a jump next to the face), and
+documented (user, 2026-10-26).
 \item \textbf{Coarse $D$} (user, 2026-10-25; PR5): each PCMG coarse level
 takes the mean of $D$ over its $2^{\mathrm{dim}}$ child cells and is
 rediscretised with the same face rule, as the constant-coefficient levels are.
