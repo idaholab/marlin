@@ -359,12 +359,12 @@ periodic Poisson tests (\texttt{test/tests/implicit\_fd/poisson\_mms.i}) solve
 such a field, singular with the constants as nullspace. \texttt{ImplicitFDSolver}
 accepts several fields (for example \texttt{buffer = 'c phi'} with
 \texttt{operators = 'dcdt lap\_c; lap\_phi'}; only the setup-error tests use
-two fields). What is not built or tested:
-a steady field coupled to a transient one through lagged sources. Because
-the explicit computes run once before the field loop, a source computed from
-another field sees that field at $t^n$ even if it was solved earlier in the
-same substep. Re-solving the steady field against updated sources is the job
-of the Picard iteration (PR6); PR5a verifies the coupled case.
+two fields). The explicit computes run once before the field loop, so a
+source computed from another field sees that field at $t^n$ even if it was
+solved earlier in the same substep: the result does not depend on the order
+of \texttt{buffer} (decision D8). Re-solving the steady field against updated
+sources is the job of the Picard iteration (PR6); PR5a verifies the coupled
+case.
 
 \section{Decisions}
 \label{sec:decisions}
@@ -1420,7 +1420,51 @@ against current sources.
 \textbf{Verification:} a coupled two-field case against an independent
 solution.
 
-\status{\texttt{TimeDerivativeOperator} done in PR3; coupling proposed.}
+\textbf{Decisions (user, 2026-10-26).}
+\begin{itemize}
+\item \textbf{D8, coupling order.} Every source comes from $t^n$, whatever the
+  order of \texttt{buffer}. A Gauss-Seidel sweep in \texttt{buffer} order
+  (results depend on the order) and solving the transient fields before the
+  steady ones were proposed and declined; a block-coupled solve
+  (PCFIELDSPLIT with cross-field operators) is deferred until after Picard
+  (PR6).
+\item \textbf{D9, the mean of the solution.} When the operator maps the
+  constants to $\lambda > 0$ times the constants (A symmetric), the summed
+  equations fix $\bar u = \bar b / \lambda$ exactly; the solver detects this
+  from $A\mathbf{1}$ when the operator is applied and sets the mean of the
+  Krylov solution to $\bar b/\lambda$ after each solve, for every field
+  (nothing to mark). Found by the coupled test: PCMG's SOR smoothing (and Jacobi
+  next to boundary faces) leaves the mean wrong by about $l_{tol}\|u\|$ per
+  step, which made the right-hand side of the singular steady field
+  incompatible at $l_{tol} = 10^{-8}$. Widening the singular-field mean check
+  to $l_{tol}$ was proposed and withdrawn (it hides the drift and still fails
+  as the drift accumulates). MOOSE has no automatic equivalent: PETSc's
+  transpose null space silently projects the right-hand side, and the
+  navier\_stokes \texttt{NSPressurePin} (\texttt{average}) is an opt-in
+  offset to a user target.
+\end{itemize}
+
+\textbf{Results.}
+\begin{itemize}
+\item \texttt{steady\_transient.i}: $c_t = D\nabla^2 c + k\phi$,
+  $-\nabla^2\phi = s c$ on a periodic box, one Fourier mode against its exact
+  two-step recurrence; $\phi^0$ the steady solution of $c^0$. Torch PCG: errors
+  $2\times10^{-15}$ ($c$) and $8\times10^{-17}$ ($\phi$) over 10 steps, on 1, 3
+  and 4 ranks; swapping the field order is bit-identical; PETSc agrees to
+  $7\times10^{-15}$; MPS float32 $4\times10^{-7}$. Sabotage: no coupling gives
+  $3\times10^{-2}$, $\phi^0 = 0$ gives $6\times10^{-3}$.
+\item Mean correction: $\overline{c}$ stays at $10^{-17}$ over 200 steps at
+  $l_{tol} = 10^{-8}$ and $10^{-6}$ (PCMG), against $-1.5\times10^{-9}$ and
+  $1.3\times10^{-8}$ without it. PFHub 1b (no-flux faces) at
+  $l_{tol} = 10^{-8}$ keeps the total of $c$ (20101) to $2.5\times10^{-10}$,
+  against drifts of $6\times10^{-5}$ (PETSc) and $1.5\times10^{-4}$ (torch PCG)
+  without it; new tests at the loose tolerance catch the removal. No
+  measurable cost at $256^2$. The existing golds are unchanged within their
+  tolerances.
+\end{itemize}
+
+\status{Done on \texttt{implicit\_fd\_pr5}; review and tag pending. PFHub 6a
+  follows on this scheme.}
 
 \pr{6}{Picard Iteration + Two-Field Coupling (KKS-shaped)}
 \textbf{Scope:} iterate the \texttt{ImplicitFDSolver} field loop to
@@ -1484,7 +1528,7 @@ PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no diver
 PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; rebased onto \#189 head, no PR yet & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
 PR4a & AMG mixed mode, contingent & proposed & --- \\
 PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient) & --- \\
-PR5a & Steady + transient coupling & TimeDerivativeOperator done (PR3); coupling proposed & --- \\
+PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence & Review, tag; PFHub 6a \\
 PR6 & Picard, two-field coupling & proposed & --- \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\

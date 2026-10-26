@@ -789,8 +789,56 @@
     []
   []
 
+  [steady_transient]
+    requirement = 'The system shall solve a transient field and a steady field coupled through sources computed at the start of the step, matching the exact two-step recurrence of a periodic Fourier mode, independent of the order of the fields, and conserving the mean of the transient field exactly at any linear tolerance, with'
+    [torch]
+      type = CSVDiff
+      input = steady_transient.i
+      csvdiff = steady_transient_out.csv
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver,'
+    []
+    [swapped]
+      type = CSVDiff
+      input = steady_transient.i
+      cli_args = "TensorSolver/buffer='phi c' TensorSolver/operators='lap_phi_op; dcdt_op lap_c_op' "
+                 "TensorSolver/source='src_phi src_c'"
+      csvdiff = steady_transient_out.csv
+      abs_zero = 1e-12
+      prereq = 'steady_transient/torch'
+      compute_devices = 'cpu'
+      detail = 'the fields listed in the other order,'
+    []
+    [petsc]
+      type = CSVDiff
+      input = steady_transient.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=steady_transient_petsc'
+      csvdiff = steady_transient_petsc.csv
+      abs_zero = 1e-12
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver, and'
+    []
+    [petsc_loose]
+      # at l_tol = 1e-8 the multigrid solve of c alone leaves a mean of 1e-10, which would make
+      # the right-hand side of phi incompatible
+      type = CSVDiff
+      input = steady_transient.i
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorSolver/l_tol=1e-8 Outputs/file_base=steady_transient_loose'
+      csvdiff = steady_transient_loose.csv
+      # the errors are gated below 1e-7 (the solve error), mean_c at round-off
+      abs_zero = 1e-14
+      override_columns = 'error_c error_phi'
+      override_rel_err = '1 1'
+      override_abs_zero = '1e-7 1e-7'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver at a loose linear tolerance.'
+    []
+  []
+
   [pfhub_1b]
-    requirement = 'The system shall run PFHub benchmark 1b (spinodal decomposition with no-flux faces) on a reduced grid with the implicit finite-difference solver, conserving the total concentration up to the linear solver tolerance, with'
+    requirement = 'The system shall run PFHub benchmark 1b (spinodal decomposition with no-flux faces) on a reduced grid with the implicit finite-difference solver, conserving the total concentration, with'
     # gold from the PETSc run; the torch PCG run agrees to 1e-11 relative, 4 ranks to 1e-12
     [petsc]
       type = CSVDiff
@@ -808,6 +856,33 @@
       csvdiff = pfhub_1b_torch.csv
       rel_err = 1e-8
       abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver.'
+    []
+  []
+
+  [pfhub_1b_conservation]
+    requirement = 'The system shall conserve the total concentration of PFHub benchmark 1b (no-flux faces) to round-off at a loose linear tolerance, setting the mean the summed equations fix after each solve, with'
+    # without that, the total drifts by 6e-5 (PETSc) and 1.5e-4 (torch PCG) at l_tol = 1e-8
+    [petsc]
+      type = CSVDiff
+      input = pfhub_1b.i
+      cli_args = 'TensorSolver/l_tol=1e-8 Outputs/file_base=pfhub_1b_loose'
+      csvdiff = pfhub_1b_loose.csv
+      # total_c_change gated at 1e-8, the other columns at the solve error
+      abs_zero = 1e-8
+      rel_err = 1e-5
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_1b.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorSolver/l_tol=1e-8 Outputs/file_base=pfhub_1b_loose_torch'
+      csvdiff = pfhub_1b_loose_torch.csv
+      abs_zero = 1e-8
+      rel_err = 1e-5
       compute_devices = 'cpu cuda'
       min_slots = 2 # memory heavy
       detail = 'the torch preconditioned conjugate gradient solver.'

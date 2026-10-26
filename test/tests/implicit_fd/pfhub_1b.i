@@ -17,8 +17,8 @@
 # No flux, n . grad(c) = 0 and n . grad(mu) = 0 with mu = f'(c) - kappa Laplacian(c), on every
 # face: the Neumann faces of c give the biharmonic dc/dn = 0 and dLaplacian(c)/dn = 0, and a
 # Neumann face of f'(c^n) gives the explicit term's df'/dn = 0 (which dc/dn = 0 implies). Each
-# flux then vanishes on the faces and the total of c is conserved up to the linear solver
-# tolerance (to 1e-12 relative at l_tol = 1e-13).
+# flux then vanishes on the faces and the summed equations conserve the total of c, which the
+# solver keeps to round-off (it sets the mean of each solution to the conserved one).
 #
 
 # substeps per time step, as in 1a_solver.i (each substep is one linear solve)

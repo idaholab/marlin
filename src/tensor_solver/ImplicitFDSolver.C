@@ -402,6 +402,14 @@ ImplicitFDSolver::substep()
       b -= b_sum / n_cells;
     }
 
+    // with A 1 = lambda 1 (A symmetric), the sum of the equations fixes the mean of the exact
+    // solution, mean(x) = mean(b) / lambda: the Krylov error in the constant mode is set to zero
+    // after the solve (e.g. mass of a conserved field on periodic or Neumann faces)
+    const Real lambda = field._singular ? 0.0 : constantEigenvalue(field);
+    const Real b_mean = lambda > 0.0 ? _domain.allreduceSum(b.sum()).cpu().item<double>() /
+                                           static_cast<Real>(_domain.getNumberOfCells())
+                                     : 0.0;
+
     SolveResult result;
     const Real b_norm = std::sqrt(_domain.allreduceSum((b * b).sum()).cpu().item<double>());
     if (b_norm == 0.0)
@@ -434,6 +442,9 @@ ImplicitFDSolver::substep()
 
     if (field._singular)
       x -= _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
+    else if (lambda > 0.0)
+      x += b_mean / lambda -
+           _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
 
     // write x into u and apply the operators to it once more, so that their output buffers
     // hold A_i u (with the boundary values) rather than A_i of the last Krylov vector
@@ -504,6 +515,29 @@ ImplicitFDSolver::checkPositiveDiagonal(const Field & field, const torch::Tensor
                "' has a nonpositive diagonal in some cells, so it is not positive definite there "
                "(e.g. a FiniteDifferenceDivGrad coefficient that is zero on every face of a cell, "
                "without a time derivative).");
+}
+
+Real
+ImplicitFDSolver::constantEigenvalue(Field & field)
+{
+  // a Dirichlet or Robin face (a != 0) gives the constants a profile next to the face
+  for (const auto * face_bc : field._face_bcs)
+    if (face_bc && face_bc->a() != 0.0)
+      return 0.0;
+
+  // A 1 is exact up to the cancellation of the stencil weights, of the size of the diagonal
+  const auto ones = torch::ones_like(field._u_base.ownedView(), torch::MemoryFormat::Contiguous);
+  const auto y = applyLinearOperator(field, ones);
+  const auto diag = jacobiDiagonal(field);
+  const auto n_cells = static_cast<Real>(_domain.getNumberOfCells());
+  const Real lambda = _domain.allreduceSum(y.sum()).cpu().item<double>() / n_cells;
+  const Real deviation = std::sqrt(
+      _domain.allreduceSum(((y - lambda) * (y - lambda)).sum()).cpu().item<double>() / n_cells);
+  const Real diag_rms =
+      std::sqrt(_domain.allreduceSum((diag * diag).sum()).cpu().item<double>() / n_cells);
+  const Real eps = y.scalar_type() == torch::kFloat ? std::numeric_limits<float>::epsilon()
+                                                    : std::numeric_limits<double>::epsilon();
+  return deviation <= 64.0 * eps * diag_rms && lambda > 64.0 * eps * diag_rms ? lambda : 0.0;
 }
 
 torch::Tensor

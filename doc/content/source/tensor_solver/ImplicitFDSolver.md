@@ -21,6 +21,26 @@ positive definite, or positive semidefinite with the constants as its nullspace 
 Laplacian). In the singular case the right-hand side must have zero mean up to round-off, and the
 zero-mean solution is returned.
 
+When the operator maps the constants to $\lambda > 0$ times the constants (the time derivative
+with periodic or Neumann faces, e.g. diffusion or Cahn-Hilliard on a periodic or no-flux box),
+summing the equations fixes the mean of the discrete solution, $\bar u = \bar b / \lambda$. The
+solver detects this from the action of the operator on the constants and sets the mean of the
+Krylov solution to $\bar b / \lambda$ after each solve, removing the solver error in that mode.
+The total of a conserved field is then kept to round-off at any
+[!param](/TensorSolver/ImplicitFDSolver/l_tol), rather than drifting by the solver tolerance every
+step (a preconditioner mixes the constants with the other modes unless its diagonal is uniform,
+as next to a boundary face or with SOR it is not). Nothing has to be marked:
+the mean of a non-conserved field follows from the summed equations in the same way.
+
+The fields are solved one after another in the order of
+[!param](/TensorSolver/ImplicitFDSolver/buffer), with every explicit term, such as a source
+computed from another field, evaluated once before the first solve: each field sees the others at
+the start of the step, so the result does not depend on the order. A steady field (one without a
+time derivative) coupled to a transient field through such sources, e.g. a Poisson potential
+$-\nabla^2 \phi = s c$ with $\partial_t c = D \nabla^2 c + k \phi$, is computed from $c^n$, and the
+step of $c$ uses $\phi^n$, so $\phi$ lags $c$ by one step. Its initial condition should be the
+steady solution of the initial $c$, which the first step of $c$ uses.
+
 The solve stops when the unpreconditioned residual satisfies
 $\|b - A u\|_2 \le$ [!param](/TensorSolver/ImplicitFDSolver/l_tol) $\|b\|_2$, starting from the
 previous solution. When a solve does not converge within

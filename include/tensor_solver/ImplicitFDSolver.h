@@ -114,6 +114,10 @@ protected:
   /// error unless the folded diagonal is positive in every cell
   void checkPositiveDiagonal(const Field & field, const torch::Tensor & diag) const;
 
+  /// lambda if the linear operator maps the constants to lambda > 0 times the constants (up to
+  /// round-off), else 0
+  Real constantEigenvalue(Field & field);
+
   /// solve sum_i A_i x = b (with ||b||_2 = b_norm) by torch preconditioned CG, warm started from x
   SolveResult solveTorchPCG(Field & field, const torch::Tensor & b, Real b_norm, torch::Tensor & x);
 
