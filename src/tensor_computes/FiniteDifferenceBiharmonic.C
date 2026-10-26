@@ -59,7 +59,7 @@ FiniteDifferenceBiharmonic::FiniteDifferenceBiharmonic(const InputParameters & p
 }
 
 void
-FiniteDifferenceBiharmonic::init()
+FiniteDifferenceBiharmonic::setFaceReflections()
 {
   // The ghost layers of u from a Dirichlet or Neumann condition give u = c or du/dn = c on the
   // face, but the 13-point stencil applied to them makes the intermediate Laplacian w's ghost
@@ -67,6 +67,8 @@ FiniteDifferenceBiharmonic::init()
   // d2u/dn2 = 0 or d3u/dn3 = 0). Setting w's ghosts to -w0 (Dirichlet) or w0 (Neumann) imposes
   // Laplacian(u) = 0 or dLaplacian(u)/dn = 0 for any face data. With zero face data both give
   // the same operator, so only the boundary-data term changes.
+  // Decided on first use rather than in init(), which the Postprocess computes do not get, so
+  // that the operator imposes the same face pairs wherever it is used.
   _w_reflection.assign(2 * _dim, 0);
   if (_laplacian_radius != 1 || !_domain.isRealSpaceMode())
     return;
@@ -97,6 +99,8 @@ FiniteDifferenceBiharmonic::realSpaceComputeBuffer()
 void
 FiniteDifferenceBiharmonic::computeBuffer()
 {
+  if (_w_reflection.empty())
+    setFaceReflections();
   if (_two_stage)
   {
     const auto & dx = _domain.getGridSpacing();

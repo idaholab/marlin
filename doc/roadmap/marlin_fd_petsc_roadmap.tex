@@ -475,7 +475,8 @@ The milestone review found that the ghost fill of $u$ alone imposes
 $\partial^2u/\partial n^2 = 0$ and $\partial^3u/\partial n^3 = 0$ instead
 when the face data vary along the face; the user approved (2026-10-26) setting
 the ghosts of $w = \nabla^2 u$ to the exact reflection, which imposes the pairs
-above (the homogeneous operator is unchanged).
+above (the homogeneous operator is unchanged), and (2026-10-26) imposing them
+wherever the operator is used, explicit and postprocessing included.
 \item \textbf{$D$ at a domain face} (user, 2026-10-25; PR5): the boundary
 cell's own $D_0$ (a mirrored $D$ ghost, the same under either mean). Exact for
 $D$ constant next to the face, $O(h)$ in the face coefficient for a smooth $D$.

@@ -22,8 +22,6 @@ public:
 
   FiniteDifferenceBiharmonic(const InputParameters & parameters);
 
-  virtual void init() override;
-
   virtual void realSpaceComputeBuffer() override;
 
   virtual void computeBuffer() override;
@@ -39,6 +37,9 @@ public:
   buildStencil(unsigned int dim, bool wide, const std::vector<Real> & grid_spacing, Real factor);
 
 protected:
+  /// set _w_reflection and _two_stage from the boundary conditions of the input buffer
+  void setFaceReflections();
+
   /// stencil radius of the underlying Laplacian
   const unsigned int _laplacian_radius;
   /// input buffer name

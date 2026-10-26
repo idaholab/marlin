@@ -18,9 +18,9 @@ constants as its nullspace, so with `factor > 0` the operator can be solved
 implicitly with [ImplicitFDSolver.md], for example as the $M\kappa\nabla^4 c$
 term of the Cahn-Hilliard equation.
 
-On a non-periodic domain [ImplicitFDSolver.md] supports the 3-point
-biharmonic with two conditions on each face, set by one boundary condition on
-$u$:
+On a non-periodic domain the 3-point biharmonic imposes two conditions on each
+face, set by one boundary condition on $u$, wherever it is used (explicitly, in
+[ImplicitFDSolver.md], or as a postprocessing compute):
 
 - a [TensorNeumannBC.md] gives $\partial u/\partial n = q$ and
   $\partial(\nabla^2 u)/\partial n = 0$ (no flux of Cahn-Hilliard's chemical
@@ -33,7 +33,8 @@ the reflection ($+1$ for Neumann, $-1$ for Dirichlet) of its values next to the
 face, and the Laplacian of $w$ is the result. So the second condition holds for
 face data that vary along the face too. The operator is the square of the
 Laplacian with the homogeneous condition and stays symmetric. A Robin face, and
-the 5-point biharmonic on a non-periodic domain, are errors.
+the 5-point biharmonic on a non-periodic domain, are errors in
+[ImplicitFDSolver.md].
 
 ## Example Input File Syntax
 

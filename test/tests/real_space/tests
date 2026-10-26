@@ -409,4 +409,15 @@
       detail = 'is read with more ghost layers than this rank owns cells along a periodic axis.'
     []
   []
+
+  [biharmonic_faces]
+    type = CSVDiff
+    input = biharmonic_faces.i
+    csvdiff = biharmonic_faces_out.csv
+    rel_err = 1e-8
+    # the difference is 0 exactly
+    abs_zero = 1e-9
+    design = 'FiniteDifferenceBiharmonic.md'
+    requirement = 'The system shall apply the 3-point biharmonic explicitly with Dirichlet faces whose data vary along the faces, imposing u = g and Laplacian(u) = 0 there, in the Solve and in the Postprocess computes alike.'
+  []
 []
