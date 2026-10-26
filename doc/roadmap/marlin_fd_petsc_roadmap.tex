@@ -1547,6 +1547,13 @@ backend.
   functions (already at $t^{n+1}$). The lagged scheme (iteration off) keeps
   $f(u^n, t^n)$. A source with an explicit $t$ differs between the two even after
   a single iteration; time-independent sources do not.
+\item \textbf{D16, buffer-valued boundary data.} With the nonlinear iteration on,
+  the face data of a \texttt{c\_buffer} boundary condition are prepared again after
+  every re-run of the explicit computes, so the converged step satisfies
+  $c(U^{n+1}, t^{n+1})$ and decision~11's lag is removed. A solution-dependent
+  boundary value is then part of the nonlinear coupling, which the block-diagonal
+  preconditioner does not see: strong coupling costs iterations or ends in a dt
+  cut. Scalar and function boundary data are unchanged.
 \end{itemize}
 \textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
 source's derivative with respect to its own field (a per-cell diagonal from
