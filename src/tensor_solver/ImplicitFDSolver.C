@@ -301,8 +301,8 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
 
       if (a != 0.0 && b != 0.0)
         for (const auto * fd_op : field._fd_operators)
-          for (const auto & entry : fd_op->stencilAt())
-            if (std::abs(entry.offset[d]) > 1)
+          for (const auto & offset : fd_op->stencilOffsets())
+            if (std::abs(offset[d]) > 1)
               paramError("buffer",
                          "Boundary condition '",
                          bc->name(),

@@ -298,6 +298,47 @@
     []
   []
 
+  [divgrad]
+    design = FiniteDifferenceDivGrad.md
+    requirement = 'The system shall compute div(D grad u) in real space for a cell-centred coefficient D, with Dirichlet and Neumann faces and the boundary cell D on a domain face, and'
+    # the harmonic and arithmetic golds agree with a NumPy evaluation to 11 digits
+    [harmonic]
+      type = CSVDiff
+      input = divgrad.i
+      csvdiff = divgrad_harmonic.csv
+      cli_args = 'Outputs/file_base=divgrad_harmonic'
+      rel_err = 1e-10
+      compute_devices = 'cpu cuda'
+      detail = 'match an independent evaluation with the harmonic face mean,'
+    []
+    [arithmetic]
+      type = CSVDiff
+      input = divgrad.i
+      csvdiff = divgrad_arithmetic.csv
+      cli_args = 'face_mean=arithmetic Outputs/file_base=divgrad_arithmetic'
+      rel_err = 1e-10
+      compute_devices = 'cpu cuda'
+      detail = 'with the arithmetic face mean, and shall'
+    []
+    [harmonic_sign]
+      type = RunException
+      input = divgrad.i
+      cli_args = "TensorComputes/Initialize/D/expression='x - 0.5 + 0.2*cos(3*y)'"
+      expect_err = 'has D_i D_j <= 0 on a face, where the harmonic mean is undefined'
+      detail = 'reject a coefficient with D_i D_j <= 0 on a face with the harmonic mean, and'
+    []
+    [arithmetic_negative]
+      type = CSVDiff
+      input = divgrad.i
+      cli_args = "face_mean=arithmetic TensorComputes/Initialize/D/expression='x - 0.5 + "
+                 "0.2*cos(3*y)' Outputs/file_base=divgrad_arithmetic_negative"
+      csvdiff = divgrad_arithmetic_negative.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'accept a coefficient of either sign with the arithmetic mean in explicit use.'
+    []
+  []
+
   [deep_ghost_layers]
     issues = '#191'
     design = 'syntax/TensorComputes/BCs/index.md'

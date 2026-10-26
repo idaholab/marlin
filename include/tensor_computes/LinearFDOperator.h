@@ -55,6 +55,18 @@ public:
    */
   virtual std::vector<FDStencilEntry> stencilAt(const std::vector<Real> & grid_spacing) const = 0;
 
+  /**
+   * The stencil's offsets. Unlike stencilAt() they are available before the buffers are
+   * allocated (a variable coefficient is read from a buffer), e.g. in a solver's constructor.
+   */
+  virtual std::vector<std::vector<int>> stencilOffsets() const
+  {
+    std::vector<std::vector<int>> offsets;
+    for (const auto & entry : stencilAt())
+      offsets.push_back(entry.offset);
+    return offsets;
+  }
+
   /// Definiteness of the operator's action A (as written, before any sign change)
   enum class Definiteness
   {
