@@ -1534,6 +1534,12 @@ backend.
   \texttt{getIterations()} (the adaptive time stepper's signal) is the number of
   nonlinear iterations, with the Krylov total printed; with it off, the Krylov
   count as today.
+\item \textbf{Coupling to SNES.} Right preconditioning in the
+  \texttt{SNESSetPicard} form: the SNES residual is the true $F(U)$ and the
+  Jacobian is $A$, applied through each field's existing solve as a block-diagonal
+  preconditioner; \texttt{-snes\_mf\_operator} later gives Newton-Krylov with $A$
+  as the preconditioner. The existing solve as a nonlinear preconditioner was
+  declined: \texttt{nrichardson} would then test the preconditioned residual.
 \end{itemize}
 \textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
 source's derivative with respect to its own field (a per-cell diagonal from
