@@ -1483,7 +1483,16 @@ unnecessary (user, 2026-10-26). $F(400)$: 104.00 ($100^2$), 104.01 ($200^2$),
 102.9--105.8 (INL MOOSE 103.6, CORAL 104.9, PRISMS-PF 105.8, MMSP 102.9,
 MEMPHIS 103.0; FiPy 114.3). Total $c$ conserved to $2\times10^{-13}$ relative.
 
-\status{Done on \texttt{implicit\_fd\_pr5}; review and tag pending.}
+\status{implemented and verified on branch \texttt{implicit\_fd\_pr5}, tag
+\texttt{pr5a-steady-transient}, 2026-10-26. The milestone review (numerics, tests and
+parallel, docs, verifier) found no error in the mean correction, the coupling or the 6a
+equations (checked against the PFHub notebook). It found: the singular-field mean check
+rejecting a neutral decaying source after about 100 steps (fixed with D10, with tests), a
+loose-tolerance spec whose error columns could not fail (now gated below $10^{-7}$), the
+$t = 0$ free energy of the initial guess of $\phi$ in the PFHub file (left out), and stale
+numbers and text in the docs (corrected). Known limit: in single precision the mean correction
+is off when $D\,\Delta t/h^2 \gtrsim 3\times10^4$ (2D), where $\lambda$ is below the round-off of
+$A\mathbf{1}$. CUDA runs in PR CI.}
 
 \pr{6}{Picard Iteration + Two-Field Coupling (KKS-shaped)}
 \textbf{Scope:} iterate the \texttt{ImplicitFDSolver} field loop to
@@ -1547,7 +1556,7 @@ PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no diver
 PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; rebased onto \#189 head, no PR yet & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
 PR4a & AMG mixed mode, contingent & proposed & --- \\
 PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient) & --- \\
-PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & Review, tag \\
+PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & done (tag pr5a-steady-transient) \\
 PR6 & Picard, two-field coupling & proposed & --- \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\
