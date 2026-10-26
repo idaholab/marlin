@@ -1402,8 +1402,12 @@ applies from the second solve; PCMG takes 11, 19, 18 iterations at $n = 32$. Wit
 coarse levels not reassembled after the switch the second solve fails.
 
 \status{implemented and verified on branch \texttt{implicit\_fd\_pr5} (on top of PR4),
-2026-10-26: substeps 1--10 committed; milestone review and pre-push review pending, then
-the tag \texttt{pr5-variable-coefficient}. CUDA runs in PR CI. The full PFHub 1b run and
+tag \texttt{pr5-variable-coefficient}, 2026-10-26. The milestone review (numerics,
+parallel, tests, docs, verifier) and the pre-push review found: a hang when $D$ changed on
+some ranks only (reassembly is now collective), a PETSc segfault on a zero diagonal (now an
+error), the biharmonic face pairs holding only for face data linear along the face (fixed
+with the approved two-stage operator, for every use), and a per-iteration coefficient check
+(now once per change); all fixed with tests. CUDA runs in PR CI. The full PFHub 1b run and
 the 2b branch rebase are the user's.}
 
 \pr{5a}{Steady Field Coupled to a Transient Field}
@@ -1479,7 +1483,7 @@ PR3 & ImplicitFDSolver, periodic, matrix-free & merged (PR \#188) & MMS and BE o
 PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no divergence test, preallocation, scaling script & PR \#189 open, not merged & biharmonic Fourier mode 2D/3D, both backends \\
 PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; rebased onto \#189 head, no PR yet & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
 PR4a & AMG mixed mode, contingent & proposed & --- \\
-PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & implemented, review pending & --- \\
+PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient) & --- \\
 PR5a & Steady + transient coupling & TimeDerivativeOperator done (PR3); coupling proposed & --- \\
 PR6 & Picard, two-field coupling & proposed & --- \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
