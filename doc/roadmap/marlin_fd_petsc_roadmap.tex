@@ -1366,6 +1366,27 @@ between the slabs. Pass/fail with Dirichlet faces as the plates; metal plates
 as $\varepsilon_r = 10^9$ inside the domain are run and their error and
 iterations recorded (trouble there is evidence for PR4a, not a PR5 blocker).
 
+\textbf{Capacitor results} (2026-10-26, \texttt{test/tests/implicit\_fd/capacitor.i},
+$L = 1$\,mm, $V = 10$\,V, $d_1 = L/4$, CPU, \texttt{l\_tol} $= 10^{-13}$):
+\begin{itemize}[leftmargin=*]
+\item \emph{Dirichlet plates} (gated, $n = 32$): the charge at both plates and inside
+slab 1 and the potential match the exact values to $10^{-14}$ with torch PCG and PCMG,
+on 1 and 4 ranks; the arithmetic face mean is $6\times10^{-2}$ off. PCMG takes 21, 23,
+23, 22 iterations at $n = 32$ to 256; torch Jacobi PCG 140, 278, 534 at $n = 32$ to 128.
+\item \emph{Metal plates} ($\varepsilon_r = 10^9$, thickness $L/8$, recorded): the charge
+inside slab 1 is $2\times10^{-9}$ (torch) and $5\times10^{-10}$ (PCMG) off at $n = 32$;
+the potential $7\times10^{-9}$ and $2\times10^{-9}$ (relative to $V$). The plate-face
+charges are $10^{-5}$ to $10^{-4}$ off: the potential drop across a plate is
+$6\times10^{-10}$\,V, so round-off in $\phi$ dominates the face flux there (a
+NumPy direct solve of the same 1D system shows the same, $10^{-6}$ to $10^{-5}$,
+while its mid-slab flux is exact to $10^{-15}$). Torch Jacobi PCG takes 94, 188, 379
+iterations at $n = 32$, 64, 128; PCMG takes 1763, 4597, 9565 (2, 5, 13\,s), growing
+with $n$ and slower than Jacobi. The Jacobi-scaled condition number of the 1D system is
+385, 1590, 6460, so the diagonal scaling removes the $10^9$ contrast; the coarse levels
+of PCMG, with $D$ averaged across the metal--dielectric faces, do not. Evidence for
+PR4a (or a Galerkin coarse operator) when such contrasts matter.
+\end{itemize}
+
 \status{in progress on branch \texttt{implicit\_fd\_pr5}, on top of PR4.}
 
 \pr{5a}{Steady Field Coupled to a Transient Field}

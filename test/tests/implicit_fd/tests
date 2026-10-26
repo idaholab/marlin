@@ -575,6 +575,35 @@
     []
   []
 
+  [capacitor]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall compute the charge on the plates of a capacitor filled with two dielectric slabs (relative permittivities 1 and 100, the interface on a cell face) equal to the exact series value eps0 V / (d1/eps1 + d2/eps2) to 1e-10 relative, measured at both plates and inside a slab, with the potential equal to the exact piecewise-linear one, with'
+    # the errors are 1e-14 measured (abs_zero makes the gate on them 1e-10); with
+    # face_mean = arithmetic they are 6e-2
+    [torch]
+      type = CSVDiff
+      input = capacitor.i
+      csvdiff = capacitor_torch.csv
+      cli_args = 'Outputs/file_base=capacitor_torch'
+      rel_err = 1e-10
+      abs_zero = 1e-10
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver and'
+    []
+    [petsc]
+      type = CSVDiff
+      input = capacitor.i
+      csvdiff = capacitor_torch.csv
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=capacitor_torch'
+      rel_err = 1e-10
+      abs_zero = 1e-10
+      prereq = 'capacitor/torch'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid preconditioned solver.'
+    []
+  []
+
   [divgrad_jacobi]
     design = 'ImplicitFDSolver.md'
     requirement = 'The system shall precondition the conjugate gradient solve of a variable-coefficient operator with its cell-wise diagonal, solving a coefficient jump of 100 on a 64 x 64 grid within 400 iterations.'
