@@ -171,7 +171,7 @@ ax.set_xlim(1e-2, 2e2)
 ax.set_ylim(1, 3e3)
 ax.set_xlabel("wall time / simulated time (s per unit time)")
 ax.set_ylabel("memory (MB)")
-ax.set_title("PFHub 6a: cost as reported (hardware from 2017, ours 2026)", fontsize=10)
+ax.set_title("PFHub 6a: cost as reported (hardware from 2017 to 2022, ours 2026)", fontsize=10)
 fig.savefig("cost_6a.png", dpi=150)
 
 # Figure 2: free energy against time

@@ -358,8 +358,8 @@ $u/dt$, \texttt{rhsContribution} $u^n/dt$), listed in a field's
 periodic Poisson tests (\texttt{test/tests/implicit\_fd/poisson\_mms.i}) solve
 such a field, singular with the constants as nullspace. \texttt{ImplicitFDSolver}
 accepts several fields (for example \texttt{buffer = 'c phi'} with
-\texttt{operators = 'dcdt lap\_c; lap\_phi'}; only the setup-error tests use
-two fields). The explicit computes run once before the field loop, so a
+\texttt{operators = 'dcdt lap\_c; lap\_phi'}; \texttt{steady\_transient.i}
+and \texttt{pfhub\_6a.i}). The explicit computes run once before the field loop, so a
 source computed from another field sees that field at $t^n$ even if it was
 solved earlier in the same substep: the result does not depend on the order
 of \texttt{buffer} (decision D8). Re-solving the steady field against updated
@@ -1414,8 +1414,8 @@ the 2b branch rebase are the user's.}
 \textbf{Scope:} \texttt{TimeDerivativeOperator} is built (PR3) and steady
 fields solve (Poisson tests). Remaining: a steady field (e.g.\ a Poisson
 potential) and a transient field in one \texttt{ImplicitFDSolver}, coupled
-through lagged sources, and a test that the steady field is re-solved
-against current sources.
+through lagged sources; re-solving the steady field against current
+sources is left to PR6.
 
 \textbf{Verification:} a coupled two-field case against an independent
 solution.
@@ -1449,12 +1449,12 @@ solution.
 \item \texttt{steady\_transient.i}: $c_t = D\nabla^2 c + k\phi$,
   $-\nabla^2\phi = s c$ on a periodic box, one Fourier mode against its exact
   two-step recurrence; $\phi^0$ the steady solution of $c^0$. Torch PCG: errors
-  $2\times10^{-15}$ ($c$) and $8\times10^{-17}$ ($\phi$) over 10 steps, on 1, 3
+  up to $9\times10^{-15}$ ($c$) and $8\times10^{-17}$ ($\phi$) over 10 steps, on 1, 3
   and 4 ranks; swapping the field order is bit-identical; PETSc agrees to
-  $7\times10^{-15}$; MPS float32 $4\times10^{-7}$. Sabotage: no coupling gives
+  $8\times10^{-15}$; MPS float32 $4\times10^{-7}$. Sabotage: no coupling gives
   $3\times10^{-2}$, $\phi^0 = 0$ gives $6\times10^{-3}$.
-\item Mean correction: $\overline{c}$ stays at $10^{-17}$ over 200 steps at
-  $l_{tol} = 10^{-8}$ and $10^{-6}$ (PCMG), against $-1.5\times10^{-9}$ and
+\item Mean correction: with the $c$ solve alone ($s = 0$), $\overline{c}$ stays
+  at $10^{-17}$ over 200 steps at $l_{tol} = 10^{-8}$ and $10^{-6}$ (PCMG), against $-1.5\times10^{-9}$ and
   $1.3\times10^{-8}$ without it. PFHub 1b (no-flux faces) at
   $l_{tol} = 10^{-8}$ keeps the total of $c$ (20101) to $2.5\times10^{-10}$,
   against drifts of $6\times10^{-5}$ (PETSc) and $1.5\times10^{-4}$ (torch PCG)
@@ -1474,7 +1474,7 @@ An inhomogeneous biharmonic face condition was approved and then dropped as
 unnecessary (user, 2026-10-26). $F(400)$: 104.00 ($100^2$), 104.01 ($200^2$),
 103.82 ($100^2$, solve $\Delta t = 0.05$), against the submissions'
 102.9--105.8 (INL MOOSE 103.6, CORAL 104.9, PRISMS-PF 105.8, MMSP 102.9,
-MEMPHIS 103.0; FiPy 114.3). Total $c$ conserved to $10^{-13}$ relative.
+MEMPHIS 103.0; FiPy 114.3). Total $c$ conserved to $2\times10^{-13}$ relative.
 
 \status{Done on \texttt{implicit\_fd\_pr5}; review and tag pending.}
 

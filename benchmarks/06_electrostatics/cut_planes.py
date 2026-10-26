@@ -16,8 +16,10 @@ L = 100.0
 
 base = sys.argv[1]
 
-# free energy
+# free energy; the row at t = 0 is that of the initial guess of phi (phi is solved from the first
+# step on), so it is not the benchmark's initial energy and is left out
 data = np.genfromtxt(base + ".csv", delimiter=",", names=True)
+data = data[data["time"] > 0]
 np.savetxt(
     base + "_free_energy.csv",
     np.column_stack([data["time"], data["free_energy"]]),

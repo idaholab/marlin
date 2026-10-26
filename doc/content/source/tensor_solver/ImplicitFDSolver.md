@@ -26,7 +26,7 @@ with periodic or Neumann faces, e.g. diffusion or Cahn-Hilliard on a periodic or
 summing the equations fixes the mean of the discrete solution, $\bar u = \bar b / \lambda$. The
 solver detects this from the action of the operator on the constants and sets the mean of the
 Krylov solution to $\bar b / \lambda$ after each solve, removing the solver error in that mode.
-The total of a conserved field is then kept to round-off at any
+In double precision the total of a conserved field is then kept to round-off at any
 [!param](/TensorSolver/ImplicitFDSolver/l_tol), rather than drifting by the solver tolerance every
 step (a preconditioner mixes the constants with the other modes unless its diagonal is uniform,
 as next to a boundary face or with SOR it is not). Nothing has to be marked:

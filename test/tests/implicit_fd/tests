@@ -864,7 +864,8 @@
 
   [pfhub_6a]
     requirement = 'The system shall run PFHub benchmark 6a (spinodal decomposition with an electrostatic potential, a steady Poisson field coupled to the transient concentration) on a reduced grid with the implicit finite-difference solver, conserving the total concentration, with'
-    # the torch PCG and PETSc runs agree to 3e-9 relative, 4 ranks with 1 rank to 1e-11
+    # the torch PCG and PETSc runs agree to 4e-9 relative in F and 6e-8 in the extremes of c, 4 ranks
+    # with 1 rank to 1e-11
     [petsc]
       type = CSVDiff
       input = pfhub_6a.i
