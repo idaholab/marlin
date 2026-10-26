@@ -1387,7 +1387,18 @@ of PCMG, with $D$ averaged across the metal--dielectric faces, do not. Evidence 
 PR4a (or a Galerkin coarse operator) when such contrasts matter.
 \end{itemize}
 
-\status{in progress on branch \texttt{implicit\_fd\_pr5}, on top of PR4.}
+\textbf{DivGrad face types and a changing $D$} (2026-10-26,
+\texttt{divgrad\_mms.i}): a Robin face (steady and backward Euler) and a coefficient
+switched to a jump of 100 at the start of the second step match SciPy sparse solves of
+the same discretisation to $10^{-12}$ relative, with torch PCG and PCMG on 1 and 4 ranks.
+The explicit computes see the time at the start of the step (decision~11), so the switch
+applies from the second solve; PCMG takes 11, 19, 18 iterations at $n = 32$. With the
+coarse levels not reassembled after the switch the second solve fails.
+
+\status{implemented and verified on branch \texttt{implicit\_fd\_pr5} (on top of PR4),
+2026-10-26: substeps 1--10 committed; milestone review and pre-push review pending, then
+the tag \texttt{pr5-variable-coefficient}. CUDA runs in PR CI. The full PFHub 1b run and
+the 2b branch rebase are the user's.}
 
 \pr{5a}{Steady Field Coupled to a Transient Field}
 \textbf{Scope:} \texttt{TimeDerivativeOperator} is built (PR3) and steady
@@ -1462,7 +1473,7 @@ PR3 & ImplicitFDSolver, periodic, matrix-free & merged (PR \#188) & MMS and BE o
 PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no divergence test, preallocation, scaling script & PR \#189 open, not merged & biharmonic Fourier mode 2D/3D, both backends \\
 PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; rebased onto \#189 head, no PR yet & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
 PR4a & AMG mixed mode, contingent & proposed & --- \\
-PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & in progress & --- \\
+PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & implemented, review pending & --- \\
 PR5a & Steady + transient coupling & TimeDerivativeOperator done (PR3); coupling proposed & --- \\
 PR6 & Picard, two-field coupling & proposed & --- \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
