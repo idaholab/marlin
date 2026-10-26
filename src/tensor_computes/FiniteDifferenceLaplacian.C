@@ -220,7 +220,7 @@ FiniteDifferenceLaplacian::buildStencil(unsigned int dim,
   {
     std::vector<int> idx(dim, 0);
     idx[axis] = offset;
-    stencil.push_back({idx, static_cast<Real>(coeff / (dx * dx) * factor)});
+    stencil.push_back({idx, static_cast<Real>(coeff / (dx * dx) * factor), {}});
   };
 
   for (unsigned int axis = 0; axis < dim; ++axis)

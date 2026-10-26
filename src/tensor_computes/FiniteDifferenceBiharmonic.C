@@ -124,6 +124,6 @@ FiniteDifferenceBiharmonic::buildStencil(unsigned int dim,
 
   std::vector<FDStencilEntry> stencil;
   for (const auto & [offset, coefficient] : composed)
-    stencil.push_back({offset, factor * coefficient});
+    stencil.push_back({offset, factor * coefficient, {}});
   return stencil;
 }

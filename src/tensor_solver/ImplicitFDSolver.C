@@ -569,8 +569,13 @@ sameStencil(const std::vector<FDStencilEntry> & a, const std::vector<FDStencilEn
   if (a.size() != b.size())
     return false;
   for (const auto i : index_range(a))
-    if (a[i].offset != b[i].offset || a[i].coefficient != b[i].coefficient)
+  {
+    if (a[i].offset != b[i].offset || a[i].coefficient != b[i].coefficient ||
+        a[i].field.defined() != b[i].field.defined())
       return false;
+    if (a[i].field.defined() && !torch::equal(a[i].field, b[i].field))
+      return false;
+  }
   return true;
 }
 

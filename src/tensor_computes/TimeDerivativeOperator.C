@@ -50,7 +50,7 @@ std::vector<FDStencilEntry>
 TimeDerivativeOperator::stencilAt(const std::vector<Real> & /*grid_spacing*/) const
 {
   // a single centre entry, independent of the grid spacing
-  return {{std::vector<int>(_dim, 0), 1.0 / _tensor_problem.subDt()}};
+  return {{std::vector<int>(_dim, 0), 1.0 / _tensor_problem.subDt(), {}}};
 }
 
 torch::Tensor

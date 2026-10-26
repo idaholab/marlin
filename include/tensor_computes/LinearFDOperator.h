@@ -18,12 +18,16 @@
  * per spatial dimension) and the coefficient it multiplies. Coefficients
  * already include any 1/dx^2-style grid-spacing scaling and operator
  * prefactor, matching exactly what the operator's matrix-free action
- * applies.
+ * applies. A variable-coefficient operator also gives a per-cell field, which
+ * multiplies the coefficient in each row (the row's cell, not the column's).
  */
 struct FDStencilEntry
 {
   std::vector<int> offset;
   Real coefficient;
+  /// per-cell factor on this rank's owned block of the grid the stencil is for (Marlin
+  /// axis order); undefined for a constant coefficient
+  torch::Tensor field;
 };
 
 /**

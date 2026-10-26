@@ -8,6 +8,7 @@
 #include "PetscFDHierarchy.h"
 #include "DomainAction.h"
 #include "RobinGhost.h"
+#include "MooseError.h"
 
 #include "libmesh/int_range.h"
 
@@ -115,19 +116,54 @@ foldIndex(PetscInt & c,
   return faces.factor(2 * marlin_axis + upper, layer, h[marlin_axis]);
 }
 
-/// the stencil merged by offset, in DMDA axis order
+/// an entry's offset in DMDA axis order
+std::array<PetscInt, 3>
+dmdaOffset(const FDStencilEntry & entry, unsigned int dim)
+{
+  std::array<PetscInt, 3> offset{{0, 0, 0}};
+  for (const auto a : make_range(dim))
+    offset[a] = entry.offset[marlinAxis(dim, a)];
+  return offset;
+}
+
+/// the constant-coefficient entries merged by offset, in DMDA axis order
 std::map<std::array<PetscInt, 3>, PetscScalar>
 mergedStencil(const std::vector<FDStencilEntry> & stencil, unsigned int dim, PetscReal scale)
 {
   std::map<std::array<PetscInt, 3>, PetscScalar> merged;
   for (const auto & entry : stencil)
-  {
-    std::array<PetscInt, 3> offset{{0, 0, 0}};
-    for (const auto a : make_range(dim))
-      offset[a] = entry.offset[marlinAxis(dim, a)];
-    merged[offset] += scale * entry.coefficient;
-  }
+    if (!entry.field.defined())
+      merged[dmdaOffset(entry, dim)] += scale * entry.coefficient;
   return merged;
+}
+
+/// an entry with a per-cell field, which is read on the host per row
+struct FieldEntry
+{
+  std::array<PetscInt, 3> offset;
+  PetscScalar value;
+  torch::Tensor field;
+};
+
+/// the entries with a per-cell field (scaled), each field checked against the owned block
+std::vector<FieldEntry>
+fieldEntries(const std::vector<FDStencilEntry> & stencil, const DMDAInfo & info, PetscReal scale)
+{
+  const auto dim = unsigned(info.dim);
+  PetscInt cells = 1;
+  for (const auto a : make_range(dim))
+    cells *= info.size[a];
+  std::vector<FieldEntry> entries;
+  for (const auto & entry : stencil)
+    if (entry.field.defined())
+    {
+      if (entry.field.numel() != cells)
+        mooseError("A stencil field has ", entry.field.numel(), " cells, the owned block ", cells);
+      entries.push_back({dmdaOffset(entry, dim),
+                         scale * entry.coefficient,
+                         entry.field.to(torch::kCPU, torch::kFloat64).contiguous()});
+    }
+  return entries;
 }
 
 /// row indices per DMDA axis
@@ -187,6 +223,7 @@ forEachFoldedRow(DM da,
   const auto dim = unsigned(info.dim);
   const auto periodic = periodicAxes(da);
   const auto merged = mergedStencil(stencil, dim, scale);
+  const auto field_entries = fieldEntries(stencil, info, scale);
 
   std::vector<MatStencil> cols;
   std::vector<PetscScalar> values;
@@ -198,7 +235,7 @@ forEachFoldedRow(DM da,
         row.i = i, row.j = j, row.k = k;
         cols.clear();
         values.clear();
-        for (const auto & [offset, value] : merged)
+        const auto add = [&](const std::array<PetscInt, 3> & offset, PetscScalar value)
         {
           std::array<PetscInt, 3> c{{i + offset[0], j + offset[1], k + offset[2]}};
           Real factor = 1.0;
@@ -208,6 +245,16 @@ forEachFoldedRow(DM da,
           col.i = c[0], col.j = c[1], col.k = c[2];
           cols.push_back(col);
           values.push_back(factor * value);
+        };
+        for (const auto & [offset, value] : merged)
+          add(offset, value);
+        for (const auto & entry : field_entries)
+        {
+          // the row's place in the owned block, DMDA x fastest
+          const auto cell =
+              ((k - info.start[2]) * info.size[1] + (j - info.start[1])) * info.size[0] +
+              (i - info.start[0]);
+          add(entry.offset, entry.value * entry.field.data_ptr<double>()[cell]);
         }
         row_fn(row, cols, values);
       }
@@ -465,9 +512,13 @@ jacobiSpectrumBound(DM da,
                     const FaceGhosts & faces,
                     const std::vector<Real> & h)
 {
-  // every owned row is a copy of a representative one, so the maximum over those is the
-  // maximum over all owned rows
-  const auto rows = representativeRows(getInfo(da), periodicAxes(da), stencilWidth(stencil));
+  // without per-cell fields every owned row is a copy of a representative one, so the maximum
+  // over those is the maximum over all owned rows; a per-cell field makes the rows differ
+  const bool has_field = std::any_of(
+      stencil.begin(), stencil.end(), [](const auto & entry) { return entry.field.defined(); });
+  const auto info = getInfo(da);
+  const auto rows = has_field ? ownedRows(info)
+                              : representativeRows(info, periodicAxes(da), stencilWidth(stencil));
   Real bound = 0.0;
   forEachFoldedRow(da,
                    stencil,
@@ -514,7 +565,8 @@ foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
   for (const auto & entry : stencil)
   {
     // the entry's weight on the diagonal is a product over axes of its weight along each
-    auto weight = torch::full(shape, entry.coefficient, options);
+    auto weight = entry.field.defined() ? entry.coefficient * entry.field.reshape(shape).to(options)
+                                        : torch::full(shape, entry.coefficient, options);
     for (const auto d : make_range(dim))
     {
       const auto o = int64_t(entry.offset[d]);
@@ -575,12 +627,15 @@ createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil)
       DMDAGetGhostCorners(da, &starts[0], &starts[1], &starts[2], &dims[0], &dims[1], &dims[2]));
   PetscCallAbort(comm, MatSetStencil(preallocator, info.dim, dims.data(), starts.data(), 1));
   // the folded columns are the same for any ghost factors (unit factors here, so no
-  // entry cancels)
+  // entry cancels) and any per-cell fields (dropped, they need not be on this level)
   FaceGhosts unit_faces;
   for (auto & ab : unit_faces.ab)
     ab = {0.0, 1.0};
+  auto columns = stencil;
+  for (auto & entry : columns)
+    entry.field = torch::Tensor();
   assembleStencilOperator(
-      da, stencil, 1.0, unit_faces, std::vector<Real>(info.dim, 1.0), preallocator);
+      da, columns, 1.0, unit_faces, std::vector<Real>(info.dim, 1.0), preallocator);
 
   // preallocate exactly those columns and insert zeros there; any other column is an error
   PetscCallAbort(comm, MatPreallocatorPreallocate(preallocator, PETSC_TRUE, B));

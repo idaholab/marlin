@@ -721,3 +721,90 @@ TEST(PetscFDHierarchyTest, FoldedDiagonalMatchesAssembled)
       MPI_Comm_free(&comm);
     }
 }
+
+// A stencil entry with a per-cell field multiplies its row's coefficient by the field at the
+// row's cell: assembled, the stencil whose every entry carries f is diag(f) A, faces folded
+// as before, and the folded diagonal reads the same field.
+TEST(PetscFDHierarchyTest, StencilFieldScalesRows)
+{
+  const int64_t n = 16;
+  const std::vector<Real> dx{1.0 / n, 1.0 / n};
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = {1.0, 0.0};
+  faces.ab[1] = {0.0, 1.0};
+  faces.ab[2] = {2.0, 0.3};
+  faces.ab[3] = {1.0, 0.0};
+  const auto partition = boundedPartition(2, n, {false, false, true});
+  MPI_Comm comm = PetscFD::dmdaComm(partition);
+  {
+    const auto stencil = FiniteDifferenceLaplacian::buildStencil(2, false, dx, -1.0);
+    PetscFD::Hierarchy h;
+    PetscFD::buildHierarchy(partition, comm, 1, 1, false, faces, h);
+    Vec f;
+    PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &f));
+    fillVec(h.dms[0],
+            f,
+            [](const std::array<double, 3> & x) { return 1.0 + x[0] + 2.0 * x[1] * x[1]; });
+
+    // the owned block of the DMDA vector is the Marlin tensor's, in order
+    std::array<int64_t, 3> begin{{0, 0, 0}}, size{{1, 1, 1}};
+    for (const auto d : make_range(2))
+    {
+      for (const auto r : make_range(partition.index[d]))
+        begin[d] += partition.counts[d][r];
+      size[d] = partition.counts[d][partition.index[d]];
+    }
+    const PetscScalar * fa;
+    PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(f, &fa));
+    const auto field = torch::from_blob(const_cast<PetscScalar *>(fa),
+                                        {size[0], size[1]},
+                                        torch::TensorOptions().dtype(torch::kFloat64))
+                           .clone();
+    PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(f, &fa));
+    auto weighted = stencil;
+    for (auto & entry : weighted)
+      entry.field = field;
+
+    Mat A = PetscFD::createStencilMatrix(h.dms[0], stencil);
+    PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, faces, dx, A);
+    Mat B = PetscFD::createStencilMatrix(h.dms[0], weighted);
+    PetscFD::assembleStencilOperator(h.dms[0], weighted, 1.0, faces, dx, B);
+    PetscCallAbort(PETSC_COMM_WORLD, MatDiagonalScale(A, f, nullptr));
+    PetscReal scale, diff;
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(A, NORM_INFINITY, &scale));
+    PetscCallAbort(PETSC_COMM_WORLD, MatAXPY(A, -1.0, B, SAME_NONZERO_PATTERN));
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(A, NORM_INFINITY, &diff));
+    EXPECT_LT(diff, 1e-13 * scale);
+
+    Vec assembled;
+    PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &assembled));
+    PetscCallAbort(PETSC_COMM_WORLD, MatGetDiagonal(B, assembled));
+    const auto diag = PetscFD::foldedDiagonal(weighted,
+                                              2,
+                                              partition.n,
+                                              partition.periodic,
+                                              faces,
+                                              dx,
+                                              begin,
+                                              size,
+                                              torch::TensorOptions().dtype(torch::kFloat64))
+                          .contiguous();
+    const PetscScalar * a;
+    PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(assembled, &a));
+    const auto * t = diag.data_ptr<double>();
+    double max_diff = 0.0, max_value = 0.0;
+    for (const auto q : make_range(diag.numel()))
+    {
+      max_diff = std::max(max_diff, std::abs(t[q] - a[q]));
+      max_value = std::max(max_value, std::abs(a[q]));
+    }
+    PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(assembled, &a));
+    EXPECT_LT(max_diff, 1e-13 * max_value);
+
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&A));
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+    PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&f));
+    PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&assembled));
+  }
+  MPI_Comm_free(&comm);
+}
