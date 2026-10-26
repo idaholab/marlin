@@ -862,6 +862,31 @@
     []
   []
 
+  [pfhub_6a]
+    requirement = 'The system shall run PFHub benchmark 6a (spinodal decomposition with an electrostatic potential, a steady Poisson field coupled to the transient concentration) on a reduced grid with the implicit finite-difference solver, conserving the total concentration, with'
+    # the torch PCG and PETSc runs agree to 3e-9 relative, 4 ranks with 1 rank to 1e-11
+    [petsc]
+      type = CSVDiff
+      input = pfhub_6a.i
+      csvdiff = pfhub_6a_out.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=pfhub_6a_torch'
+      csvdiff = pfhub_6a_torch.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver.'
+    []
+  []
+
   [pfhub_1b_conservation]
     requirement = 'The system shall conserve the total concentration of PFHub benchmark 1b (no-flux faces) to round-off at a loose linear tolerance, setting the mean the summed equations fix after each solve, with'
     # without that, the total drifts by 6e-5 (PETSc) and 1.5e-4 (torch PCG) at l_tol = 1e-8

@@ -1463,8 +1463,20 @@ solution.
   tolerances.
 \end{itemize}
 
-\status{Done on \texttt{implicit\_fd\_pr5}; review and tag pending. PFHub 6a
-  follows on this scheme.}
+\textbf{PFHub 6a} (\texttt{benchmarks/06\_electrostatics}, regression test
+\texttt{pfhub\_6a.i}). No new code: $c$ and the steady $\phi$ in one solver,
+sources at $t^n$. The face condition $\partial\mu/\partial n = 0$ enters the
+update only through the total face flux
+$M(\partial B/\partial n - \kappa\,\partial\nabla^2c/\partial n)$, $B = f' + k\phi$, so
+the zero split (Neumann faces of $B$ and the biharmonic's Neumann pair) gives the
+same $c$ as the benchmark's split to round-off (checked in 1D: difference 0.0).
+An inhomogeneous biharmonic face condition was approved and then dropped as
+unnecessary (user, 2026-10-26). $F(400)$: 104.00 ($100^2$), 104.01 ($200^2$),
+103.82 ($100^2$, solve $\Delta t = 0.05$), against the submissions'
+102.9--105.8 (INL MOOSE 103.6, CORAL 104.9, PRISMS-PF 105.8, MMSP 102.9,
+MEMPHIS 103.0; FiPy 114.3). Total $c$ conserved to $10^{-13}$ relative.
+
+\status{Done on \texttt{implicit\_fd\_pr5}; review and tag pending.}
 
 \pr{6}{Picard Iteration + Two-Field Coupling (KKS-shaped)}
 \textbf{Scope:} iterate the \texttt{ImplicitFDSolver} field loop to
@@ -1528,7 +1540,7 @@ PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no diver
 PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; rebased onto \#189 head, no PR yet & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
 PR4a & AMG mixed mode, contingent & proposed & --- \\
 PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient) & --- \\
-PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence & Review, tag; PFHub 6a \\
+PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & Review, tag \\
 PR6 & Picard, two-field coupling & proposed & --- \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\
