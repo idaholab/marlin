@@ -15,6 +15,8 @@
 # D_jump = 1 replaces D after the first step by a coefficient jumping by 100 at x = 1/2 (with
 # the source f of the smooth D, so u is no longer u_exact): the solver must reassemble its
 # coarse levels from the new D. The Solve computes see the time at the start of the step.
+# D_jump_ymin restricts the change to y > D_jump_ymin, so on a decomposition in y only some
+# ranks' D changes.
 
 n = 32
 tf = 0
@@ -23,6 +25,7 @@ num_steps = 1
 dt = 0.05
 face_mean = harmonic
 D_jump = 0
+D_jump_ymin = -1
 
 [Domain]
   dim = 2
@@ -63,7 +66,7 @@ D_jump = 0
   []
   [D_step]
     type = ParsedFunction
-    expression = 'if(${D_jump} & t > ${fparse dt / 2}, 1 + 99 * (x > 0.5), D)'
+    expression = 'if(${D_jump} & t > ${fparse dt / 2} & y > ${D_jump_ymin}, 1 + 99 * (x > 0.5), D)'
     symbol_names = D
     symbol_values = D_func
   []

@@ -571,12 +571,39 @@
     [be_jump]
       type = CSVDiff
       input = divgrad_mms.i
-      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt divgrad" num_steps=3 D_jump=1 Outputs/file_base=divgrad_be_jump'
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt divgrad" num_steps=3 D_jump=1 Outputs/file_base=divgrad_be_jump -u_ksp_converged_reason'
       csvdiff = divgrad_be_jump.csv
       rel_err = 1e-8
+      # 11, 19, 18 iterations measured; Jacobi alone takes about 150, stale coarse levels fail
+      # to converge. Fail above 30.
+      absent_out = 'iterations ([0-9]{3,}|[4-9][0-9]|3[1-9])\b'
       prereq = 'divgrad/be_jump'
       compute_devices = 'cpu'
-      detail = 'a coefficient changed to a jump of 100 after the first backward-Euler step, reassembling the coarse levels, and'
+      detail = 'a coefficient changed to a jump of 100 after the first backward-Euler step, reassembling the coarse levels,'
+    []
+    [be_partial_jump]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=20 tf=1 ops="dudt divgrad" num_steps=3 D_jump=1 D_jump_ymin=0.8 Outputs/file_base=divgrad_be_partial_jump'
+      # the gold matches a SciPy sparse solve to 1e-13 relative; on 2 ranks split in y only one
+      # rank's D changes, and every rank must still reassemble (without that the solve hangs)
+      csvdiff = divgrad_be_partial_jump.csv
+      rel_err = 1e-8
+      min_parallel = 2
+      max_parallel = 2
+      compute_devices = 'cpu'
+      detail = 'a coefficient changed on only one of two ranks,'
+    []
+    [steady_3d]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Domain/dim=3 Domain/nz=4 Domain/zmax=1 Domain/periodic_directions=Z Outputs/file_base=divgrad_steady_harmonic'
+      # the 3D problem, periodic and uniform in z, is the 2D one
+      csvdiff = divgrad_steady_harmonic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad_petsc/steady_harmonic'
+      compute_devices = 'cpu'
+      detail = 'a 3D domain, uniform and periodic in z, and'
     []
     [steady_harmonic_cuda]
       type = CSVDiff
@@ -700,7 +727,28 @@
       input = divgrad_mms.i
       cli_args = 'face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
       expect_err = 'has a nonpositive diagonal in some cells, so it is not positive definite there'
-      detail = 'and the coefficient is zero on every face of some cells in a steady problem.'
+      detail = 'the coefficient is zero on every face of some cells in a steady problem,'
+    []
+    [decoupled_cells_petsc]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
+      expect_err = 'has a nonpositive diagonal in some cells, so it is not positive definite there'
+      detail = 'the same with the PETSc solver,'
+    []
+    [harmonic_negative]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'Functions/D_func/expression="-1 + 0*x"'
+      expect_err = "must be positive in an implicit solve with the harmonic face mean"
+      detail = 'the coefficient is negative with the harmonic face mean, and'
+    []
+    [positive_factor]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'TensorComputes/Solve/divgrad/factor=1'
+      expect_err = "Operator 'divgrad' is not symmetric positive \(semi\)definite"
+      detail = 'the operator has a positive factor.'
     []
   []
 

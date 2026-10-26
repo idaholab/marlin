@@ -21,6 +21,7 @@
 # - charge_dielectric: the flux eps0 eps1 (phi_i - phi_(i+1)) / h through the face x_f in the
 #   middle of slab 1, from the weights +-eps0 eps1 / (L h^2) on the two cells next to it. It
 #   has no such round-off.
+#   x_f = t + L/8 is a cell face only when 8 divides n; otherwise charge_dielectric is 0.
 
 n = 32
 L = 1e-3

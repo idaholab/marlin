@@ -240,9 +240,9 @@ TensorOperatorBase
   |     |                  inputBufferName(), rhsContribution())
   |     +-- FiniteDifferenceLaplacian      (PR0; 3/5-point, factor)
   |     +-- TimeDerivativeOperator         (PR3; u/dt, rhs u^n/dt)
-  |     +-- FiniteDifferenceBiharmonic     (PR3b; periodic only in the
-  |     |                                   implicit solver)
-  |     +-- [planned] FiniteDifferenceDivGrad (PR5)
+  |     +-- FiniteDifferenceBiharmonic     (PR3b; non-periodic 3-point
+  |     |                                   in PR5)
+  |     +-- FiniteDifferenceDivGrad        (PR5; factor div(D grad u))
   |
   +-- TensorBoundaryCondition  (variable, boundary face;
   |     |                       fillGhostCells(), prepareFaceData())
@@ -283,7 +283,7 @@ separate boundary method); \texttt{stencilContribution} (built in PR1,
 removed in PR4 because nothing used it); \texttt{getGlobalIndexOffset}
 (not needed: the partition is gathered from public \texttt{DomainAction}
 getters). Still planned: \texttt{PicardTensorSolver} (PR6),
-\texttt{FiniteDifferenceDivGrad} (PR5), \texttt{assemblePreconditionerMatrix}
+\texttt{assemblePreconditionerMatrix}
 (PR4a).
 
 \subsection{Data Flow of One Substep}
@@ -1328,7 +1328,7 @@ is insufficient.}
 coefficients as one capability upgrade):
 \begin{itemize}[leftmargin=*]
 \item \texttt{FiniteDifferenceDivGrad} (user-chosen name), a real-space
-$-\nabla\cdot(D\nabla u)$ implementing \texttt{LinearFDOperator}, with $D$
+$\nabla\cdot(D\nabla u)$ (times \texttt{factor}) implementing \texttt{LinearFDOperator}, with $D$
 from a buffer; usable for diffusion, Poisson with $\varepsilon(x)$ and variable
 mobility. Explicit and implicit share one face-flux formula.
 \item \texttt{FiniteDifferenceBiharmonic} with non-periodic faces in

@@ -111,6 +111,8 @@ protected:
   /// the Jacobi diagonal on the owned cells: the diagonal of the folded operator, which next to
   /// a boundary face includes the ghosts' dependence on the cell itself
   torch::Tensor jacobiDiagonal(const Field & field) const;
+  /// error unless the folded diagonal is positive in every cell
+  void checkPositiveDiagonal(const Field & field, const torch::Tensor & diag) const;
 
   /// solve sum_i A_i x = b (with ||b||_2 = b_norm) by torch preconditioned CG, warm started from x
   SolveResult solveTorchPCG(Field & field, const torch::Tensor & b, Real b_norm, torch::Tensor & x);

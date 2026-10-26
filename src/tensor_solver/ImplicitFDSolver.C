@@ -495,6 +495,19 @@ faceGhosts(const std::vector<const TensorRobinBC *> & face_bcs)
 }
 }
 
+void
+ImplicitFDSolver::checkPositiveDiagonal(const Field & field, const torch::Tensor & diag) const
+{
+  // a zero diagonal (e.g. a steady FiniteDifferenceDivGrad with D = 0 on every face of a cell)
+  // is a cell decoupled from the rest: the operator is singular there
+  if (_domain.allreduceSum((diag <= 0).sum()).cpu().item<int64_t>() > 0)
+    mooseError("The operator of field '",
+               field._name,
+               "' has a nonpositive diagonal in some cells, so it is not positive definite there "
+               "(e.g. a FiniteDifferenceDivGrad coefficient that is zero on every face of a cell, "
+               "without a time derivative).");
+}
+
 torch::Tensor
 ImplicitFDSolver::jacobiDiagonal(const Field & field) const
 {
@@ -525,15 +538,9 @@ ImplicitFDSolver::solveTorchPCG(Field & field,
                                 Real b_norm,
                                 torch::Tensor & x)
 {
-  // Jacobi preconditioner. A zero diagonal (e.g. a steady FiniteDifferenceDivGrad with D = 0
-  // on every face of a cell) is a cell decoupled from the rest: the operator is singular there.
+  // Jacobi preconditioner
   const auto diag = jacobiDiagonal(field);
-  if (_domain.allreduceSum((diag <= 0).sum()).cpu().item<int64_t>() > 0)
-    mooseError("The operator of field '",
-               field._name,
-               "' has a nonpositive diagonal in some cells, so it is not positive definite there "
-               "(e.g. a FiniteDifferenceDivGrad coefficient that is zero on every face of a cell, "
-               "without a time derivative).");
+  checkPositiveDiagonal(field, diag);
   const auto inv_diag = diag.reciprocal();
   const auto A = [&](const torch::Tensor & v) { return applyLinearOperator(field, v); };
   const auto M = [&inv_diag](const torch::Tensor & r) { return r * inv_diag; };
@@ -812,11 +819,16 @@ void
 ImplicitFDSolver::assembleCoarseLevels(Field & field)
 {
   auto & ps = *field._petsc;
-  const auto stencil = fieldStencil(field._fd_operators);
-  if (sameStencil(stencil, ps.assembled_stencil))
-    return;
-
   const auto comm = ps.comm;
+  const auto stencil = fieldStencil(field._fd_operators);
+  // a per-cell field compares on the owned cells only, so every rank must reassemble when any
+  // rank's stencil changed (the assembly is collective)
+  int same = sameStencil(stencil, ps.assembled_stencil);
+  PetscCallMPIAbort(comm, MPI_Allreduce(MPI_IN_PLACE, &same, 1, MPI_INT, MPI_MIN, comm));
+  if (same)
+    return;
+  // PETSc's smoothers would divide by a zero diagonal
+  checkPositiveDiagonal(field, jacobiDiagonal(field));
   const auto & grid_spacing = _domain.getGridSpacing();
   const auto levels = ps.coarse.size() + 1;
   // the coarse rows next to a boundary face fold the ghosts with the homogeneous
