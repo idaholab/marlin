@@ -6,6 +6,7 @@
 # with tf = 0 for the steady problem -div(D grad u) = f and tf = 1 for backward Euler. The time
 # part is constant in space, so f = tf - div(D grad g) is independent of time and the backward
 # Euler step makes no time error (the boundary values are taken at t + dt).
+# With Domain/dim=3 (periodic in z, z in [0, 1]) g has the extra term sin(2 pi z), zero in 2D.
 #
 # Dirichlet faces at x = 0, 1 (u from u_exact) and Neumann faces at y = 0, 1 (du/dn = -x, x).
 # dD/dy = 0 on the Neumann faces, where the face coefficient is the boundary cell's D. With
@@ -39,7 +40,7 @@ D_jump_ymin = -1
 [Functions]
   [u_exact]
     type = ParsedFunction
-    expression = 'cos(1.5*pi*x) * cos(pi*y) + x*y + ${tf} * t'
+    expression = 'cos(1.5*pi*x) * cos(pi*y) + x*y + sin(2*pi*z) + ${tf} * t'
   []
   [D_func]
     type = ParsedFunction
@@ -50,7 +51,8 @@ D_jump_ymin = -1
     # f = tf - div(D grad g)
     expression = '${tf} - (-3*pi*x*(x - pi*sin(pi*y)*cos(1.5*pi*x))*sin(pi*y)/10
                   + (2*y - 3*pi*sin(1.5*pi*x)*cos(pi*y))*(3*cos(pi*y) + 5)/20
-                  - 13*pi^2*(3*x*cos(pi*y) + 5*x + 10)*cos(1.5*pi*x)*cos(pi*y)/40)'
+                  - 13*pi^2*(3*x*cos(pi*y) + 5*x + 10)*cos(1.5*pi*x)*cos(pi*y)/40)
+                  + 4*pi^2*(1 + x/2 + 0.3*x*cos(pi*y))*sin(2*pi*z)'
   []
   [bottom_flux]
     type = ParsedFunction
@@ -62,7 +64,7 @@ D_jump_ymin = -1
   []
   [right_c]
     type = ParsedFunction
-    expression = 'y + (1.5 * pi * cos(pi * y) + y) / 2 + ${tf} * t'
+    expression = 'y + (1.5 * pi * cos(pi * y) + y) / 2 + sin(2 * pi * z) + ${tf} * t'
   []
   [D_step]
     type = ParsedFunction
