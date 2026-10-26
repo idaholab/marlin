@@ -1540,6 +1540,13 @@ backend.
   preconditioner; \texttt{-snes\_mf\_operator} later gives Newton-Krylov with $A$
   as the preconditioner. The existing solve as a nonlinear preconditioner was
   declined: \texttt{nrichardson} would then test the preconditioned residual.
+\item \textbf{D15, time level of the explicit computes.} With the nonlinear
+  iteration on, the explicit computes are evaluated at $t^{n+1}$, so the converged
+  step is fully implicit backward Euler,
+  $A U^{n+1} = u^n/dt + f(U^{n+1}, t^{n+1})$, consistent with the boundary
+  functions (already at $t^{n+1}$). The lagged scheme (iteration off) keeps
+  $f(u^n, t^n)$. A source with an explicit $t$ differs between the two even after
+  a single iteration; time-independent sources do not.
 \end{itemize}
 \textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
 source's derivative with respect to its own field (a per-cell diagonal from
