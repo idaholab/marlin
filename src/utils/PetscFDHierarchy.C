@@ -643,6 +643,59 @@ createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil)
   return B;
 }
 
+void
+restrictCellMean(DM coarse, DM fine, Vec fine_values, Vec coarse_values)
+{
+  const MPI_Comm comm = PetscObjectComm((PetscObject)fine);
+  // the hierarchy's DMDAs interpolate with DMDA_Q0 (buildHierarchy): each fine cell takes
+  // its coarse parent's value, so the transpose sums the children
+  Mat injection;
+  PetscCallAbort(comm, DMCreateInterpolation(coarse, fine, &injection, nullptr));
+  PetscCallAbort(comm, MatMultTranspose(injection, fine_values, coarse_values));
+  PetscCallAbort(comm, VecScale(coarse_values, 1.0 / Real(PetscInt(1) << getInfo(fine).dim)));
+  PetscCallAbort(comm, MatDestroy(&injection));
+}
+
+torch::Tensor
+ownedWithHalo(DM da, Vec v)
+{
+  const MPI_Comm comm = PetscObjectComm((PetscObject)da);
+  const auto info = getInfo(da);
+  const auto dim = unsigned(info.dim);
+  std::array<PetscInt, 3> gs, gm;
+  PetscCallAbort(comm, DMDAGetGhostCorners(da, &gs[0], &gs[1], &gs[2], &gm[0], &gm[1], &gm[2]));
+
+  Vec local;
+  PetscCallAbort(comm, DMGetLocalVector(da, &local));
+  PetscCallAbort(comm, VecSet(local, 0.0));
+  PetscCallAbort(comm, DMGlobalToLocal(da, v, INSERT_VALUES, local));
+  // the local vector numbers x fastest, so in Marlin axis order it is row-major
+  std::vector<int64_t> shape(dim);
+  for (const auto m : make_range(dim))
+    shape[m] = gm[marlinAxis(dim, m)];
+  const PetscScalar * a;
+  PetscCallAbort(comm, VecGetArrayRead(local, &a));
+  auto t = torch::from_blob(
+               const_cast<PetscScalar *>(a), shape, torch::TensorOptions().dtype(torch::kFloat64))
+               .clone();
+  PetscCallAbort(comm, VecRestoreArrayRead(local, &a));
+  PetscCallAbort(comm, DMRestoreLocalVector(da, &local));
+
+  for (const auto m : make_range(dim))
+  {
+    const auto ax = marlinAxis(dim, m);
+    // without a ghost cell on a side (a domain face) the nearest owned cell is repeated
+    const bool lower = gs[ax] < info.start[ax];
+    const bool upper = gs[ax] + gm[ax] > info.start[ax] + info.size[ax];
+    t = t.narrow(m, info.start[ax] - gs[ax] - (lower ? 1 : 0), info.size[ax] + lower + upper);
+    if (!lower)
+      t = torch::cat({t.narrow(m, 0, 1), t}, m);
+    if (!upper)
+      t = torch::cat({t, t.narrow(m, t.size(m) - 1, 1)}, m);
+  }
+  return t.contiguous();
+}
+
 Mat
 cellCentredInterpolation(DM coarse,
                          DM fine,

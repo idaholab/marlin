@@ -8,6 +8,7 @@
 #include "PetscFDHierarchy.h"
 #include "FiniteDifferenceLaplacian.h"
 #include "FiniteDifferenceBiharmonic.h"
+#include "FiniteDifferenceDivGrad.h"
 #include "RobinGhost.h"
 #include "gtest/gtest.h"
 
@@ -807,4 +808,123 @@ TEST(PetscFDHierarchyTest, StencilFieldScalesRows)
     PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&assembled));
   }
   MPI_Comm_free(&comm);
+}
+
+// The coarse FiniteDifferenceDivGrad levels as the solver builds them: D restricted level by
+// level as the mean over the 2^dim children (restrictCellMean), read with one halo layer
+// (ownedWithHalo, D_0 outside a domain face) and rediscretised with the fine face rule. On
+// the level two below the fine one, B v must equal sum_faces D_f (v_i - v_j) / h^2 for D_f the
+// face mean of the mean of D over each coarse cell's 16 fine cells, the ghost v_j folded with
+// the face's factor, and B must be symmetric.
+TEST(PetscFDHierarchyTest, DivGradCoarseLevelIsRediscretisation)
+{
+  const int64_t n = 32;
+  const unsigned int k = 2;
+  const int64_t nc = n >> k;
+  const double h = (1 << k) / double(n);
+  const std::vector<Real> spacing{h, h};
+  const std::vector<std::function<double(double, double)>> coefficients{
+      [](double x, double y) { return 1.0 + x / 2.0 + 0.3 * std::cos(3.0 * y); },
+      [](double x, double) { return x > 0.5 ? 100.0 : 1.0; }};
+  const auto v_func = [](double x, double y)
+  { return std::sin(2.0 * x + 1.0) * std::cos(3.0 * y) + y; };
+  // Dirichlet faces on Marlin axis 0, Neumann on axis 1 (or periodic)
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = faces.ab[1] = {1.0, 0.0};
+  faces.ab[2] = faces.ab[3] = {0.0, 1.0};
+  for (const bool periodic_y : {false, true})
+    for (const auto c : index_range(coefficients))
+      for (const bool harmonic : {true, false})
+      {
+        const auto partition = boundedPartition(2, n, {false, periodic_y, true});
+        MPI_Comm comm = PetscFD::dmdaComm(partition);
+        {
+          PetscFD::Hierarchy hier;
+          PetscFD::buildHierarchy(partition, comm, k + 1, 1, false, faces, hier);
+          std::vector<Vec> D(k + 1);
+          PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(hier.dms[0], &D[0]));
+          fillVec(hier.dms[0],
+                  D[0],
+                  [&](const std::array<double, 3> & x) { return coefficients[c](x[0], x[1]); });
+          for (const auto l : make_range(1u, k + 1))
+          {
+            PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(hier.dms[l], &D[l]));
+            PetscFD::restrictCellMean(hier.dms[l], hier.dms[l - 1], D[l - 1], D[l]);
+          }
+          const auto stencil = FiniteDifferenceDivGrad::buildStencil(
+              PetscFD::ownedWithHalo(hier.dms[k], D[k]), spacing, -1.0, harmonic);
+          Mat B = PetscFD::createStencilMatrix(hier.dms[k], stencil);
+          PetscFD::assembleStencilOperator(hier.dms[k], stencil, 1.0, faces, spacing, B);
+
+          PetscBool symmetric;
+          PetscCallAbort(PETSC_COMM_WORLD, MatIsSymmetric(B, 1e-12, &symmetric));
+          EXPECT_TRUE(symmetric) << "periodic_y " << periodic_y << " D " << c;
+
+          // the coarse cell (i0, i1) in Marlin axes: the mean of D at its fine cell centres
+          const int64_t r = int64_t(1) << k;
+          const auto coarse_D = [&](int64_t i0, int64_t i1)
+          {
+            double sum = 0.0;
+            for (const auto a : make_range(r))
+              for (const auto b : make_range(r))
+                sum += coefficients[c]((i0 * r + a + 0.5) / n, (i1 * r + b + 0.5) / n);
+            return sum / double(r * r);
+          };
+          const auto v_at = [&](int64_t i0, int64_t i1)
+          { return v_func((i0 + 0.5) / nc, (i1 + 0.5) / nc); };
+          const auto expected_Bv = [&](const std::array<double, 3> & x)
+          {
+            const auto i0 = int64_t(std::floor(x[0] * nc)), i1 = int64_t(std::floor(x[1] * nc));
+            const double D0 = coarse_D(i0, i1), v0 = v_at(i0, i1);
+            double result = 0.0;
+            for (const auto axis : make_range(2))
+              for (const int o : {-1, 1})
+              {
+                int64_t j0 = i0 + (axis == 0 ? o : 0), j1 = i1 + (axis == 1 ? o : 0);
+                double vj, Dj;
+                if (axis == 1 && periodic_y)
+                {
+                  j1 = (j1 + nc) % nc;
+                  vj = v_at(j0, j1);
+                  Dj = coarse_D(j0, j1);
+                }
+                else if (j0 < 0 || j0 >= nc || j1 < 0 || j1 >= nc)
+                {
+                  // the ghost: -v0 at a Dirichlet face, v0 at a Neumann face; D_0 there
+                  vj = (axis == 0 ? -1.0 : 1.0) * v0;
+                  Dj = D0;
+                }
+                else
+                {
+                  vj = v_at(j0, j1);
+                  Dj = coarse_D(j0, j1);
+                }
+                const double D_face = harmonic ? 2.0 * D0 * Dj / (D0 + Dj) : 0.5 * (D0 + Dj);
+                result += D_face * (v0 - vj) / (h * h);
+              }
+            return result;
+          };
+
+          Vec v, Bv, expected;
+          PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(hier.dms[k], &v));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDuplicate(v, &Bv));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDuplicate(v, &expected));
+          fillVec(
+              hier.dms[k], v, [&](const std::array<double, 3> & x) { return v_func(x[0], x[1]); });
+          fillVec(hier.dms[k], expected, expected_Bv);
+          PetscCallAbort(PETSC_COMM_WORLD, MatMult(B, v, Bv));
+          PetscReal scale;
+          PetscCallAbort(PETSC_COMM_WORLD, VecNorm(expected, NORM_INFINITY, &scale));
+          EXPECT_LT(maxDiff(Bv, expected), 1e-12 * scale)
+              << "periodic_y " << periodic_y << " D " << c << " harmonic " << harmonic;
+
+          PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+          for (auto & vec : D)
+            PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&vec));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&v));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&Bv));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&expected));
+        }
+        MPI_Comm_free(&comm);
+      }
 }

@@ -37,6 +37,27 @@ public:
   virtual Definiteness definiteness() const override;
   virtual const std::string & inputBufferName() const override { return _input_name; }
 
+  /// D on this rank's owned block
+  torch::Tensor ownedCoefficient() const;
+
+  /**
+   * The stencil on a grid with the given spacing from D on that grid's owned block with one
+   * halo layer (Marlin axis order), the face rule of the fine level: an implicit solver's
+   * coarse levels pass the coarse D.
+   */
+  std::vector<FDStencilEntry> stencilFromCoefficient(const torch::Tensor & D,
+                                                     const std::vector<Real> & grid_spacing) const;
+
+  /// the stencil from D with one halo layer, with the given prefactor and face mean
+  static std::vector<FDStencilEntry> buildStencil(const torch::Tensor & D,
+                                                  const std::vector<Real> & grid_spacing,
+                                                  Real factor,
+                                                  bool harmonic);
+
+  /// D on the lower and upper faces of each cell along axis, from D with one halo layer
+  static std::pair<torch::Tensor, torch::Tensor>
+  faceCoefficients(const torch::Tensor & D, unsigned int axis, bool harmonic);
+
 protected:
   /// the owned block of a tensor with the halo, shifted by shift cells along axis
   torch::Tensor ownedBlock(const torch::Tensor & t, unsigned int axis = 0, int64_t shift = 0) const;
@@ -44,8 +65,8 @@ protected:
   /// D's halo: from the neighbouring ranks and periodic images, D_0 on a domain face
   void exchangeCoefficient() const;
 
-  /// D on the lower and upper faces of each owned cell along axis (exchangeCoefficient first)
-  std::pair<torch::Tensor, torch::Tensor> faceCoefficients(unsigned int axis) const;
+  /// D on the owned block with one halo layer (exchangeCoefficient first)
+  torch::Tensor coefficientWithHalo() const;
 
   /// input buffer name
   const TensorInputBufferName _input_name;

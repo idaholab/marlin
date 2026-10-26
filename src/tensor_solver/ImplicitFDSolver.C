@@ -237,15 +237,6 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                    "' is a 5-point FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on "
                    "periodic domains only. Use stencil_width = 3.");
 
-      // the PETSc coarse levels rediscretise from stencilAt(spacing), which needs a coarse D
-      if (_linear_solver == LinearSolver::PETSC &&
-          dynamic_cast<const FiniteDifferenceDivGrad *>(fd_op))
-        paramError("operators",
-                   "Operator '",
-                   op_name,
-                   "' is a FiniteDifferenceDivGrad, which ImplicitFDSolver supports with "
-                   "linear_solver = TORCH_PCG only.");
-
       field._operators.push_back(&op);
       field._fd_operators.push_back(fd_op);
       field._operator_outputs.push_back(
@@ -838,13 +829,48 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
   PetscCallAbort(comm, PetscObjectTypeCompare((PetscObject)pc, PCMG, &is_mg));
   const bool set_weights = is_mg && _damped_jacobi;
 
+  // a FiniteDifferenceDivGrad's coefficient on hierarchy level k > 0 is the mean of D over
+  // the 2^dim children on level k - 1, and its coarse operator is rediscretised from it
+  std::vector<std::vector<Vec>> coefficients(field._fd_operators.size());
+  for (const auto i : index_range(field._fd_operators))
+    if (const auto * div_grad =
+            dynamic_cast<const FiniteDifferenceDivGrad *>(field._fd_operators[i]))
+    {
+      auto & D = coefficients[i];
+      D.resize(levels);
+      // the owned block of a Marlin tensor is this rank's part of the fine DMDA vector
+      const auto fine_D =
+          div_grad->ownedCoefficient().to(torch::kCPU, torch::kFloat64).contiguous();
+      PetscCallAbort(comm, DMCreateGlobalVector(ps.hierarchy->dms[0], &D[0]));
+      PetscScalar * array;
+      PetscCallAbort(comm, VecGetArrayWrite(D[0], &array));
+      std::copy_n(fine_D.data_ptr<double>(), fine_D.numel(), array);
+      PetscCallAbort(comm, VecRestoreArrayWrite(D[0], &array));
+      for (const auto k : make_range(std::size_t(1), levels))
+      {
+        PetscCallAbort(comm, DMCreateGlobalVector(ps.hierarchy->dms[k], &D[k]));
+        PetscFD::restrictCellMean(ps.hierarchy->dms[k], ps.hierarchy->dms[k - 1], D[k - 1], D[k]);
+      }
+    }
+
   // hierarchy level k (0 = fine) has spacing 2^k h and is PCMG level levels - 1 - k
   for (const auto k : make_range(levels))
   {
     std::vector<Real> spacing(_dim);
     for (const auto d : make_range(_dim))
       spacing[d] = grid_spacing(d) * Real(1 << k);
-    const auto level_stencil = fieldStencil(field._fd_operators, spacing);
+    std::vector<FDStencilEntry> level_stencil;
+    for (const auto i : index_range(field._fd_operators))
+    {
+      const auto * fd_op = field._fd_operators[i];
+      // the coarse D with one halo layer: D_0 outside a domain face, as on the fine level
+      const auto entries =
+          k > 0 && !coefficients[i].empty()
+              ? dynamic_cast<const FiniteDifferenceDivGrad *>(fd_op)->stencilFromCoefficient(
+                    PetscFD::ownedWithHalo(ps.hierarchy->dms[k], coefficients[i][k]), spacing)
+              : fd_op->stencilAt(spacing);
+      level_stencil.insert(level_stencil.end(), entries.begin(), entries.end());
+    }
 
     if (k > 0)
     {
@@ -895,6 +921,10 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
                          4.0 / (3.0 * PetscFD::jacobiSpectrumBound(
                                           ps.hierarchy->dms[k], level_stencil, faces, spacing))));
   }
+
+  for (auto & D : coefficients)
+    for (auto & v : D)
+      PetscCallAbort(comm, VecDestroy(&v));
 
   // the shell's action changed too; bump its state and reset the KSP operators so
   // that PCMG sets up again (the fine smoother, the coarse factorisation)

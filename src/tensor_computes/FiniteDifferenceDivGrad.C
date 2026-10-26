@@ -69,13 +69,31 @@ FiniteDifferenceDivGrad::exchangeCoefficient() const
   _tensor_problem.exchangeGhostLayers(_coefficient_name, 1, int(_dim));
 }
 
-std::pair<torch::Tensor, torch::Tensor>
-FiniteDifferenceDivGrad::faceCoefficients(unsigned int axis) const
+torch::Tensor
+FiniteDifferenceDivGrad::coefficientWithHalo() const
 {
-  const auto D0 = ownedBlock(_coefficient);
-  const auto mean = [this, &D0](const torch::Tensor & Dj)
-  { return _harmonic ? 2.0 * D0 * Dj / (D0 + Dj) : 0.5 * (D0 + Dj); };
-  return {mean(ownedBlock(_coefficient, axis, -1)), mean(ownedBlock(_coefficient, axis, 1))};
+  const auto halo = int64_t(_tensor_problem.getMaxGhostLayer());
+  const auto & owned = _domain.getLocalGridSize();
+  auto D = _coefficient;
+  for (const auto d : make_range(_dim))
+    D = D.narrow(d, halo - 1, owned[d] + 2);
+  return D;
+}
+
+std::pair<torch::Tensor, torch::Tensor>
+FiniteDifferenceDivGrad::faceCoefficients(const torch::Tensor & D, unsigned int axis, bool harmonic)
+{
+  const auto block = [&D](unsigned int shift_axis, int64_t shift)
+  {
+    auto b = D;
+    for (const auto d : make_range(D.dim()))
+      b = b.narrow(d, 1 + (d == shift_axis ? shift : 0), D.size(d) - 2);
+    return b;
+  };
+  const auto D0 = block(axis, 0);
+  const auto mean = [harmonic, &D0](const torch::Tensor & Dj)
+  { return harmonic ? 2.0 * D0 * Dj / (D0 + Dj) : 0.5 * (D0 + Dj); };
+  return {mean(block(axis, -1)), mean(block(axis, 1))};
 }
 
 void
@@ -100,10 +118,11 @@ FiniteDifferenceDivGrad::computeBuffer()
                    "face_mean = arithmetic for a coefficient that changes sign or reaches zero.");
     }
 
+  const auto D = coefficientWithHalo();
   auto result = torch::zeros_like(u0);
   for (const auto d : make_range(_dim))
   {
-    const auto [D_lower, D_upper] = faceCoefficients(d);
+    const auto [D_lower, D_upper] = faceCoefficients(D, d, _harmonic);
     const auto h = grid_spacing(d);
     result +=
         (D_upper * (ownedBlock(_u_in, d, 1) - u0) - D_lower * (u0 - ownedBlock(_u_in, d, -1))) /
@@ -142,20 +161,44 @@ FiniteDifferenceDivGrad::stencilAt(const std::vector<Real> & grid_spacing) const
                          : "' must be nonnegative in an implicit solve.");
 
   exchangeCoefficient();
+  return stencilFromCoefficient(coefficientWithHalo(), grid_spacing);
+}
+
+torch::Tensor
+FiniteDifferenceDivGrad::ownedCoefficient() const
+{
+  return ownedBlock(_coefficient);
+}
+
+std::vector<FDStencilEntry>
+FiniteDifferenceDivGrad::stencilFromCoefficient(const torch::Tensor & D,
+                                                const std::vector<Real> & grid_spacing) const
+{
+  return buildStencil(D, grid_spacing, _factor, _harmonic);
+}
+
+std::vector<FDStencilEntry>
+FiniteDifferenceDivGrad::buildStencil(const torch::Tensor & D,
+                                      const std::vector<Real> & grid_spacing,
+                                      Real factor,
+                                      bool harmonic)
+{
+  const auto dim = unsigned(D.dim());
   std::vector<FDStencilEntry> stencil;
-  auto centre = torch::zeros_like(D0);
-  for (const auto d : make_range(_dim))
+  torch::Tensor centre;
+  for (const auto d : make_range(dim))
   {
-    const auto [D_lower, D_upper] = faceCoefficients(d);
+    const auto [D_lower, D_upper] = faceCoefficients(D, d, harmonic);
     const auto h2 = grid_spacing[d] * grid_spacing[d];
-    std::vector<int> lower(_dim, 0), upper(_dim, 0);
+    std::vector<int> lower(dim, 0), upper(dim, 0);
     lower[d] = -1;
     upper[d] = 1;
-    stencil.push_back({lower, _factor / h2, D_lower.contiguous()});
-    stencil.push_back({upper, _factor / h2, D_upper.contiguous()});
-    centre -= (D_lower + D_upper) / h2;
+    stencil.push_back({lower, factor / h2, D_lower.contiguous()});
+    stencil.push_back({upper, factor / h2, D_upper.contiguous()});
+    const auto axis_centre = -(D_lower + D_upper) / h2;
+    centre = centre.defined() ? centre + axis_centre : axis_centre;
   }
-  stencil.push_back({std::vector<int>(_dim, 0), _factor, centre});
+  stencil.push_back({std::vector<int>(dim, 0), factor, centre.contiguous()});
   return stencil;
 }
 

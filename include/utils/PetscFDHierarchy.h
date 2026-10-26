@@ -163,6 +163,21 @@ torch::Tensor foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
                              const torch::TensorOptions & options);
 
 /**
+ * The mean of fine_values over the 2^dim fine cells of each coarse cell, into coarse_values
+ * (on coarse, from DMCoarsen of fine): the transpose of the DMDA's piecewise-constant (Q0)
+ * interpolation, divided by 2^dim.
+ */
+void restrictCellMean(DM coarse, DM fine, Vec fine_values, Vec coarse_values);
+
+/**
+ * The owned block of the global vector v on da with one halo layer, as a host float64
+ * tensor in Marlin axis order: the halo holds the neighbouring ranks' cells and the periodic
+ * images, and outside a domain face the nearest owned cell (as for face data). The halo
+ * corners are not set.
+ */
+torch::Tensor ownedWithHalo(DM da, Vec v);
+
+/**
  * Cell-centred multilinear interpolation from the coarse to the fine DMDA (each
  * axis: 3/4 the coarse parent, 1/4 the coarse neighbour on the fine cell's side),
  * assembled as AIJ. Next to a boundary face the neighbour is the coarse ghost,

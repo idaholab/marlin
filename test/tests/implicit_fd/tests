@@ -483,6 +483,98 @@
     []
   []
 
+  [divgrad_petsc]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall solve a variable-coefficient problem -div(D grad u) = f implicitly with the PETSc multigrid preconditioned solver, its coarse levels rediscretised from the mean of D over each coarse cell, matching the torch solve, with'
+    # 1e-11 relative to the torch golds measured, on 1 and 4 ranks
+    [steady_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=divgrad_steady_harmonic'
+      csvdiff = divgrad_steady_harmonic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/steady_harmonic'
+      compute_devices = 'cpu'
+      detail = 'the harmonic face mean in the steady problem,'
+    []
+    [steady_arithmetic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC face_mean=arithmetic Outputs/file_base=divgrad_steady_arithmetic'
+      csvdiff = divgrad_steady_arithmetic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/steady_arithmetic'
+      compute_devices = 'cpu'
+      detail = 'the arithmetic face mean in the steady problem, and'
+    []
+    [be_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt divgrad" num_steps=2 Outputs/file_base=divgrad_be_harmonic'
+      csvdiff = divgrad_be_harmonic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/be_harmonic'
+      compute_devices = 'cpu'
+      detail = 'backward Euler, and'
+    []
+    [steady_harmonic_cuda]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=divgrad_steady_harmonic'
+      csvdiff = divgrad_steady_harmonic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad_petsc/steady_harmonic'
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'the harmonic face mean in the steady problem on CUDA.'
+    []
+  []
+
+  [grid_independence_divgrad]
+    design = 'ImplicitFDSolver.md'
+    requirement = 'The system shall solve a variable-coefficient problem -div(D grad u) = f with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size, for'
+    # smooth D: 10, 9, 9, 8 iterations measured from n = 32 to 256; fail above 12.
+    # D jumping by 100 at x = 1/2: 20-21 from n = 32 to 256; fail above 30 (with the coarse D
+    # replaced by 1 it takes about 150).
+    [smooth_n64]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=64 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a smooth coefficient on a 64 x 64 grid,'
+    []
+    [smooth_n256]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=256 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a smooth coefficient on a 256 x 256 grid,'
+    []
+    [jump_n64]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=64 Functions/D_func/expression="1 + 99*(x > 0.5) + 0*y" Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[4-9][0-9]|3[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a coefficient jump of 100 on a 64 x 64 grid, and'
+    []
+    [jump_n256]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=256 Functions/D_func/expression="1 + 99*(x > 0.5) + 0*y" Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[4-9][0-9]|3[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a coefficient jump of 100 on a 256 x 256 grid.'
+    []
+  []
+
   [divgrad_jacobi]
     design = 'ImplicitFDSolver.md'
     requirement = 'The system shall precondition the conjugate gradient solve of a variable-coefficient operator with its cell-wise diagonal, solving a coefficient jump of 100 on a 64 x 64 grid within 400 iterations.'
@@ -518,15 +610,7 @@
       input = divgrad_mms.i
       cli_args = 'face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
       expect_err = 'has a nonpositive diagonal in some cells, so it is not positive definite there'
-      detail = 'the coefficient is zero on every face of some cells in a steady problem,'
-    []
-    [petsc]
-      type = RunException
-      input = divgrad_mms.i
-      cli_args = 'TensorSolver/linear_solver=PETSC'
-      expect_err = "Operator 'divgrad' is a FiniteDifferenceDivGrad, which ImplicitFDSolver supports "
-                   "with linear_solver = TORCH_PCG only"
-      detail = 'and the PETSc multigrid solver is selected.'
+      detail = 'and the coefficient is zero on every face of some cells in a steady problem.'
     []
   []
 
