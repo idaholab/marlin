@@ -467,6 +467,20 @@ harmonic mode requires $D_iD_j > 0$ on every face. In \texttt{ImplicitFDSolver}
 $D < 0$ is an error (the operator would not be semidefinite, and whether a
 problem solved would depend on $dt$ and $dx$), and so is $D = 0$ in harmonic
 mode. Checked at every assembly.
+\item \textbf{Biharmonic faces} (user, 2026-10-25; PR5): with the 3-point
+Laplacian, Neumann faces impose $\partial u/\partial n = q$ and
+$\partial(\nabla^2 u)/\partial n = 0$, Dirichlet faces $u = g$ and
+$\nabla^2 u = 0$; Robin faces and the 5-point biharmonic with faces are errors.
+\item \textbf{$D$ at a domain face} (user, 2026-10-25; PR5): the boundary
+cell's own $D_0$ (a mirrored $D$ ghost, the same under either mean). Exact for
+$D$ constant next to the face, $O(h)$ in the face coefficient for a smooth $D$.
+A Neumann face still gives $\partial u/\partial n$, so its physical flux is
+$D_0$ times the given value; the docs say so.
+\item \textbf{Coarse $D$} (user, 2026-10-25; PR5): each PCMG coarse level
+takes the mean of $D$ over its $2^{\mathrm{dim}}$ child cells and is
+rediscretised with the same face rule, as the constant-coefficient levels are.
+Preconditioner only. Iterations across jumps are recorded in the capacitor
+tests; Galerkin $P^TAP$ or AMG (PR4a) is the follow-up if they degrade.
 \item \textbf{Central advection at high cell P\'eclet deferred, CUDA graph
 capture not adopted} (user, 2026-10-18; PR2c).
 \end{enumerate}
@@ -1332,11 +1346,8 @@ factor ($\mp1$) gives exactly $L_{bc}L_{bc}$ (1D Neumann row 0:
 $[2,-3,1]$; Dirichlet rows 0, 1: $[10,-5,1]$, $[-5,6,-4,1]$), so the coarse
 levels need no new folding; the fine level applies the two Laplacians in turn.
 
-\textbf{Decisions pending} (each a separate question before the substep that
-needs it): the biharmonic face pairs (Neumann pair required; Navier pair?);
-the condition on $w = \nabla^2 u$; 5-point biharmonic with faces;
-$D$ at boundary faces; the coarse $D$ (restriction or Galerkin).
-Decided: the face coefficient and the sign of $D$ (Section~\ref{sec:decisions}).
+Decided (Section~\ref{sec:decisions}): the face coefficient, the sign of $D$,
+the biharmonic faces, $D$ at a domain face and the coarse $D$.
 
 \textbf{Verification:} MMS with no-flux faces and with spatially varying
 $D$ against independent SciPy solves; mass conservation; a unit test of the
