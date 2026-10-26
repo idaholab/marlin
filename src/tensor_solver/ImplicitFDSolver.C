@@ -355,19 +355,24 @@ ImplicitFDSolver::substep()
   // boundary functions are evaluated at the time level of the unknown, t + dt; buffer values
   // are those the explicit computes above wrote, at t
   const FixedBoundaryDataGuard fixed_boundary_data(_tensor_problem, _sub_dt);
-  std::vector<torch::Tensor> u_old;
   for (auto & field : _fields)
   {
-    // u is Krylov scratch below; give it its own storage (advanceState() keeps a
-    // shallow copy in its old states)
-    u_old.push_back(field._u);
-    field._u = field._u.clone();
-
-    // b = sum_i r_i + f, evaluated while u still holds u_old
-    torch::Tensor b = torch::zeros_like(field._u_base.ownedView(), torch::MemoryFormat::Contiguous);
+    // sum_i r_i, evaluated while u still holds u^n (each r_i reads its own field only)
+    field._rhs_old = torch::zeros_like(field._u_base.ownedView(), torch::MemoryFormat::Contiguous);
     for (const auto * fd_op : field._fd_operators)
       if (const auto r = fd_op->rhsContribution(); r.defined())
-        b += r;
+        field._rhs_old += r;
+
+    // u is Krylov scratch below; give it its own storage (advanceState() keeps a
+    // shallow copy in its old states)
+    field._u_old = field._u;
+    field._u = field._u.clone();
+  }
+
+  for (auto & field : _fields)
+  {
+    // b = sum_i r_i + f
+    torch::Tensor b = field._rhs_old.clone();
     if (field._source)
       b += field._source->ownedView();
 
@@ -437,9 +442,9 @@ ImplicitFDSolver::substep()
                    "retry the step with a smaller dt.");
 
       _console << result.failure << std::endl;
-      // retry from the previous state of every field solved so far
-      for (const auto i : index_range(u_old))
-        _fields[i]._u = u_old[i];
+      // retry from the previous state of every field
+      for (auto & f : _fields)
+        f._u = f._u_old;
       _is_converged = false;
       return;
     }

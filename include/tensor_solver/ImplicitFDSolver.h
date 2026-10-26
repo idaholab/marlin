@@ -89,6 +89,9 @@ protected:
     /// sum_i A_i 0, the boundary data's part of the affine operator action (undefined
     /// without boundary faces); the linear operator is sum_i A_i x - _affine
     torch::Tensor _affine;
+    /// u^n and sum_i r_i (the time derivatives' u^n/dt) of the current substep
+    torch::Tensor _u_old;
+    torch::Tensor _rhs_old;
   };
 
   virtual void substep() override;
