@@ -69,13 +69,28 @@ $A u = b - g$, with $g$ the action on $u = 0$, recomputed every solve. A Dirichl
 definite; with Neumann faces only it keeps the constants as its nullspace, and the right-hand
 side, including the fluxes, must then have zero mean up to round-off. Source and fluxes that
 balance in the continuous problem generally leave a discrete mean of order $h^2$, which is an
-error: the data must balance on the grid. Supported are the time derivative and the Laplacian,
-with Dirichlet, Neumann and Robin faces for the 3-point stencil and Dirichlet and Neumann faces
-for the 5-point stencil, whose second ghost layer makes a Robin operator nonsymmetric. A Robin
-face with $a b < 0$ is an error: its ghost term $a / (a/2 + b/\Delta x)$ turns negative once
-$\Delta x < 2 |b / a|$, after which the operator may be indefinite, depending on the rest of the
-problem, so whether it could be solved would depend on the grid. The biharmonic on a
-non-periodic domain is an error too.
+error: the data must balance on the grid. Supported are:
+
+- the time derivative;
+- the Laplacian, with Dirichlet, Neumann and Robin faces for the 3-point stencil and Dirichlet
+  and Neumann faces for the 5-point stencil, whose second ghost layer makes a Robin operator
+  nonsymmetric;
+- [FiniteDifferenceDivGrad.md], with Dirichlet, Neumann and Robin faces;
+- the 3-point [FiniteDifferenceBiharmonic.md], with Dirichlet faces ($u = g$, $\nabla^2 u = 0$)
+  and Neumann faces ($\partial u/\partial n = q$, $\partial(\nabla^2 u)/\partial n = 0$).
+
+A Robin face with $a b < 0$ is an error: its ghost term $a / (a/2 + b/\Delta x)$ turns negative
+once $\Delta x < 2 |b / a|$, after which the operator may be indefinite, depending on the rest of
+the problem, so whether it could be solved would depend on the grid.
+
+## Variable coefficients
+
+An operator with a coefficient per cell ([FiniteDifferenceDivGrad.md]) gives the solver one
+stencil field per offset. The torch Jacobi preconditioner and the smoothers use the cell-wise
+diagonal, which varies with the coefficient. On the PETSc coarse levels the coefficient is the
+mean over each coarse cell's children, and the operator is rediscretised from it. A cell whose
+diagonal is not positive (a coefficient that is zero on every face of a cell, without a time
+derivative) is an error. The coarse levels are reassembled when the coefficient changes.
 
 On the coarse multigrid levels, a stencil entry that reaches a ghost cell is folded onto the
 mirrored interior cell, times the ghost factor $-(a/2 - b/s)/(a/2 + b/s)$ of the homogeneous
@@ -89,6 +104,10 @@ for Neumann). The interpolation folds the same way. This affects only the precon
 With boundary conditions whose values vary along the faces:
 
 !listing test/tests/implicit_fd/bc_mms.i block=TensorComputes/BCs
+
+With a variable coefficient:
+
+!listing test/tests/implicit_fd/divgrad_mms.i block=TensorComputes/Solve TensorSolver
 
 !syntax parameters /TensorSolver/ImplicitFDSolver
 

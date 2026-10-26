@@ -48,9 +48,32 @@ faces, but first order on a Neumann face with a nonzero flux. A Neumann
 condition gives $\partial u/\partial n$, so the flux through such a face is $D$ of
 the boundary cell times the given value.
 
+### Implicit solves
+
+The operator implements the stencil interface of [ImplicitFDSolver.md], so with
+`factor < 0` it can be solved implicitly, with either linear solver. Its stencil
+is the 3-point Laplacian's with one coefficient per cell and offset, so the
+torch Jacobi preconditioner and the assembled PETSc levels use the cell-wise
+diagonal. On each coarser PETSc multigrid level $D$ is the mean of $D$ over the
+$2^{\mathrm{dim}}$ cells it covers on the finer level, and the operator is
+rediscretised from it with the same face rule (including the boundary cell's own
+$D$ on a domain face). This affects only the preconditioner. The coarse levels
+are reassembled whenever $D$ changes.
+
+The averaged coarse $D$ keeps the multigrid iterations independent of the grid
+size for smooth coefficients and for moderate jumps (a jump of 100 takes about
+twice the iterations of a constant $D$). For extreme contrasts, such as metal
+modelled as $\varepsilon_r = 10^9$ inside the domain, the averaged coarse levels
+fail to represent the operator and PCMG needs thousands of iterations, growing
+with the grid size; the torch Jacobi PCG is then much faster.
+
 ## Example Input File Syntax
 
 !listing test/tests/real_space/divgrad.i block=TensorComputes/Solve/divgrad
+
+A capacitor with two dielectric slabs, solved implicitly for the potential:
+
+!listing test/tests/implicit_fd/capacitor.i block=TensorComputes/Solve TensorSolver
 
 !syntax parameters /TensorComputes/Solve/FiniteDifferenceDivGrad
 

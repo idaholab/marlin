@@ -8,7 +8,13 @@
 # Euler step makes no time error (the boundary values are taken at t + dt).
 #
 # Dirichlet faces at x = 0, 1 (u from u_exact) and Neumann faces at y = 0, 1 (du/dn = -x, x).
-# dD/dy = 0 on the Neumann faces, where the face coefficient is the boundary cell's D.
+# dD/dy = 0 on the Neumann faces, where the face coefficient is the boundary cell's D. With
+# TensorComputes/BCs/active='left right_robin bottom top' the face x = 1 is the Robin face
+# u + du/dn / 2 = c, c from u_exact (u = y and du/dn = 3 pi cos(pi y) / 2 + y there).
+#
+# D_jump = 1 replaces D after the first step by a coefficient jumping by 100 at x = 1/2 (with
+# the source f of the smooth D, so u is no longer u_exact): the solver must reassemble its
+# coarse levels from the new D. The Solve computes see the time at the start of the step.
 
 n = 32
 tf = 0
@@ -16,6 +22,7 @@ ops = 'divgrad'
 num_steps = 1
 dt = 0.05
 face_mean = harmonic
+D_jump = 0
 
 [Domain]
   dim = 2
@@ -50,6 +57,16 @@ face_mean = harmonic
     type = ParsedFunction
     expression = 'x'
   []
+  [right_c]
+    type = ParsedFunction
+    expression = 'y + (1.5 * pi * cos(pi * y) + y) / 2 + ${tf} * t'
+  []
+  [D_step]
+    type = ParsedFunction
+    expression = 'if(${D_jump} & t > ${fparse dt / 2}, 1 + 99 * (x > 0.5), D)'
+    symbol_names = D
+    symbol_values = D_func
+  []
 []
 
 [TensorComputes]
@@ -71,6 +88,7 @@ face_mean = harmonic
     []
   []
   [BCs]
+    active = 'left right bottom top'
     [left]
       type = TensorDirichletBC
       variable = u
@@ -82,6 +100,14 @@ face_mean = harmonic
       variable = u
       boundary = right
       value_function = u_exact
+    []
+    [right_robin]
+      type = TensorRobinBC
+      variable = u
+      boundary = right
+      a = 1
+      b = 0.5
+      c_function = right_c
     []
     [bottom]
       type = TensorNeumannBC
@@ -97,6 +123,12 @@ face_mean = harmonic
     []
   []
   [Solve]
+    # D evaluated before every solve (the solver's explicit computes)
+    [D_update]
+      type = MooseFunctionTensor
+      buffer = D
+      function = D_step
+    []
     [dudt]
       type = TimeDerivativeOperator
       buffer = dudt_u
