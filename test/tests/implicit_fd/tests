@@ -827,10 +827,12 @@
       input = steady_transient.i
       cli_args = 'TensorSolver/linear_solver=PETSC TensorSolver/l_tol=1e-8 Outputs/file_base=steady_transient_loose'
       csvdiff = steady_transient_loose.csv
-      # the errors are gated below 1e-7 (the solve error), mean_c at round-off
+      # the errors are the multigrid solve's (1e-8, and up to 100% different between rank counts),
+      # so they are gated below 1e-7: smaller values count as zero, a larger one fails against the
+      # zeroed gold; mean_c at round-off
       abs_zero = 1e-14
       override_columns = 'error_c error_phi'
-      override_rel_err = '1 1'
+      override_rel_err = '1e-7 1e-7'
       override_abs_zero = '1e-7 1e-7'
       compute_devices = 'cpu'
       detail = 'the PETSc multigrid solver at a loose linear tolerance.'
