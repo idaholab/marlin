@@ -1510,7 +1510,40 @@ solution-dependent coefficients belong here.
 (R2); cross-validation against \texttt{examples/libtorch\_kks/KKS\_libtorch.i};
 per-iteration cost under the reuse policy (R3).
 
-\status{proposed.}
+\textbf{Design (user, 2026-10-26).} An option of \texttt{ImplicitFDSolver}, off by
+default (today's lagged scheme, unchanged). The coupled step is one nonlinear
+system over all fields $U = (u_1, \dots, u_m)$,
+$F(U) = A U - b(U) = 0$, with $A$ the sum of each field's
+\texttt{LinearFDOperator}s and $b(U)$ the $u^n/dt$ terms plus the explicit
+sources evaluated at $U$. Today's field-by-field linear solve with $A$ (PCMG or
+torch PCG) is the preconditioner. PETSc SNES drives the iteration, so the method
+is a \texttt{petsc\_options} choice: Picard (\texttt{nrichardson}), Anderson,
+NGMRES, and later Newton-Krylov. A plain Picard loop in torch covers the torch-only
+backend.
+\begin{itemize}
+\item \textbf{D11, ordering.} Every source in an iterate comes from the iterate
+  of all fields (Jacobi), so each iterate and the converged result are
+  independent of the order of \texttt{buffer}, as D8. Gauss-Seidel was declined.
+\item \textbf{D12, convergence.} The single coupled residual norm
+  $\|A U - b(U)\|_2$ with the standard SNES relative and absolute tests (rather
+  than a per-field scaled norm).
+\item \textbf{D13, step.} The full, undamped Picard update by default
+  (\texttt{basic} line search, damping 1); damping, line searches and
+  Anderson/NGMRES mixing through \texttt{petsc\_options}.
+\item \textbf{D14, iteration count.} With the nonlinear iteration on,
+  \texttt{getIterations()} (the adaptive time stepper's signal) is the number of
+  nonlinear iterations, with the Krylov total printed; with it off, the Krylov
+  count as today.
+\end{itemize}
+\textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
+source's derivative with respect to its own field (a per-cell diagonal from
+autograd) to that field's operator, with Newton-Krylov (autograd Jacobian
+action) as the fallback. Open there: sources containing derivatives of their
+field (Cahn-Hilliard's $\nabla^2 f'(c)$ gives $\nabla^2(f''\cdot)$, not a
+diagonal), $f'' < 0$ making the operator indefinite, and the coarse-level
+restriction of the diagonal (as D6).
+
+\status{design approved; implementation on branch \texttt{implicit\_fd\_pr6}.}
 
 \pr{7}{Port SBM/KKS No-Flux Example to the Implicit FD Path}
 \textbf{Scope:} reimplement \texttt{test/tests/kks/KKS\_no\_flux\_bc.i} with
