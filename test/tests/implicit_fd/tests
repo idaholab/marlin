@@ -649,7 +649,6 @@
       cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=divgrad_steady_harmonic'
       csvdiff = divgrad_steady_harmonic.csv
       rel_err = 1e-8
-      prereq = 'divgrad_petsc/steady_harmonic'
       compute_devices = 'cuda'
       min_slots = 2 # memory heavy
       capabilities = 'cuda'
