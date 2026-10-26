@@ -186,6 +186,7 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                 {},
                 sources.empty() ? nullptr : &getBufferBase(sources[i]),
                 false,
+                0.0,
                 nullptr,
                 {},
                 {}};
@@ -386,13 +387,16 @@ ImplicitFDSolver::substep()
     if (field._singular)
     {
       // remove only a round-off mean: pairwise summation errs by ~log2(N) eps sum|b|
-      // (Higham, ch. 4); 16 covers rounding in b and the cross-rank reduction
+      // (Higham, ch. 4); 16 covers rounding in b and the cross-rank reduction. The round-off
+      // left in a conserved source (e.g. the mean of a decaying c) is that of its largest
+      // magnitude, so the scale is the largest sum|b| so far, not the current one
       const auto n_cells = static_cast<Real>(_domain.getNumberOfCells());
       const Real eps = b.scalar_type() == torch::kFloat ? std::numeric_limits<float>::epsilon()
                                                         : std::numeric_limits<double>::epsilon();
       const Real b_sum = _domain.allreduceSum(b.sum()).cpu().item<double>();
-      const Real b_abs_sum = _domain.allreduceSum(b.abs().sum()).cpu().item<double>();
-      if (std::abs(b_sum) > 16.0 * std::log2(n_cells) * eps * b_abs_sum)
+      field._max_b_abs_sum =
+          std::max(field._max_b_abs_sum, _domain.allreduceSum(b.abs().sum()).cpu().item<double>());
+      if (std::abs(b_sum) > 16.0 * std::log2(n_cells) * eps * field._max_b_abs_sum)
         mooseError("The operator of field '",
                    field._name,
                    "' is singular (its nullspace is the constants), so the right-hand side must "

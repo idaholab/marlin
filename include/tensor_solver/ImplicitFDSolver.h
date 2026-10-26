@@ -80,6 +80,8 @@ protected:
     TensorBufferBase * _source;
     /// sum_i A_i has the constants as its nullspace
     bool _singular;
+    /// largest sum|b| of the singular field's solves so far, the scale of its round-off mean
+    Real _max_b_abs_sum = 0.0;
     /// PETSc backend state (set up on the first solve)
     std::unique_ptr<PetscSolve> _petsc;
     /// boundary condition of u on each face (face 2d + upper; null on periodic faces)

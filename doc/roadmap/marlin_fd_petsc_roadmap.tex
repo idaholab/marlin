@@ -1442,6 +1442,13 @@ solution.
   transpose null space silently projects the right-hand side, and the
   navier\_stokes \texttt{NSPressurePin} (\texttt{average}) is an opt-in
   offset to a user target.
+\item \textbf{D10, the singular-field mean check.} The round-off allowance for
+  the mean of a singular field's right-hand side is scaled by the largest
+  $\sum|b|$ of its solves so far, not the current one. Found by the milestone
+  review: \texttt{steady\_transient.i} run to 200 steps aborted near step
+  100, because the mean of $c$ (exactly conserved) stays at the round-off of its
+  initial size, about $10^{-18}$, while $c$ decays. A net source is still
+  rejected (a $10^{-10}$ offset added at $t = 1$ stops the run).
 \end{itemize}
 
 \textbf{Results.}

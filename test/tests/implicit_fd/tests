@@ -837,6 +837,29 @@
     []
   []
 
+  [singular_decaying_source]
+    requirement = 'The system shall accept the round-off mean left in the right-hand side of a singular steady field by a conserved, decaying source, and reject a net source that appears after the decay,'
+    [long]
+      # c decays to 7e-8 of its initial size over 200 steps while its mean stays at the round-off
+      # of its initial size; the check scaled by the current right-hand side aborted near step 100
+      type = RunApp
+      input = steady_transient.i
+      cli_args = 'Executioner/num_steps=200 Outputs/csv=false'
+      compute_devices = 'cpu'
+      detail = 'running the coupled test to 200 steps, and'
+    []
+    [late_charge]
+      type = RunException
+      input = steady_transient.i
+      cli_args = "Executioner/num_steps=200 Outputs/csv=false "
+                 "TensorComputes/Solve/src_phi_compute/expression='s*(c+if(t>1,1e-10,0))' "
+                 "TensorComputes/Solve/src_phi_compute/extra_symbols=true"
+      expect_err = 'the right-hand side must have zero mean'
+      compute_devices = 'cpu'
+      detail = 'stopping when a net source of 1e-10 is added at t = 1.'
+    []
+  []
+
   [pfhub_1b]
     requirement = 'The system shall run PFHub benchmark 1b (spinodal decomposition with no-flux faces) on a reduced grid with the implicit finite-difference solver, conserving the total concentration, with'
     # gold from the PETSc run; the torch PCG run agrees to 1e-11 relative, 4 ranks to 1e-12

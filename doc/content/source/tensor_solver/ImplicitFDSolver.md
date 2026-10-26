@@ -19,7 +19,10 @@ $u/\Delta t$, contribution $u^n/\Delta t$) and a [FiniteDifferenceLaplacian.md] 
 The operator is applied matrix-free with each operator's own kernel. The system must be symmetric
 positive definite, or positive semidefinite with the constants as its nullspace (a steady periodic
 Laplacian). In the singular case the right-hand side must have zero mean up to round-off, and the
-zero-mean solution is returned.
+zero-mean solution is returned. The round-off is measured against the largest
+$\sum |b|$ of the field's solves so far: a conserved source that decays (e.g. the charge of a
+concentration whose fluctuations die out) keeps the round-off mean of its largest size, which
+would otherwise exceed the shrinking current scale.
 
 When the operator maps the constants to $\lambda > 0$ times the constants (the time derivative
 with periodic or Neumann faces, e.g. diffusion or Cahn-Hilliard on a periodic or no-flux box),
