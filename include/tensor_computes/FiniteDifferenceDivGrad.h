@@ -80,4 +80,6 @@ protected:
   const Real _factor;
   /// harmonic (true) or arithmetic face mean
   const bool _harmonic;
+  /// storage and version of D when computeBuffer last checked it
+  std::pair<const void *, int64_t> _checked_coefficient{nullptr, -1};
 };

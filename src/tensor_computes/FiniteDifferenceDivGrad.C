@@ -99,12 +99,17 @@ FiniteDifferenceDivGrad::faceCoefficients(const torch::Tensor & D, unsigned int 
 void
 FiniteDifferenceDivGrad::computeBuffer()
 {
+  // D is checked once per change (an implicit solve applies the operator once per iteration):
+  // the halo exchange below is its only write in between
+  const bool D_changed = _coefficient.data_ptr() != _checked_coefficient.first ||
+                         _coefficient._version() != _checked_coefficient.second;
   exchangeCoefficient();
+  _checked_coefficient = {_coefficient.data_ptr(), _coefficient._version()};
   const auto & grid_spacing = _domain.getGridSpacing();
   const auto u0 = ownedBlock(_u_in);
 
   // the harmonic mean needs D_i D_j > 0 on every face an owned cell reads
-  if (_harmonic)
+  if (_harmonic && D_changed)
     for (const auto d : make_range(_dim))
     {
       const auto D0 = ownedBlock(_coefficient);
