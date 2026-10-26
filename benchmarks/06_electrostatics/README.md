@@ -26,3 +26,10 @@ the explicit terms lagged). On the cuts at t = 400, c differs by up to 1.9e-2 be
 0.5 and 0.05 and by 7e-3 between 100^2 and 200^2. The value
 at t = 0 is that of the initial guess of `phi`, solved from the first step on. Wall time to
 t = 400 on one CPU core: 20 s (100^2), 67 s (200^2).
+
+`plot_comparison.py <run_dir>` draws `free_energy_6a.png` (the curves above) and `cost_6a.png`
+(memory against wall time per unit simulated time) from the three runs in `<run_dir>` and the
+PFHub submissions' data, which it downloads. The PFHub costs are as their submitters reported
+them, on 2017 hardware with 1 to 16 cores; three of them ran to t = 1000. Our runs are one core
+of an Apple M5 Pro, with memory the whole process as MOOSE reports it; one 200^2 field is
+0.3 MB, so the fields are a small part of it.
