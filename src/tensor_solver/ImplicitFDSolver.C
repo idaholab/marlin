@@ -326,7 +326,9 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                      "factor = -D.");
       }
 
-      // the 5-point biharmonic reads four ghost layers; the ghost fill has at most two
+      // the 5-point biharmonic applies its composed stencil to the ghosts of u directly, without
+      // the face pairs the 3-point one imposes on the intermediate Laplacian
+      // (FiniteDifferenceBiharmonic::setFaceReflections); not supported next to a face yet
       if (has_boundaries && dynamic_cast<const FiniteDifferenceBiharmonic *>(fd_op) &&
           PetscFD::stencilWidth(fd_op->stencilAt()) > 2)
         paramError("operators",
