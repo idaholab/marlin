@@ -88,7 +88,7 @@ protected:
     /// boundary condition of u on each face (face 2d + upper; null on periodic faces)
     std::vector<const TensorRobinBC *> _face_bcs;
     /// sum_i A_i 0, the boundary data's part of the affine operator action (undefined
-    /// without boundary faces); the linear operator is sum_i A_i x - _affine
+    /// without boundary faces); the linear operator sum_i A_i x applies them with zero face data
     torch::Tensor _affine;
     /// u^n and sum_i r_i (the time derivatives' u^n/dt) of the current substep
     torch::Tensor _u_old;

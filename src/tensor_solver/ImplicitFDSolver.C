@@ -569,8 +569,12 @@ ImplicitFDSolver::applyOperator(Field & field, const torch::Tensor & x)
 torch::Tensor
 ImplicitFDSolver::applyLinearOperator(Field & field, const torch::Tensor & x)
 {
+  // the operator with zero boundary data is A x itself; (A x + g) - g would leave a round-off
+  // error of eps |g|, a floor for the solve of a small right-hand side (a nonlinear correction)
+  _tensor_problem.setHomogeneousBoundaryData(true);
   const auto y = applyOperator(field, x);
-  return field._affine.defined() ? y - field._affine : y;
+  _tensor_problem.setHomogeneousBoundaryData(false);
+  return y;
 }
 
 namespace

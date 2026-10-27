@@ -913,6 +913,36 @@
     []
   []
 
+  [pfhub_6a_nonlinear]
+    requirement = 'The system shall iterate the steps of PFHub benchmark 6a (a field with inhomogeneous Dirichlet data, the steady potential, coupled to the transient concentration) to the fully implicit backward Euler step, solving the small correction systems of the late iterations below the linear tolerance, with'
+    # the correction solves of phi have right-hand sides of 1e-8 against plate data of 1: applying
+    # the operator as (A x + g) - g instead of with zero face data stalls them at eps |g|, 2e-9
+    # relative, above l_tol = 1e-10, from the first step on. The two backends and 1 and 3 ranks
+    # agree to round-off.
+    [petsc]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'end_time=0.01 TensorSolver/nonlinear_solve=true Outputs/file_base=pfhub_6a_nonlinear'
+      csvdiff = pfhub_6a_nonlinear.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'end_time=0.01 TensorSolver/nonlinear_solve=true TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=pfhub_6a_nonlinear'
+      csvdiff = pfhub_6a_nonlinear.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      prereq = 'pfhub_6a_nonlinear/petsc'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver.'
+    []
+  []
+
   [pfhub_1b_conservation]
     requirement = 'The system shall conserve the total concentration of PFHub benchmark 1b (no-flux faces) to round-off at a loose linear tolerance, setting the mean the summed equations fix after each solve, with'
     # without that, the total drifts by 6e-5 (PETSc) and 1.5e-4 (torch PCG) at l_tol = 1e-8
