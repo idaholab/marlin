@@ -1586,6 +1586,35 @@ $h = 5$ the negative spatial error happens to cancel most of it: that is why the
 deviation grew under refinement. Checks: a domain of 480 gives the same slope to
 four digits (no periodic-image effect); $r_0 = 200$ ($h = 2.5$, $dt = 0.25$,
 domain 640) gives $-0.01\%$.
+
+\textbf{PFHub 6a, fully implicit (substep 5).} \texttt{6a\_implicit\_fd\_nonlinear.i},
+a separate input; the lagged input and its results are unchanged (user, 2026-10-27). The
+step follows the nonlinear iterations (\texttt{TensorSolveIterationAdaptiveDT}, substeps
+$=1$, so a failed solve cuts $dt$). Findings, $100^2$ to $t = 50$, $F$ against a nonlinear
+run with $dt \le 0.005$:
+\begin{itemize}[leftmargin=*]
+\item Plain Picard fails near $t = 41$, where the solve $dt$ passes about $0.19$: the
+iterations rise from 3 to the limit of 50 as $dt$ grows (the Picard limit
+$dt\,L f'' < 1$). Anderson with the field solves as its NPC reaches $t = 400$ at a solve
+$dt$ of 1 with at most 24 iterations.
+\item Anderson's iterations grow slowly with $dt$: 4 iterations hold $dt$ at
+$1.85\times10^{-3}$, 8--9 at $0.034$, 12 at $0.15$. A step twice as long costs far less
+than two steps, so the window was widened from 4--10 to 8--15 (user, 2026-10-27).
+\item At the same solve $dt$ the nonlinear error is several times smaller than the lagged
+one: $-0.009$ against $+0.039$ at $t = 5$ ($dt = 0.023$), $+0.002$ against $+0.078$ at
+$t = 50$ ($dt = 0.25$), both on the lagged input's step schedule.
+\item The iteration window does not see the time error. With 8--15 alone $dt$ reaches
+$0.15$ by $t \approx 1$ and $F(5)$ is off by $-0.18$; caps of $0.1$, $0.05$, $0.02$ give
+$-0.12$, $-0.060$, $-0.020$ (first order). The input caps at $0.05$ (user,
+2026-10-27), a demonstration setting: twice the lagged input's steps at $t = 5$, a fifth of
+them at $t = 50$ ($-0.005$). Second order in time is PR7b.
+\item An earlier reference ($dt \le 0.025$) carried an error of $-0.009$ at $t = 5$, as large
+as the differences it was used to measure there; the numbers above use $dt \le 0.005$.
+\item To $t = 400$: 8030 steps, no cuts, 8.9 iterations per step (at most 10),
+$F(400) = 103.79$, total $c$ conserved to $3\times10^{-11}$; 1032\,s on one core,
+against 18\,s for the lagged input at its larger steps.
+\end{itemize}
+
 \textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
 source's derivative with respect to its own field (a per-cell diagonal from
 autograd) to that field's operator, with Newton-Krylov (autograd Jacobian
@@ -1605,6 +1634,32 @@ restriction of the diagonal (as D6).
 
 \status{proposed. Depends on PR5 (its no-flux biharmonic if the KKS equations carry
 a fourth-order term) and PR6.}
+
+\pr{7b}{Second-Order Time Integration (BDF2)}
+\textbf{Scope (user, 2026-10-27):} BDF2 for the transient fields of
+\texttt{ImplicitFDSolver}, $(3u^{n+1} - 4u^n + u^{n-1})/(2\,dt) + A u^{n+1} = b(U^{n+1})$,
+with the variable-step coefficients, since the adaptive stepper changes $dt$.
+With the nonlinear iteration of PR6 it is fully implicit to second order. Backward
+Euler's first-order time error is what bounds $dt$ in the PFHub 6a study of PR6, not
+the nonlinear convergence (Anderson converges in 8--15 iterations at steps that
+carry a visible time error), so this, and not more iterations, is how to take
+larger steps at a fixed accuracy.
+
+\textbf{Design questions (to decide):} where $u^{n-1}$ and the previous $dt$ live
+(\texttt{TimeDerivativeOperator} with its own history, or the solver's stored $u^n$
+of PR6); the first step (backward Euler, or a smaller start); a step cut, which must
+restore the history; the coefficient change of the operator, $3/(2dt)$ in place of
+$1/dt$, which changes the stencil and so rebuilds the preconditioner when $dt$ or the
+step ratio changes (decision~3); the lagged scheme of PR3--PR5a (whether BDF2 is
+offered there, where the explicit terms are first order anyway); and an error
+estimate (BDF2 against backward Euler) for an accuracy-driven $dt$, as an
+alternative to the iteration-driven stepper.
+
+\textbf{Verification:} order 2 in $dt$ on the closed-form coupled recurrence of PR6
+and on the scalar Newton reference (the BDF2 recurrence); order 2 of $F(t)$ in the
+6a study; mass conservation to round-off.
+
+\status{proposed (user, 2026-10-27). After PR6.}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact
@@ -1643,6 +1698,7 @@ PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variab
 PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & done (tag pr5a-steady-transient) \\
 PR6 & Picard, two-field coupling & proposed & --- \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
+PR7b & BDF2 time integration & proposed (user, 2026-10-27) & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\
 --- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
 \bottomrule
