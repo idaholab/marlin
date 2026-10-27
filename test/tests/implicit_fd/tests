@@ -1691,8 +1691,46 @@
       expect_out = 'did not converge in 30 iterations.*Solve failed, cutting timestep.*did not converge in 30 iterations.*Solve failed, cutting timestep.*Time Step 1, time = 0.002'
       compute_devices = 'cpu cuda'
       min_slots = 2 # memory heavy
-      detail = 'a torch field solve inside the iteration fails.'
+      detail = 'a torch field solve inside the iteration fails,'
     []
+    [field_solve_torch_3_ranks]
+      type = RunApp
+      input = cutback.i
+      # the residual norm of the torch loop must be reduced over the ranks, or the ranks disagree on
+      # convergence and hang (max_time makes that a fast failure)
+      cli_args = 'TensorSolver/nonlinear_solve=true Outputs/csv=false'
+      expect_out = 'did not converge in 30 iterations.*Solve failed, cutting timestep.*did not converge in 30 iterations.*Solve failed, cutting timestep.*Time Step 1, time = 0.002'
+      min_parallel = 3
+      max_parallel = 3
+      max_time = 60
+      compute_devices = 'cpu'
+      detail = 'a torch field solve inside the iteration fails on 3 ranks, with'
+    []
+    [retry_from_old_solution]
+      type = CSVDiff
+      input = cutback.i
+      # the retried step starts again from u^n: the gold is the run at dt = 0.002 from the start
+      # (TensorSolver/l_max_its=1000 Executioner/TimeStepper/dt=0.002), which the retry
+      # reproduces to all printed digits; from the failed iterate max_u is 1.7e-14
+      cli_args = 'TensorSolver/nonlinear_solve=true Outputs/file_base=cutback_nonlinear'
+      csvdiff = cutback_nonlinear.csv
+      compute_devices = 'cpu'
+      detail = 'the retried step starting again from the solution at the start of the step.'
+    []
+  []
+
+  [nonlinear_iteration_count]
+    requirement = 'The system shall report the number of nonlinear iterations of an iterated implicit finite-difference step to the adaptive time stepper'
+    type = RunApp
+    input = bicrystal.i
+    # 44 and 52 nonlinear iterations lie in the window [35, 100]; the 989 and 1154 linear
+    # iterations would cut dt
+    cli_args = "dt=0.25 Executioner/num_steps=2 "
+               "Executioner/TimeStepper/type=TensorSolveIterationAdaptiveDT "
+               "Executioner/TimeStepper/dt=0.25 Executioner/TimeStepper/min_iterations=35 "
+               "Executioner/TimeStepper/max_iterations=100 Outputs/csv=false"
+    expect_out = 'Time Step 2, time = 0.5, dt = 0.25'
+    compute_devices = 'cpu'
   []
 
   [nonlinear_errors]
