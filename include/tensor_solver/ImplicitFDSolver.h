@@ -13,6 +13,7 @@
 #include "PetscFDHierarchy.h"
 
 #include <petscksp.h>
+#include <petscsnes.h>
 
 #include <exception>
 #include <memory>
@@ -106,6 +107,18 @@ protected:
   /// collect the computes of the root compute other than the field operators
   void findExplicitComputes();
 
+  /// the right-hand side of the linear part, sum_i r_i + f - g, from the explicit terms in the
+  /// buffers (sets _affine = g; a singular field's round-off mean is removed)
+  torch::Tensor fieldRhs(Field & field);
+
+  /// solve the linear part of sum_i A_i x = b with the selected backend, warm started from x,
+  /// with the mean of x fixed in the constant mode
+  SolveResult solveField(Field & field, torch::Tensor & b, torch::Tensor & x);
+
+  /// a failed solve: restore u^n of every field for the time stepper's retry with a smaller dt
+  /// (or error without TensorSolveIterationAdaptiveDT)
+  void failSubstep(const std::string & failure);
+
   /// y = sum_i A_i x on the owned cells (x is copied into u's owned cells first), with the
   /// boundary conditions' ghost values, so affine on a domain with boundary faces
   torch::Tensor applyOperator(Field & field, const torch::Tensor & x);
@@ -135,12 +148,62 @@ protected:
   /// (re)assemble the coarse levels and set the smoother weights if the stencil changed
   void assembleCoarseLevels(Field & field);
 
-  /// put the block's PETSc options (prefix <buffer>_) and the command line into the global database
-  void insertPetscOptions(const Field & field);
+  /// put the block's PETSc options of the field solves (prefix <buffer>_) or of the nonlinear solve
+  /// (prefix nonlinear_) and the command line into the global database
+  void insertPetscOptions(const std::string & prefix, bool nonlinear);
 
   /// MATOP_MULT and MATOP_GET_DIAGONAL of the fine level shell
   static PetscErrorCode shellMult(Mat A, Vec x, Vec y);
   static PetscErrorCode shellDiagonal(Mat A, Vec d);
+
+  /// PETSc objects of the coupled nonlinear solve over all fields
+  struct NonlinearSolve
+  {
+    NonlinearSolve() = default;
+    NonlinearSolve(const NonlinearSolve &) = delete;
+    NonlinearSolve & operator=(const NonlinearSolve &) = delete;
+    ~NonlinearSolve();
+
+    SNES snes = nullptr;
+    /// block-diagonal shell of the fields' linear operators
+    Mat A = nullptr;
+    /// coupled iterate and residual: the owned cells of every field, in field order
+    Vec x = nullptr, r = nullptr;
+    /// exception thrown inside a callback (rethrown after SNESSolve)
+    std::exception_ptr exception;
+    /// reason of the last failed field solve inside the preconditioner
+    std::string failure;
+  };
+
+  /// iterate the coupled step A U = b(U) to convergence (u^n and sum_i r_i are set)
+  void nonlinearSubstep();
+
+  /// b(U) of every field: the explicit computes and the buffer-valued boundary data
+  /// re-evaluated at U (Jacobi), then fieldRhs
+  std::vector<torch::Tensor> nonlinearRhs(const std::vector<torch::Tensor> & U);
+
+  /// the block-diagonal preconditioner: y_i solves the linear part of field i with r_i, from 0
+  SolveResult applyFieldSolves(const std::vector<torch::Tensor> & r,
+                               std::vector<torch::Tensor> & y);
+
+  /// defect correction U <- U - P^-1 F(U), with P the field solves (TORCH_PCG backend)
+  SolveResult solveNonlinearTorch(std::vector<torch::Tensor> & U);
+
+  /// SNES with the field solves as the preconditioner of A (PETSC backend)
+  SolveResult solveNonlinearPetsc(std::vector<torch::Tensor> & U);
+  /// create the coupled vectors, the shell A and the SNES (prefix nonlinear_)
+  void setupNonlinearPetsc();
+  /// preonly KSP with the field solves as a shell preconditioner
+  void setFieldSolvePreconditioner(SNES snes);
+
+  /// the fields' owned blocks of a coupled vector's local array
+  std::vector<torch::Tensor> coupledViews(PetscScalar * array, PetscMemType memtype) const;
+
+  /// SNESSetPicard callbacks, the coupled shell's MATOP_MULT and the shell preconditioner
+  static PetscErrorCode nonlinearRhsCallback(SNES snes, Vec x, Vec b, void * ctx);
+  static PetscErrorCode nonlinearJacobianCallback(SNES snes, Vec x, Mat A, Mat P, void * ctx);
+  static PetscErrorCode coupledMult(Mat A, Vec x, Vec y);
+  static PetscErrorCode fieldSolvePCApply(PC pc, Vec r, Vec y);
 
   enum class LinearSolver
   {
@@ -159,6 +222,18 @@ protected:
 
   /// smooth the PCMG levels by Gershgorin-weighted damped Jacobi instead of Chebyshev
   const bool _damped_jacobi;
+
+  /// iterate the coupled nonlinear step instead of lagging the explicit terms
+  const bool _nonlinear_solve;
+  /// relative and absolute tolerances on ||A U - b(U)||_2 and the iteration limit
+  const Real _nl_rel_tol;
+  const Real _nl_abs_tol;
+  const unsigned int _nl_max_its;
+  /// linear iterations of the field solves in the current nonlinear solve
+  unsigned int _linear_iterations = 0;
+  /// offset of each field's owned block in a coupled vector
+  std::vector<PetscInt> _coupled_offsets;
+  std::unique_ptr<NonlinearSolve> _nonlinear;
 
   std::vector<Field> _fields;
 

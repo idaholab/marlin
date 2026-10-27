@@ -64,6 +64,14 @@ public:
 private:
   TensorProblem & _problem;
 };
+
+/// a PETSc option of the nonlinear solve (prefix nonlinear_) rather than of the field solves
+bool
+isNonlinearOption(const std::string & name)
+{
+  const auto lower = MooseUtils::toLower(name);
+  return lower.rfind("-snes", 0) == 0 || lower.rfind("-npc_", 0) == 0;
+}
 }
 
 InputParameters
@@ -99,7 +107,28 @@ ImplicitFDSolver::validParams()
       "SOR on the coarse levels on CPU and Jacobi on the fine level and on CUDA; DAMPED_JACOBI "
       "is Jacobi weighted by the Gershgorin bound of each level operator.");
 
-  // PETSc options of the PETSC backend, applied with the prefix <buffer>_
+  params.addParam<bool>(
+      "nonlinear_solve",
+      false,
+      "Iterate each step to convergence of the coupled system sum_i A_i u = sum_i r_i + f(U) of "
+      "all fields, with the explicit computes and buffer-valued boundary data re-evaluated at the "
+      "iterate and at t + dt (backward Euler). The field solves precondition the iteration. "
+      "Without it the explicit terms are evaluated once per step, at t (lagged).");
+  params.addRangeCheckedParam<Real>("nl_rel_tol",
+                                    1e-8,
+                                    "nl_rel_tol >= 0",
+                                    "Relative tolerance on the coupled residual 2-norm of the "
+                                    "nonlinear solve, relative to its initial value");
+  params.addRangeCheckedParam<Real>("nl_abs_tol",
+                                    1e-12,
+                                    "nl_abs_tol >= 0",
+                                    "Absolute tolerance on the coupled residual 2-norm of the "
+                                    "nonlinear solve");
+  params.addRangeCheckedParam<unsigned int>(
+      "nl_max_its", 50, "nl_max_its > 0", "Maximum number of nonlinear iterations");
+
+  // PETSc options of the PETSC backend: options starting with -snes or -npc_ go to the nonlinear
+  // solve (prefix nonlinear_), all others to each field's solve (prefix <buffer>_)
   params += Moose::PetscSupport::getPetscValidParams();
   params.suppressParameter<MooseEnum>("solve_type");
   params.suppressParameter<MooseEnum>("mffd_type");
@@ -112,7 +141,11 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
     IterativeTensorSolverInterface(),
     _l_tol(getParam<Real>("l_tol")),
     _l_max_its(getParam<unsigned int>("l_max_its")),
-    _damped_jacobi(getParam<MooseEnum>("smoother") == "DAMPED_JACOBI")
+    _damped_jacobi(getParam<MooseEnum>("smoother") == "DAMPED_JACOBI"),
+    _nonlinear_solve(getParam<bool>("nonlinear_solve")),
+    _nl_rel_tol(getParam<Real>("nl_rel_tol")),
+    _nl_abs_tol(getParam<Real>("nl_abs_tol")),
+    _nl_max_its(getParam<unsigned int>("nl_max_its"))
 {
   // backend selection
   const auto device = MooseTensor::floatTensorOptions().device();
@@ -149,6 +182,25 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
       if (isParamSetByUser(name))
         paramError(name, "This parameter is not used by linear_solver = TORCH_PCG.");
 
+  if (!_nonlinear_solve)
+  {
+    for (const auto & name : {"nl_rel_tol", "nl_abs_tol", "nl_max_its"})
+      if (isParamSetByUser(name))
+        paramError(name, "This parameter is used only with nonlinear_solve = true.");
+    std::vector<std::string> option_names;
+    for (const auto & flag : getParam<MultiMooseEnum>("petsc_options"))
+      option_names.push_back(flag.rawName());
+    for (const auto & name : getParam<MultiMooseEnum>("petsc_options_iname"))
+      option_names.push_back(name.rawName());
+    for (const auto & name : option_names)
+      if (isNonlinearOption(name))
+        paramError("petsc_options",
+                   "The option '",
+                   name,
+                   "' configures the nonlinear solve, which is used only with nonlinear_solve = "
+                   "true.");
+  }
+
   // the operators act on ghosted real space buffers
   if (!_domain.isRealSpaceMode())
     mooseError("ImplicitFDSolver requires Domain/parallel_mode = REAL_SPACE.");
@@ -166,6 +218,12 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
 
   // PETSc matches option names case-insensitively, so such fields would share a prefix
   for (const auto i : index_range(buffers))
+  {
+    if (MooseUtils::toLower(buffers[i]) == "nonlinear")
+      paramError("buffer",
+                 "A field named '",
+                 buffers[i],
+                 "' would share the PETSc options prefix of the nonlinear solve.");
     for (const auto j : make_range(i))
       if (MooseUtils::toLower(buffers[i]) == MooseUtils::toLower(buffers[j]))
         paramError("buffer",
@@ -174,6 +232,7 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                    "' and '",
                    buffers[i],
                    "' differ only in case, so their PETSc options prefixes would collide.");
+  }
 
   _fields.reserve(buffers.size());
   for (const auto i : make_range(buffers.size()))
@@ -343,18 +402,18 @@ ImplicitFDSolver::findExplicitComputes()
 void
 ImplicitFDSolver::substep()
 {
-  // update the explicit terms (sources)
+  // update the explicit terms (sources); the nonlinear solve evaluates them at its iterates
   if (!_explicit_computes_found)
     findExplicitComputes();
-  for (auto * cmp : _explicit_computes)
-    cmp->realSpaceComputeBuffer();
-  forwardBuffers();
+  if (!_nonlinear_solve)
+  {
+    for (auto * cmp : _explicit_computes)
+      cmp->realSpaceComputeBuffer();
+    forwardBuffers();
+  }
 
   _iterations = 0;
   _is_converged = true;
-  // boundary functions are evaluated at the time level of the unknown, t + dt; buffer values
-  // are those the explicit computes above wrote, at t
-  const FixedBoundaryDataGuard fixed_boundary_data(_tensor_problem, _sub_dt);
   for (auto & field : _fields)
   {
     // sum_i r_i, evaluated while u still holds u^n (each r_i reads its own field only)
@@ -369,91 +428,28 @@ ImplicitFDSolver::substep()
     field._u = field._u.clone();
   }
 
+  if (_nonlinear_solve)
+  {
+    nonlinearSubstep();
+    return;
+  }
+
+  // boundary functions are evaluated at the time level of the unknown, t + dt; buffer values
+  // are those the explicit computes above wrote, at t
+  const FixedBoundaryDataGuard fixed_boundary_data(_tensor_problem, _sub_dt);
   for (auto & field : _fields)
   {
-    // b = sum_i r_i + f
-    torch::Tensor b = field._rhs_old.clone();
-    if (field._source)
-      b += field._source->ownedView();
-
     // warm start from u_old
     torch::Tensor x = field._u_base.ownedView().clone(torch::MemoryFormat::Contiguous);
+    torch::Tensor b = fieldRhs(field);
 
-    // with boundary faces the operator action is affine, sum_i A_i x + g with g from the boundary
-    // values: solve the linear part with b - g (g = sum_i A_i 0, for the current values)
-    if (std::any_of(field._face_bcs.begin(),
-                    field._face_bcs.end(),
-                    [](const auto * face_bc) { return face_bc; }))
-    {
-      field._affine = applyOperator(field, torch::zeros_like(b));
-      b -= field._affine;
-    }
-
-    if (field._singular)
-    {
-      // remove only a round-off mean: pairwise summation errs by ~log2(N) eps sum|b|
-      // (Higham, ch. 4); 16 covers rounding in b and the cross-rank reduction. The round-off
-      // left in a conserved source (e.g. the mean of a decaying c) is that of its largest
-      // magnitude, so the scale is the largest sum|b| so far, not the current one
-      const auto n_cells = static_cast<Real>(_domain.getNumberOfCells());
-      const Real eps = b.scalar_type() == torch::kFloat ? std::numeric_limits<float>::epsilon()
-                                                        : std::numeric_limits<double>::epsilon();
-      const Real b_sum = _domain.allreduceSum(b.sum()).cpu().item<double>();
-      field._max_b_abs_sum =
-          std::max(field._max_b_abs_sum, _domain.allreduceSum(b.abs().sum()).cpu().item<double>());
-      if (std::abs(b_sum) > 16.0 * std::log2(n_cells) * eps * field._max_b_abs_sum)
-        mooseError("The operator of field '",
-                   field._name,
-                   "' is singular (its nullspace is the constants), so the right-hand side must "
-                   "have zero mean, but its mean is ",
-                   b_sum / n_cells,
-                   ".");
-      b -= b_sum / n_cells;
-    }
-
-    // with A 1 = lambda 1 (A symmetric), the sum of the equations fixes the mean of the exact
-    // solution, mean(x) = mean(b) / lambda: the Krylov error in the constant mode is set to zero
-    // after the solve (e.g. mass of a conserved field on periodic or Neumann faces)
-    const Real lambda = field._singular ? 0.0 : constantEigenvalue(field);
-    const Real b_mean = lambda > 0.0 ? _domain.allreduceSum(b.sum()).cpu().item<double>() /
-                                           static_cast<Real>(_domain.getNumberOfCells())
-                                     : 0.0;
-
-    SolveResult result;
-    const Real b_norm = std::sqrt(_domain.allreduceSum((b * b).sum()).cpu().item<double>());
-    if (b_norm == 0.0)
-      // the zero-mean solution of A x = 0 is x = 0
-      x.zero_();
-    else if (_linear_solver == LinearSolver::PETSC)
-      result = solvePetsc(field, b, x);
-    else
-      result = solveTorchPCG(field, b, b_norm, x);
+    const auto result = solveField(field, b, x);
     _iterations += result.iterations;
-
     if (!result.failure.empty())
     {
-      // only a TensorSolveIterationAdaptiveDT time stepper cuts dt on a failed solve, and
-      // the old states are already advanced past a failed later substep
-      const auto * transient = dynamic_cast<const TransientBase *>(_app.getExecutioner());
-      if (_substeps > 1 || !transient ||
-          !dynamic_cast<const TensorSolveIterationAdaptiveDT *>(transient->getTimeStepper()))
-        mooseError(result.failure,
-                   " Use the TensorSolveIterationAdaptiveDT time stepper (with substeps = 1) to "
-                   "retry the step with a smaller dt.");
-
-      _console << result.failure << std::endl;
-      // retry from the previous state of every field
-      for (auto & f : _fields)
-        f._u = f._u_old;
-      _is_converged = false;
+      failSubstep(result.failure);
       return;
     }
-
-    if (field._singular)
-      x -= _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
-    else if (lambda > 0.0)
-      x += b_mean / lambda -
-           _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
 
     // write x into u and apply the operators to it once more, so that their output buffers
     // hold A_i u (with the boundary values) rather than A_i of the last Krylov vector
@@ -461,6 +457,98 @@ ImplicitFDSolver::substep()
     _tensor_problem.exchangeGhostLayers(field._name,
                                         _tensor_problem.getBufferGhostLayers(field._name));
   }
+}
+
+torch::Tensor
+ImplicitFDSolver::fieldRhs(Field & field)
+{
+  // b = sum_i r_i + f
+  torch::Tensor b = field._rhs_old.clone();
+  if (field._source)
+    b += field._source->ownedView();
+
+  // with boundary faces the operator action is affine, sum_i A_i x + g with g from the boundary
+  // values: solve the linear part with b - g (g = sum_i A_i 0, for the current values)
+  if (std::any_of(field._face_bcs.begin(),
+                  field._face_bcs.end(),
+                  [](const auto * face_bc) { return face_bc; }))
+  {
+    field._affine = applyOperator(field, torch::zeros_like(b));
+    b -= field._affine;
+  }
+
+  if (field._singular)
+  {
+    // remove only a round-off mean: pairwise summation errs by ~log2(N) eps sum|b|
+    // (Higham, ch. 4); 16 covers rounding in b and the cross-rank reduction. The round-off
+    // left in a conserved source (e.g. the mean of a decaying c) is that of its largest
+    // magnitude, so the scale is the largest sum|b| so far, not the current one
+    const auto n_cells = static_cast<Real>(_domain.getNumberOfCells());
+    const Real eps = b.scalar_type() == torch::kFloat ? std::numeric_limits<float>::epsilon()
+                                                      : std::numeric_limits<double>::epsilon();
+    const Real b_sum = _domain.allreduceSum(b.sum()).cpu().item<double>();
+    field._max_b_abs_sum =
+        std::max(field._max_b_abs_sum, _domain.allreduceSum(b.abs().sum()).cpu().item<double>());
+    if (std::abs(b_sum) > 16.0 * std::log2(n_cells) * eps * field._max_b_abs_sum)
+      mooseError("The operator of field '",
+                 field._name,
+                 "' is singular (its nullspace is the constants), so the right-hand side must "
+                 "have zero mean, but its mean is ",
+                 b_sum / n_cells,
+                 ".");
+    b -= b_sum / n_cells;
+  }
+  return b;
+}
+
+ImplicitFDSolver::SolveResult
+ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x)
+{
+  // with A 1 = lambda 1 (A symmetric), the sum of the equations fixes the mean of the exact
+  // solution, mean(x) = mean(b) / lambda: the Krylov error in the constant mode is set to zero
+  // after the solve (e.g. mass of a conserved field on periodic or Neumann faces)
+  const Real lambda = field._singular ? 0.0 : constantEigenvalue(field);
+  const Real b_mean = lambda > 0.0 ? _domain.allreduceSum(b.sum()).cpu().item<double>() /
+                                         static_cast<Real>(_domain.getNumberOfCells())
+                                   : 0.0;
+
+  SolveResult result;
+  const Real b_norm = std::sqrt(_domain.allreduceSum((b * b).sum()).cpu().item<double>());
+  if (b_norm == 0.0)
+    // the zero-mean solution of A x = 0 is x = 0
+    x.zero_();
+  else if (_linear_solver == LinearSolver::PETSC)
+    result = solvePetsc(field, b, x);
+  else
+    result = solveTorchPCG(field, b, b_norm, x);
+  if (!result.failure.empty())
+    return result;
+
+  if (field._singular)
+    x -= _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
+  else if (lambda > 0.0)
+    x += b_mean / lambda -
+         _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
+  return result;
+}
+
+void
+ImplicitFDSolver::failSubstep(const std::string & failure)
+{
+  // only a TensorSolveIterationAdaptiveDT time stepper cuts dt on a failed solve, and
+  // the old states are already advanced past a failed later substep
+  const auto * transient = dynamic_cast<const TransientBase *>(_app.getExecutioner());
+  if (_substeps > 1 || !transient ||
+      !dynamic_cast<const TensorSolveIterationAdaptiveDT *>(transient->getTimeStepper()))
+    mooseError(failure,
+               " Use the TensorSolveIterationAdaptiveDT time stepper (with substeps = 1) to "
+               "retry the step with a smaller dt.");
+
+  _console << failure << std::endl;
+  // retry from the previous state of every field
+  for (auto & field : _fields)
+    field._u = field._u_old;
+  _is_converged = false;
 }
 
 torch::Tensor
@@ -669,19 +757,22 @@ onCuda()
 }
 
 void
-ImplicitFDSolver::insertPetscOptions(const Field & field)
+ImplicitFDSolver::insertPetscOptions(const std::string & prefix, bool nonlinear)
 {
-  const auto prefix = petscPrefix(field._name);
+  // the options of the nonlinear solve or those of the field solves
+  auto flags = getParam<MultiMooseEnum>("petsc_options");
+  for (const auto & flag : getParam<MultiMooseEnum>("petsc_options"))
+    if (isNonlinearOption(flag.rawName()) != nonlinear)
+      flags.eraseSetValue(flag.rawName());
+  std::vector<std::pair<MooseEnumItem, std::string>> pairs;
+  for (const auto & pair :
+       getParam<MooseEnumItem, std::string>("petsc_options_iname", "petsc_options_value"))
+    if (isNonlinearOption(pair.first.rawName()) == nonlinear)
+      pairs.push_back(pair);
 
   Moose::PetscSupport::PetscOptions po;
-  Moose::PetscSupport::addPetscFlagsToPetscOptions(
-      getParam<MultiMooseEnum>("petsc_options"), prefix, *this, po);
-  Moose::PetscSupport::addPetscPairsToPetscOptions(
-      getParam<MooseEnumItem, std::string>("petsc_options_iname", "petsc_options_value"),
-      _dim,
-      prefix,
-      *this,
-      po);
+  Moose::PetscSupport::addPetscFlagsToPetscOptions(flags, prefix, *this, po);
+  Moose::PetscSupport::addPetscPairsToPetscOptions(pairs, _dim, prefix, *this, po);
 
   // global database, so the PCMG level KSPs (prefix <buffer>_mg_levels_*) see them too
   for (const auto & flag : po.flags)
@@ -828,7 +919,7 @@ ImplicitFDSolver::setupPetsc(Field & field)
 
   assembleCoarseLevels(field);
 
-  insertPetscOptions(field);
+  insertPetscOptions(petscPrefix(field._name), false);
   // PCMG would build new levels without the hierarchy above (and fail in PCSetUp)
   PetscBool user_levels;
   PetscCallAbort(comm,
@@ -1138,5 +1229,450 @@ ImplicitFDSolver::shellDiagonal(Mat A, Vec d)
   PetscCall(VecRestoreArrayWriteAndMemType(d, &array));
   PetscCheck(
       ierr == PETSC_SUCCESS, PETSC_COMM_SELF, ierr, "The Jacobi diagonal threw an exception");
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+void
+ImplicitFDSolver::nonlinearSubstep()
+{
+  // the explicit computes run at the time level of the unknown, so the converged step is
+  // backward Euler A U = u^n/dt + f(U, t + dt) (D15); the boundary functions stay at t + dt
+  // through the shifted time, and the buffer-valued boundary data follow every iterate (D16)
+  _sub_time += _sub_dt;
+  _tensor_problem.beginFixedBoundaryData(0.0);
+
+  // a singular field's solution is the zero-mean one, as in the lagged scheme; the corrections
+  // have zero mean, so the initial iterate is projected
+  std::vector<torch::Tensor> U;
+  for (auto & field : _fields)
+  {
+    U.push_back(field._u_base.ownedView().clone(torch::MemoryFormat::Contiguous));
+    if (field._singular)
+      U.back() -=
+          _domain.allreduceSum(U.back().sum()) / static_cast<Real>(_domain.getNumberOfCells());
+  }
+
+  _linear_iterations = 0;
+  SolveResult result;
+  try
+  {
+    result =
+        _linear_solver == LinearSolver::PETSC ? solveNonlinearPetsc(U) : solveNonlinearTorch(U);
+  }
+  catch (...)
+  {
+    _tensor_problem.endFixedBoundaryData();
+    _sub_time -= _sub_dt;
+    throw;
+  }
+  // the time stepper's signal is the number of nonlinear iterations (D14)
+  _iterations = result.iterations;
+  _console << "Nonlinear solve: " << result.iterations << " iterations, " << _linear_iterations
+           << " linear iterations." << std::endl;
+
+  if (!result.failure.empty())
+    failSubstep(result.failure);
+  else
+    // the fields, the explicit terms and the operator output buffers at the converged U
+    nonlinearRhs(U);
+
+  _tensor_problem.endFixedBoundaryData();
+  _sub_time -= _sub_dt;
+}
+
+std::vector<torch::Tensor>
+ImplicitFDSolver::nonlinearRhs(const std::vector<torch::Tensor> & U)
+{
+  // every field holds its iterate before any explicit compute runs (Jacobi, D11), so b(U) does
+  // not depend on the field order
+  for (const auto i : index_range(_fields))
+  {
+    applyOperator(_fields[i], U[i]);
+    _tensor_problem.exchangeGhostLayers(_fields[i]._name, _tensor_problem.getMaxGhostLayer());
+  }
+  for (auto * cmp : _explicit_computes)
+    cmp->realSpaceComputeBuffer();
+  forwardBuffers();
+  // the buffer-valued boundary data from the explicit terms at U
+  _tensor_problem.beginFixedBoundaryData(0.0);
+
+  std::vector<torch::Tensor> b;
+  for (auto & field : _fields)
+    b.push_back(fieldRhs(field));
+
+  // fieldRhs applied the operators to 0 (for the affine part): give their outputs A_i U again
+  for (const auto i : index_range(_fields))
+    if (_fields[i]._affine.defined())
+      applyOperator(_fields[i], U[i]);
+  return b;
+}
+
+ImplicitFDSolver::SolveResult
+ImplicitFDSolver::applyFieldSolves(const std::vector<torch::Tensor> & r,
+                                   std::vector<torch::Tensor> & y)
+{
+  SolveResult total;
+  for (const auto i : index_range(_fields))
+  {
+    auto & field = _fields[i];
+    // the correction solves the linear part from x0 = 0, with the field's mean handling
+    auto b = r[i].clone(torch::MemoryFormat::Contiguous);
+    y[i] = torch::zeros_like(b, torch::MemoryFormat::Contiguous);
+    if (field._singular)
+      // the mean of a singular field's residual is the round-off fieldRhs left
+      b -= _domain.allreduceSum(b.sum()) / static_cast<Real>(_domain.getNumberOfCells());
+    const auto result = solveField(field, b, y[i]);
+    total.iterations += result.iterations;
+    if (!result.failure.empty())
+    {
+      total.failure = result.failure;
+      return total;
+    }
+  }
+  return total;
+}
+
+ImplicitFDSolver::SolveResult
+ImplicitFDSolver::solveNonlinearTorch(std::vector<torch::Tensor> & U)
+{
+  // defect correction U <- U - P^-1 F(U), F(U) = A U - b(U), with P the field solves (as
+  // SNESSetPicard with the full step), and the tests of SNESConvergedDefault on ||F||_2 (D12)
+  std::vector<torch::Tensor> F(_fields.size()), dU(_fields.size());
+  Real F0_norm = 0.0;
+  for (unsigned int it = 0;; ++it)
+  {
+    const auto b = nonlinearRhs(U);
+    Real F_norm_sq = 0.0;
+    for (const auto i : index_range(_fields))
+    {
+      F[i] = applyLinearOperator(_fields[i], U[i]) - b[i];
+      F_norm_sq += _domain.allreduceSum((F[i] * F[i]).sum()).cpu().item<double>();
+    }
+    const Real F_norm = std::sqrt(F_norm_sq);
+    if (it == 0)
+      F0_norm = F_norm;
+
+    if (!std::isfinite(F_norm))
+      return {it, "The nonlinear solve diverged: the residual norm is not finite."};
+    if (F_norm < _nl_abs_tol || (it > 0 && F_norm <= _nl_rel_tol * F0_norm))
+      return {it, ""};
+    if (it == _nl_max_its)
+    {
+      std::ostringstream failure;
+      failure << "The nonlinear solve did not converge in " << _nl_max_its
+              << " iterations (relative residual " << F_norm / F0_norm
+              << ", nl_rel_tol = " << _nl_rel_tol << ").";
+      return {it, failure.str()};
+    }
+
+    const auto result = applyFieldSolves(F, dU);
+    _linear_iterations += result.iterations;
+    if (!result.failure.empty())
+      return {it, result.failure};
+    for (const auto i : index_range(_fields))
+      U[i] -= dU[i];
+  }
+}
+
+ImplicitFDSolver::NonlinearSolve::~NonlinearSolve()
+{
+  PetscCallAbort(PETSC_COMM_WORLD, SNESDestroy(&snes));
+  PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&A));
+  PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&x));
+  PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&r));
+}
+
+namespace
+{
+/// torch's current stream and PETSc's: work on one waits for the other (CUDA only)
+void
+syncStreams(bool petsc_waits)
+{
+#if MARLIN_PETSC_CUDA
+  if (!onCuda())
+    return;
+  cudaStream_t petsc_stream;
+  PetscCallAbort(PETSC_COMM_SELF, PetscGetCurrentCUDAStream(&petsc_stream));
+  const auto petsc = c10::cuda::getStreamFromExternal(petsc_stream, c10::cuda::current_device());
+  const auto torch_stream = c10::cuda::getCurrentCUDAStream();
+  at::cuda::CUDAEvent done;
+  done.record(petsc_waits ? torch_stream : petsc);
+  done.block(petsc_waits ? petsc : torch_stream);
+#else
+  libmesh_ignore(petsc_waits);
+#endif
+}
+}
+
+ImplicitFDSolver::SolveResult
+ImplicitFDSolver::solveNonlinearPetsc(std::vector<torch::Tensor> & U)
+{
+  if (!_nonlinear)
+    setupNonlinearPetsc();
+  auto & nl = *_nonlinear;
+  const auto comm = PetscObjectComm((PetscObject)nl.snes);
+
+  // the coupled iterate from the fields' owned blocks
+  {
+    PetscScalar * array;
+    PetscMemType memtype;
+    PetscCallAbort(comm, VecGetArrayWriteAndMemType(nl.x, &array, &memtype));
+    const auto views = coupledViews(array, memtype);
+    for (const auto i : index_range(_fields))
+      views[i].copy_(U[i]);
+    PetscCallAbort(comm, VecRestoreArrayWriteAndMemType(nl.x, &array));
+  }
+
+  syncStreams(true);
+  nl.exception = nullptr;
+  nl.failure.clear();
+  const auto ierr = SNESSolve(nl.snes, nullptr, nl.x);
+  syncStreams(false);
+  // an exception from a callback is rethrown here, outside PETSc's frames
+  if (nl.exception)
+    std::rethrow_exception(nl.exception);
+  PetscCallAbort(comm, ierr);
+
+  {
+    const PetscScalar * array;
+    PetscMemType memtype;
+    PetscCallAbort(comm, VecGetArrayReadAndMemType(nl.x, &array, &memtype));
+    const auto views = coupledViews(const_cast<PetscScalar *>(array), memtype);
+    for (const auto i : index_range(_fields))
+      U[i].copy_(views[i]);
+    PetscCallAbort(comm, VecRestoreArrayReadAndMemType(nl.x, &array));
+  }
+
+  SNESConvergedReason reason;
+  PetscInt iterations;
+  PetscCallAbort(comm, SNESGetConvergedReason(nl.snes, &reason));
+  PetscCallAbort(comm, SNESGetIterationNumber(nl.snes, &iterations));
+  if (reason < 0)
+  {
+    std::string failure = "The nonlinear solve failed after " + std::to_string(iterations) +
+                          " iterations: " + SNESConvergedReasons[reason] + ".";
+    if (!nl.failure.empty())
+      failure += " " + nl.failure;
+    return {static_cast<unsigned int>(iterations), failure};
+  }
+  return {static_cast<unsigned int>(iterations), ""};
+}
+
+void
+ImplicitFDSolver::setupNonlinearPetsc()
+{
+  _nonlinear = std::make_unique<NonlinearSolve>();
+  auto & nl = *_nonlinear;
+  const auto comm = _domain.getMPIComm();
+
+  // a coupled vector holds the owned cells of every field, in field order
+  PetscInt local = 0;
+  _coupled_offsets.clear();
+  for (const auto & field : _fields)
+  {
+    _coupled_offsets.push_back(local);
+    local += field._u_base.ownedView().numel();
+  }
+  const PetscInt global = PetscInt(_fields.size()) * _domain.getNumberOfCells();
+
+  const bool cuda = onCuda();
+  if (cuda)
+  {
+#if MARLIN_PETSC_CUDA
+    PetscCallAbort(comm, VecCreateMPICUDA(comm, local, global, &nl.x));
+#endif
+  }
+  else
+    PetscCallAbort(comm, VecCreateMPI(comm, local, global, &nl.x));
+  PetscCallAbort(comm, VecDuplicate(nl.x, &nl.r));
+
+  // A, block-diagonal over the fields: the Picard operator of SNESSetPicard
+  PetscCallAbort(comm, MatCreateShell(comm, local, local, global, global, this, &nl.A));
+  PetscCallAbort(comm, MatShellSetOperation(nl.A, MATOP_MULT, (void (*)(void))coupledMult));
+#if MARLIN_PETSC_CUDA
+  if (cuda)
+    PetscCallAbort(comm, MatShellSetVecType(nl.A, VECCUDA));
+#endif
+
+  // F(U) = A U - b(U) with A as the Jacobian (right preconditioning by the field solves);
+  // -nonlinear_snes_mf_operator gives Newton-Krylov with A as the preconditioner
+  PetscCallAbort(comm, SNESCreate(comm, &nl.snes));
+  PetscCallAbort(comm, SNESSetOptionsPrefix(nl.snes, "nonlinear_"));
+  PetscCallAbort(
+      comm,
+      SNESSetPicard(
+          nl.snes, nl.r, nonlinearRhsCallback, nl.A, nl.A, nonlinearJacobianCallback, this));
+  // defaults, set before SNESSetFromOptions so that user options win: the full Picard defect
+  // correction (D13) with the tests on ||F||_2 alone, no step length test (D12)
+  PetscCallAbort(comm, SNESSetType(nl.snes, SNESNEWTONLS));
+  SNESLineSearch linesearch;
+  PetscCallAbort(comm, SNESGetLineSearch(nl.snes, &linesearch));
+  PetscCallAbort(comm, SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC));
+  PetscCallAbort(comm,
+                 SNESSetTolerances(
+                     nl.snes, _nl_abs_tol, _nl_rel_tol, 0.0, PetscInt(_nl_max_its), PETSC_CURRENT));
+  // no divergence test, as in the TORCH_PCG loop: a growing residual fails at nl_max_its
+  PetscCallAbort(comm, SNESSetDivergenceTolerance(nl.snes, PETSC_UNLIMITED));
+  setFieldSolvePreconditioner(nl.snes);
+
+  insertPetscOptions("nonlinear_", true);
+  PetscCallAbort(comm, SNESSetFromOptions(nl.snes));
+
+  // a nonlinear preconditioner (-nonlinear_npc_snes_type, e.g. under anderson) uses the field
+  // solves and the full step too, unless its options say otherwise (read again in SNESSetUp)
+  PetscBool has_npc;
+  PetscCallAbort(comm, SNESHasNPC(nl.snes, &has_npc));
+  if (has_npc)
+  {
+    SNES npc;
+    PetscCallAbort(comm, SNESGetNPC(nl.snes, &npc));
+    PetscCallAbort(comm, SNESGetLineSearch(npc, &linesearch));
+    PetscCallAbort(comm, SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC));
+    setFieldSolvePreconditioner(npc);
+  }
+}
+
+void
+ImplicitFDSolver::setFieldSolvePreconditioner(SNES snes)
+{
+  const auto comm = PetscObjectComm((PetscObject)snes);
+  KSP ksp;
+  PC pc;
+  PetscCallAbort(comm, SNESGetKSP(snes, &ksp));
+  // one application of the field solves (each converged to l_tol) per correction
+  PetscCallAbort(comm, KSPSetType(ksp, KSPPREONLY));
+  PetscCallAbort(comm, KSPGetPC(ksp, &pc));
+  PetscCallAbort(comm, PCSetType(pc, PCSHELL));
+  PetscCallAbort(comm, PCShellSetContext(pc, this));
+  PetscCallAbort(comm, PCShellSetApply(pc, fieldSolvePCApply));
+  PetscCallAbort(comm, PCShellSetName(pc, "ImplicitFDSolver field solves"));
+}
+
+std::vector<torch::Tensor>
+ImplicitFDSolver::coupledViews(PetscScalar * array, PetscMemType memtype) const
+{
+  auto options = MooseTensor::floatTensorOptions().device(torch::kCPU);
+#if MARLIN_PETSC_CUDA
+  if (PetscMemTypeDevice(memtype))
+    options = options.device(torch::kCUDA, c10::cuda::current_device());
+#else
+  libmesh_ignore(memtype);
+#endif
+  std::vector<torch::Tensor> views;
+  for (const auto i : index_range(_fields))
+    views.push_back(torch::from_blob(
+        array + _coupled_offsets[i], _fields[i]._u_base.ownedView().sizes().vec(), options));
+  return views;
+}
+
+namespace
+{
+/// run f(x_array, x_memtype, y_array, y_memtype) on the arrays of x (read) and y (written), with
+/// torch on PETSc's stream; a C++ exception must not unwind through PETSc's frames, so it is
+/// kept in exception
+template <typename F>
+PetscErrorCode
+withCoupledArrays(Vec x, Vec y, std::exception_ptr & exception, F && f)
+{
+  const PetscScalar * x_array;
+  PetscScalar * y_array;
+  PetscMemType x_memtype, y_memtype;
+  PetscFunctionBeginUser;
+  PetscCall(VecGetArrayReadAndMemType(x, &x_array, &x_memtype));
+  PetscCall(VecGetArrayWriteAndMemType(y, &y_array, &y_memtype));
+#if MARLIN_PETSC_CUDA
+  std::unique_ptr<PetscStreamGuard> guard;
+  if (PetscMemTypeDevice(x_memtype))
+    guard = std::make_unique<PetscStreamGuard>();
+#endif
+  PetscErrorCode ierr = PETSC_SUCCESS;
+  try
+  {
+    f(const_cast<PetscScalar *>(x_array), x_memtype, y_array, y_memtype);
+  }
+  catch (...)
+  {
+    exception = std::current_exception();
+    ierr = PETSC_ERR_LIB;
+  }
+  PetscCall(VecRestoreArrayReadAndMemType(x, &x_array));
+  PetscCall(VecRestoreArrayWriteAndMemType(y, &y_array));
+  PetscCheck(ierr == PETSC_SUCCESS, PETSC_COMM_SELF, ierr, "A callback threw an exception");
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+}
+
+PetscErrorCode
+ImplicitFDSolver::nonlinearRhsCallback(SNES, Vec x, Vec b, void * ctx)
+{
+  auto * solver = static_cast<ImplicitFDSolver *>(ctx);
+  return withCoupledArrays(
+      x,
+      b,
+      solver->_nonlinear->exception,
+      [solver](PetscScalar * x_array, PetscMemType x_mt, PetscScalar * b_array, PetscMemType b_mt)
+      {
+        const auto rhs = solver->nonlinearRhs(solver->coupledViews(x_array, x_mt));
+        const auto out = solver->coupledViews(b_array, b_mt);
+        for (const auto i : index_range(out))
+          out[i].copy_(rhs[i]);
+      });
+}
+
+PetscErrorCode
+ImplicitFDSolver::nonlinearJacobianCallback(SNES, Vec, Mat, Mat, void *)
+{
+  // nothing to assemble: the shell applies the operators as they stand (their coefficients are
+  // explicit terms of the step)
+  return PETSC_SUCCESS;
+}
+
+PetscErrorCode
+ImplicitFDSolver::coupledMult(Mat A, Vec x, Vec y)
+{
+  ImplicitFDSolver * solver;
+  PetscFunctionBeginUser;
+  PetscCall(MatShellGetContext(A, &solver));
+  PetscCall(withCoupledArrays(
+      x,
+      y,
+      solver->_nonlinear->exception,
+      [solver](PetscScalar * x_array, PetscMemType x_mt, PetscScalar * y_array, PetscMemType y_mt)
+      {
+        const auto in = solver->coupledViews(x_array, x_mt);
+        const auto out = solver->coupledViews(y_array, y_mt);
+        for (const auto i : index_range(out))
+          out[i].copy_(solver->applyLinearOperator(solver->_fields[i], in[i]));
+      }));
+  PetscFunctionReturn(PETSC_SUCCESS);
+}
+
+PetscErrorCode
+ImplicitFDSolver::fieldSolvePCApply(PC pc, Vec r, Vec y)
+{
+  ImplicitFDSolver * solver;
+  PetscFunctionBeginUser;
+  PetscCall(PCShellGetContext(pc, &solver));
+  SolveResult result;
+  PetscCall(withCoupledArrays(
+      r,
+      y,
+      solver->_nonlinear->exception,
+      [solver,
+       &result](PetscScalar * r_array, PetscMemType r_mt, PetscScalar * y_array, PetscMemType y_mt)
+      {
+        const auto rhs = solver->coupledViews(r_array, r_mt);
+        std::vector<torch::Tensor> correction(rhs.size());
+        result = solver->applyFieldSolves(rhs, correction);
+        const auto out = solver->coupledViews(y_array, y_mt);
+        for (const auto i : index_range(out))
+          if (correction[i].defined())
+            out[i].copy_(correction[i]);
+      }));
+  solver->_linear_iterations += result.iterations;
+  // a failed field solve fails the preconditioner, and so the (preonly) KSP and the SNES
+  if (!result.failure.empty())
+    solver->_nonlinear->failure = result.failure;
+  PetscCall(PCSetFailedReason(pc, result.failure.empty() ? PC_NOERROR : PC_SUBPC_ERROR));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
