@@ -1563,6 +1563,29 @@ leaves a mean of $3$--$5\times10^{-13}$ in $\phi$'s right-hand side, above the
 singular-field check. With \texttt{-npc\_snes\_type newtonls} (whose linear
 solve is the field-solve PC) both converge to round-off. Documented in
 \texttt{ImplicitFDSolver.md}; no code change (user, 2026-10-26).
+
+\textbf{Validation: the bicrystal area rate.} \texttt{bicrystal.i} (PFHub 9a's
+model) with Anderson, $r_0 = 100$, interface width 30, domain 320, to $t = 20$;
+slope of the area fitted over $t \in [5, 20]$, against $-2\pi L\kappa$:
+\begin{center}
+\begin{tabular}{lrrr}
+ & $dt = 0.5$ & $0.25$ & $0.125$ \\
+$h = 10$ & & $-3.12\%$ & $-3.35\%$ \\
+$h = 5$ & $+1.27\%$ & $+0.74\%$ & $+0.50\%$ \\
+$h = 2.5$ & $+2.15\%$ & $+1.62\%$ & $+1.37\%$ \\
+$h = 1.25$ & & $+1.83\%$ & $+1.58\%$ \\
+\end{tabular}
+\end{center}
+The spatial error is second order (differences $3.85$, $0.87$, $0.21$ points
+between successive $h$) and the time error first order ($0.53$, $0.25$). The
+converged deviation is about $+1.4\%$: a property of the model at $r_0 = 100$, not
+of the discretisation. The sharp-interface rate holds only for $r \gg$ the interface
+width ($r_0/w \approx 3.3$ here), and the deviation grows as the grain shrinks
+($+0.9\%$ over $[5,10]$, $+2.1\%$ over $[15,20]$ at $h = 2.5$, $dt = 0.125$). At
+$h = 5$ the negative spatial error happens to cancel most of it: that is why the
+deviation grew under refinement. Checks: a domain of 480 gives the same slope to
+four digits (no periodic-image effect); $r_0 = 200$ ($h = 2.5$, $dt = 0.25$,
+domain 640) gives $-0.01\%$.
 \textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
 source's derivative with respect to its own field (a per-cell diagonal from
 autograd) to that field's operator, with Newton-Krylov (autograd Jacobian
