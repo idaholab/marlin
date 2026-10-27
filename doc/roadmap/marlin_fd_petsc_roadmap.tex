@@ -1519,7 +1519,12 @@ sources evaluated at $U$. Today's field-by-field linear solve with $A$ (PCMG or
 torch PCG) is the preconditioner. PETSc SNES drives the iteration, so the method
 is a \texttt{petsc\_options} choice: Picard (\texttt{nrichardson}), Anderson,
 NGMRES, and later Newton-Krylov. A plain Picard loop in torch covers the torch-only
-backend.
+backend. The nonlinear driver is chosen independently of the linear solver
+(\texttt{nonlinear\_solver = AUTO|PETSC|TORCH}, user, 2026-10-27), so the SNES
+methods also run over the torch field solves, e.g.\ on MPS. The SNES vectors are
+on the device with a CUDA PETSc and on the host otherwise; host vectors with
+device field solves copy every iterate, and the solver warns at the first solve.
+Empty \texttt{petsc\_options} lists count as no options.
 \begin{itemize}
 \item \textbf{D11, ordering.} Every source in an iterate comes from the iterate
   of all fields (Jacobi), so each iterate and the converged result are

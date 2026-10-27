@@ -1292,8 +1292,9 @@
       input = be_mode.i
       cli_args = "TensorSolver/linear_solver=TORCH_PCG TensorSolver/petsc_options_iname='-pc_type' "
                  "TensorSolver/petsc_options_value='jacobi'"
-      expect_err = 'This parameter is not used by linear_solver = TORCH_PCG'
-      detail = 'with PETSc options for the torch linear solver,'
+      expect_err = "The option '-pc_type' configures the field solves, which use PETSc only with "
+                   "linear_solver = PETSC."
+      detail = 'with PETSc options of the field solves for the torch linear solver,'
     []
     [smoother_with_torch_pcg]
       type = RunException
@@ -1446,6 +1447,18 @@
       compute_devices = 'cpu'
       detail = 'nonlinear GMRES,'
     []
+    [anderson_torch]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # PETSc's nonlinear solve (selected by its options) over the torch field solves
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/ngmres'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing over the torch field solves,'
+    []
     [torch_mps]
       type = CSVDiff
       input = coupled_backward_euler.i
@@ -1456,7 +1469,22 @@
       abs_zero = 1e-6
       rel_err = 1e-5
       compute_devices = 'mps'
-      detail = 'and the plain Picard iteration of the torch solver in single precision on MPS.'
+      detail = 'the plain Picard iteration of the torch solver in single precision on MPS, and'
+    []
+    [anderson_torch_mps]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # PETSc's vectors on the host, the field solves on MPS; tolerances as for torch_mps
+      cli_args = "TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 "
+                 "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-6
+      rel_err = 1e-5
+      allow_warnings = true
+      expect_out = 'PETSc.s nonlinear solve keeps its vectors on the host while the field solves run on .mps.'
+      compute_devices = 'mps'
+      detail = 'Anderson mixing over the torch field solves in single precision on MPS.'
     []
   []
 
@@ -1504,11 +1532,42 @@
       # MPS has no double precision: tolerances single precision reaches (1e-6 stalls at a
       # relative residual of 8e-6); the measured differences are 1.1e-6 relative in the area and
       # 5e-7 in the extremes
-      cli_args = 'dt=0.25 TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 Outputs/file_base=bicrystal_picard'
+      cli_args = "dt=0.25 TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 "
+                 "TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
+                 "Outputs/file_base=bicrystal_picard"
       csvdiff = bicrystal_picard.csv
       rel_err = 1e-5
       compute_devices = 'mps'
-      detail = 'the plain Picard iteration of the torch solver in single precision on MPS.'
+      detail = 'the plain Picard iteration of the torch solver in single precision on MPS,'
+    []
+    [anderson_torch]
+      type = CSVDiff
+      input = bicrystal.i
+      # PETSc's nonlinear solve over the torch field solves, at the time step of anderson
+      cli_args = "TensorSolver/linear_solver=TORCH_PCG TensorSolver/petsc_options_iname='-snes_type "
+                 "-npc_snes_type' TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      prereq = 'nonlinear_bicrystal/anderson'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing over the torch field solves, and'
+    []
+    [anderson_torch_mps]
+      type = CSVDiff
+      input = bicrystal.i
+      # PETSc's vectors on the host, the field solves on MPS, at the time step beyond Picard
+      cli_args = "TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 "
+                 "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      # single precision against the double gold: 6.8e-7 measured
+      rel_err = 1e-5
+      allow_warnings = true
+      expect_out = 'PETSc.s nonlinear solve keeps its vectors on the host while the field solves run on .mps.'
+      compute_devices = 'mps'
+      detail = 'Anderson mixing over the torch field solves in single precision on MPS.'
     []
   []
 

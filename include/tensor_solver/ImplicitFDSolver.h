@@ -186,18 +186,22 @@ protected:
   SolveResult applyFieldSolves(const std::vector<torch::Tensor> & r,
                                std::vector<torch::Tensor> & y);
 
-  /// defect correction U <- U - P^-1 F(U), with P the field solves (TORCH_PCG backend)
+  /// defect correction U <- U - P^-1 F(U), with P the field solves (nonlinear_solver = TORCH)
   SolveResult solveNonlinearTorch(std::vector<torch::Tensor> & U);
 
-  /// SNES with the field solves as the preconditioner of A (PETSC backend)
+  /// SNES with the field solves as the preconditioner of A (nonlinear_solver = PETSC), with
+  /// either linear solver
   SolveResult solveNonlinearPetsc(std::vector<torch::Tensor> & U);
   /// create the coupled vectors, the shell A and the SNES (prefix nonlinear_)
   void setupNonlinearPetsc();
   /// preonly KSP with the field solves as a shell preconditioner
   void setFieldSolvePreconditioner(SNES snes);
 
-  /// the fields' owned blocks of a coupled vector's local array
+  /// the fields' owned blocks of a coupled vector's local array, on PETSc's side (host or CUDA)
   std::vector<torch::Tensor> coupledViews(PetscScalar * array, PetscMemType memtype) const;
+  /// the same blocks as the field solves take them: on the torch device and dtype (a copy when
+  /// PETSc's vectors live on the host and torch on a device or in single precision)
+  std::vector<torch::Tensor> toFieldTensors(const std::vector<torch::Tensor> & views) const;
 
   /// SNESSetPicard callbacks, the coupled shell's MATOP_MULT and the shell preconditioner
   static PetscErrorCode nonlinearRhsCallback(SNES snes, Vec x, Vec b, void * ctx);
@@ -213,6 +217,15 @@ protected:
 
   /// selected linear solver backend
   LinearSolver _linear_solver;
+
+  enum class NonlinearSolver
+  {
+    PETSC,
+    TORCH
+  };
+
+  /// selected nonlinear solver backend (with nonlinear_solve)
+  NonlinearSolver _nonlinear_solver;
 
   /// relative tolerance on the unpreconditioned residual 2-norm
   const Real _l_tol;

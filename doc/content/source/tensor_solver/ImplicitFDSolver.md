@@ -86,8 +86,21 @@ on every device, in single precision on devices without double precision support
 ## Nonlinear iteration
 
 With `nonlinear_solve = true` each step is iterated to the fully implicit backward Euler step of
-all fields. On the `PETSC` backend a PETSc SNES (options prefix `nonlinear_`) drives the
-iteration: options starting with `-snes` or `-npc_` in `petsc_options` go to it. The default is the
+all fields. `nonlinear_solver` picks the driver independently of `linear_solver`: `TORCH` is a
+plain Picard iteration in torch, `PETSC` a PETSc SNES (options prefix `nonlinear_`), and `AUTO`
+selects `PETSC` with `linear_solver = PETSC` or when nonlinear options are given, `TORCH`
+otherwise. Options starting with `-snes` or `-npc_` in `petsc_options` go to the SNES; the other
+options configure the field solves and are an error unless `linear_solver = PETSC`. Empty option
+lists count as no options.
+
+The SNES can drive the torch field solves, e.g. Anderson mixing on MPS. Its vectors then live on
+the host (also on CUDA when PETSc is built without CUDA; with a CUDA PETSc they stay on the
+device), so every residual, operator product and preconditioner application copies the iterate
+between host and device, in double precision on the host and the device precision on the device.
+This works but is slow, and the solver warns at the first solve; `nonlinear_solver = TORCH` keeps
+the iteration on the device.
+
+On the SNES the default is the
 Picard iteration, with the field solves as its preconditioner. It converges only while the
 explicit terms vary slowly enough with the fields, roughly $\Delta t\, L f'' < 1$ for an
 Allen-Cahn reaction. Anderson mixing or nonlinear GMRES extend that several times. They must take

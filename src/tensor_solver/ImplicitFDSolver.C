@@ -126,9 +126,20 @@ ImplicitFDSolver::validParams()
                                     "nonlinear solve");
   params.addRangeCheckedParam<unsigned int>(
       "nl_max_its", 50, "nl_max_its > 0", "Maximum number of nonlinear iterations");
+  MooseEnum nonlinear_solver("AUTO PETSC TORCH", "AUTO");
+  params.addParam<MooseEnum>(
+      "nonlinear_solver",
+      nonlinear_solver,
+      "Nonlinear solver backend of nonlinear_solve: PETSC is PETSc's SNES (methods by "
+      "petsc_options, e.g. Anderson), TORCH the plain Picard iteration. Either works with either "
+      "linear solver; with PETSc's vectors on the host and the field solves on a GPU (MPS, or "
+      "CUDA without a CUDA PETSc), every iterate is copied between them. AUTO selects PETSC with "
+      "linear_solver = PETSC or when nonlinear options (-snes_*, -npc_*) are given, TORCH "
+      "otherwise.");
 
-  // PETSc options of the PETSC backend: options starting with -snes or -npc_ go to the nonlinear
-  // solve (prefix nonlinear_), all others to each field's solve (prefix <buffer>_)
+  // PETSc options: options starting with -snes or -npc_ go to the nonlinear solve (prefix
+  // nonlinear_, nonlinear_solver = PETSC), all others to each field's solve (prefix <buffer>_,
+  // linear_solver = PETSC)
   params += Moose::PetscSupport::getPetscValidParams();
   params.suppressParameter<MooseEnum>("solve_type");
   params.suppressParameter<MooseEnum>("mffd_type");
@@ -176,30 +187,56 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                  "The PETSC linear solver on CUDA requires PETSc and libtorch built with CUDA. Use "
                  "linear_solver = TORCH_PCG.");
   }
-  else
-    for (const auto & name :
-         {"petsc_options", "petsc_options_iname", "petsc_options_value", "smoother"})
-      if (isParamSetByUser(name))
-        paramError(name, "This parameter is not used by linear_solver = TORCH_PCG.");
+  else if (isParamSetByUser("smoother"))
+    paramError("smoother", "This parameter is not used by linear_solver = TORCH_PCG.");
 
-  if (!_nonlinear_solve)
+  // the PETSc options given (an empty list sets none), split into those of the field solves and
+  // those of the nonlinear solve
+  std::vector<std::string> field_options, nonlinear_options;
   {
-    for (const auto & name : {"nl_rel_tol", "nl_abs_tol", "nl_max_its"})
-      if (isParamSetByUser(name))
-        paramError(name, "This parameter is used only with nonlinear_solve = true.");
     std::vector<std::string> option_names;
     for (const auto & flag : getParam<MultiMooseEnum>("petsc_options"))
       option_names.push_back(flag.rawName());
     for (const auto & name : getParam<MultiMooseEnum>("petsc_options_iname"))
       option_names.push_back(name.rawName());
     for (const auto & name : option_names)
-      if (isNonlinearOption(name))
-        paramError("petsc_options",
-                   "The option '",
-                   name,
-                   "' configures the nonlinear solve, which is used only with nonlinear_solve = "
-                   "true.");
+      (isNonlinearOption(name) ? nonlinear_options : field_options).push_back(name);
   }
+  if (!field_options.empty() && _linear_solver != LinearSolver::PETSC)
+    paramError("petsc_options",
+               "The option '",
+               field_options.front(),
+               "' configures the field solves, which use PETSc only with linear_solver = PETSC.");
+
+  if (!_nonlinear_solve)
+  {
+    for (const auto & name : {"nl_rel_tol", "nl_abs_tol", "nl_max_its", "nonlinear_solver"})
+      if (isParamSetByUser(name))
+        paramError(name, "This parameter is used only with nonlinear_solve = true.");
+    if (!nonlinear_options.empty())
+      paramError("petsc_options",
+                 "The option '",
+                 nonlinear_options.front(),
+                 "' configures the nonlinear solve, which is used only with nonlinear_solve = "
+                 "true.");
+  }
+
+  // PETSc's SNES drives the nonlinear iteration with either linear solver; AUTO picks it with
+  // the PETSc linear solver or when its options are given, the torch Picard loop otherwise
+  const auto & nonlinear_solver = getParam<MooseEnum>("nonlinear_solver");
+  if (nonlinear_solver == "AUTO")
+    _nonlinear_solver = _linear_solver == LinearSolver::PETSC || !nonlinear_options.empty()
+                            ? NonlinearSolver::PETSC
+                            : NonlinearSolver::TORCH;
+  else
+    _nonlinear_solver =
+        nonlinear_solver == "PETSC" ? NonlinearSolver::PETSC : NonlinearSolver::TORCH;
+  if (_nonlinear_solver == NonlinearSolver::TORCH && !nonlinear_options.empty())
+    paramError("petsc_options",
+               "The option '",
+               nonlinear_options.front(),
+               "' configures PETSc's nonlinear solve, which is not used with nonlinear_solver = "
+               "TORCH.");
 
   // the operators act on ghosted real space buffers
   if (!_domain.isRealSpaceMode())
@@ -1260,8 +1297,8 @@ ImplicitFDSolver::nonlinearSubstep()
   SolveResult result;
   try
   {
-    result =
-        _linear_solver == LinearSolver::PETSC ? solveNonlinearPetsc(U) : solveNonlinearTorch(U);
+    result = _nonlinear_solver == NonlinearSolver::PETSC ? solveNonlinearPetsc(U)
+                                                         : solveNonlinearTorch(U);
   }
   catch (...)
   {
@@ -1406,6 +1443,15 @@ syncStreams(bool petsc_waits)
   libmesh_ignore(petsc_waits);
 #endif
 }
+
+/// copy a field tensor into a coupled view: move to PETSc's device, then cast (MPS holds no
+/// double)
+void
+copyToCoupled(const torch::Tensor & view, const torch::Tensor & field)
+{
+  torch::Tensor out = view;
+  out.copy_(field.to(view.device()));
+}
 }
 
 ImplicitFDSolver::SolveResult
@@ -1423,7 +1469,7 @@ ImplicitFDSolver::solveNonlinearPetsc(std::vector<torch::Tensor> & U)
     PetscCallAbort(comm, VecGetArrayWriteAndMemType(nl.x, &array, &memtype));
     const auto views = coupledViews(array, memtype);
     for (const auto i : index_range(_fields))
-      views[i].copy_(U[i]);
+      copyToCoupled(views[i], U[i]);
     PetscCallAbort(comm, VecRestoreArrayWriteAndMemType(nl.x, &array));
   }
 
@@ -1441,9 +1487,9 @@ ImplicitFDSolver::solveNonlinearPetsc(std::vector<torch::Tensor> & U)
     const PetscScalar * array;
     PetscMemType memtype;
     PetscCallAbort(comm, VecGetArrayReadAndMemType(nl.x, &array, &memtype));
-    const auto views = coupledViews(const_cast<PetscScalar *>(array), memtype);
+    const auto tensors = toFieldTensors(coupledViews(const_cast<PetscScalar *>(array), memtype));
     for (const auto i : index_range(_fields))
-      U[i].copy_(views[i]);
+      U[i].copy_(tensors[i]);
     PetscCallAbort(comm, VecRestoreArrayReadAndMemType(nl.x, &array));
   }
 
@@ -1479,7 +1525,9 @@ ImplicitFDSolver::setupNonlinearPetsc()
   }
   const PetscInt global = PetscInt(_fields.size()) * _domain.getNumberOfCells();
 
-  const bool cuda = onCuda();
+  // the coupled vectors on the torch device where PETSc can hold them (CUDA with a CUDA PETSc),
+  // on the host otherwise, where every iterate passes through a copy
+  const bool cuda = onCuda() && MARLIN_PETSC_CUDA;
   if (cuda)
   {
 #if MARLIN_PETSC_CUDA
@@ -1489,6 +1537,16 @@ ImplicitFDSolver::setupNonlinearPetsc()
   else
     PetscCallAbort(comm, VecCreateMPI(comm, local, global, &nl.x));
   PetscCallAbort(comm, VecDuplicate(nl.x, &nl.r));
+  const auto device = MooseTensor::floatTensorOptions().device();
+  if (!cuda && !device.is_cpu())
+    mooseWarning("PETSc's nonlinear solve keeps its vectors on the host while the field solves "
+                 "run on '",
+                 device.str(),
+                 "'",
+                 device.is_cuda() ? " (PETSc is not built with CUDA)" : "",
+                 ": every residual, operator product and preconditioner application copies "
+                 "the iterate between them. This works but is slow; nonlinear_solver = TORCH "
+                 "keeps the iteration on the device.");
 
   // A, block-diagonal over the fields: the Picard operator of SNESSetPicard
   PetscCallAbort(comm, MatCreateShell(comm, local, local, global, global, this, &nl.A));
@@ -1555,7 +1613,10 @@ ImplicitFDSolver::setFieldSolvePreconditioner(SNES snes)
 std::vector<torch::Tensor>
 ImplicitFDSolver::coupledViews(PetscScalar * array, PetscMemType memtype) const
 {
-  auto options = MooseTensor::floatTensorOptions().device(torch::kCPU);
+  // PETSc's scalar type, which is not torch's with the field solves in single precision
+  auto options = torch::TensorOptions()
+                     .dtype(c10::CppTypeToScalarType<PetscScalar>::value)
+                     .device(torch::kCPU);
 #if MARLIN_PETSC_CUDA
   if (PetscMemTypeDevice(memtype))
     options = options.device(torch::kCUDA, c10::cuda::current_device());
@@ -1567,6 +1628,17 @@ ImplicitFDSolver::coupledViews(PetscScalar * array, PetscMemType memtype) const
     views.push_back(torch::from_blob(
         array + _coupled_offsets[i], _fields[i]._u_base.ownedView().sizes().vec(), options));
   return views;
+}
+
+std::vector<torch::Tensor>
+ImplicitFDSolver::toFieldTensors(const std::vector<torch::Tensor> & views) const
+{
+  // cast on PETSc's side, then move: MPS holds no double; no copy when device and dtype match
+  const auto options = MooseTensor::floatTensorOptions();
+  std::vector<torch::Tensor> tensors;
+  for (const auto & view : views)
+    tensors.push_back(view.to(options.dtype()).to(options.device()));
+  return tensors;
 }
 
 namespace
@@ -1616,10 +1688,11 @@ ImplicitFDSolver::nonlinearRhsCallback(SNES, Vec x, Vec b, void * ctx)
       solver->_nonlinear->exception,
       [solver](PetscScalar * x_array, PetscMemType x_mt, PetscScalar * b_array, PetscMemType b_mt)
       {
-        const auto rhs = solver->nonlinearRhs(solver->coupledViews(x_array, x_mt));
+        const auto rhs =
+            solver->nonlinearRhs(solver->toFieldTensors(solver->coupledViews(x_array, x_mt)));
         const auto out = solver->coupledViews(b_array, b_mt);
         for (const auto i : index_range(out))
-          out[i].copy_(rhs[i]);
+          copyToCoupled(out[i], rhs[i]);
       });
 }
 
@@ -1643,10 +1716,10 @@ ImplicitFDSolver::coupledMult(Mat A, Vec x, Vec y)
       solver->_nonlinear->exception,
       [solver](PetscScalar * x_array, PetscMemType x_mt, PetscScalar * y_array, PetscMemType y_mt)
       {
-        const auto in = solver->coupledViews(x_array, x_mt);
+        const auto in = solver->toFieldTensors(solver->coupledViews(x_array, x_mt));
         const auto out = solver->coupledViews(y_array, y_mt);
         for (const auto i : index_range(out))
-          out[i].copy_(solver->applyLinearOperator(solver->_fields[i], in[i]));
+          copyToCoupled(out[i], solver->applyLinearOperator(solver->_fields[i], in[i]));
       }));
   PetscFunctionReturn(PETSC_SUCCESS);
 }
@@ -1665,13 +1738,13 @@ ImplicitFDSolver::fieldSolvePCApply(PC pc, Vec r, Vec y)
       [solver,
        &result](PetscScalar * r_array, PetscMemType r_mt, PetscScalar * y_array, PetscMemType y_mt)
       {
-        const auto rhs = solver->coupledViews(r_array, r_mt);
+        const auto rhs = solver->toFieldTensors(solver->coupledViews(r_array, r_mt));
         std::vector<torch::Tensor> correction(rhs.size());
         result = solver->applyFieldSolves(rhs, correction);
         const auto out = solver->coupledViews(y_array, y_mt);
         for (const auto i : index_range(out))
           if (correction[i].defined())
-            out[i].copy_(correction[i]);
+            copyToCoupled(out[i], correction[i]);
       }));
   solver->_linear_iterations += result.iterations;
   // a failed field solve fails the preconditioner, and so the (preonly) KSP and the SNES
