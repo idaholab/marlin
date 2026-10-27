@@ -1633,13 +1633,57 @@ restriction of the diagonal (as D6).
 
 \pr{7}{Port SBM/KKS No-Flux Example to the Implicit FD Path}
 \textbf{Scope:} reimplement \texttt{test/tests/kks/KKS\_no\_flux\_bc.i} with
-\texttt{TensorNeumannBC} zero-flux faces instead of the \texttt{psi} mask.
+\texttt{TensorNeumannBC} zero-flux faces instead of the \texttt{psi} mask
+(\texttt{test/tests/implicit\_fd/kks\_no\_flux.i}).
 
-\textbf{Verification:} interface evolution against the spectral
-\texttt{psi}-masked version; total-concentration conservation.
+\textbf{Decisions (user, 2026-10-27).}
+\begin{itemize}
+  \item \textbf{Geometry.} The solve region of the masked input, the strip
+    $-20 < x < 20$, periodic in $y$ over $[-50, 50]$, with sharp zero-flux faces at
+    $x = \pm 20$ in place of the diffuse SBM walls (half width $l = 4.2$). Near the walls
+    the two differ at order $l$, so the port is a related boundary problem, not a
+    reproduction of the masked one. Grid spacing 1 (the masked input's 5 does not resolve
+    the interface).
+  \item \textbf{Split.} Both parabolas have the curvature $2\rho^2 = 4$ in $c$, so
+    $\mu = 4c + g(\eta)$ exactly. $c$: implicit $\partial_t c - 4M\nabla^2 c$ with the
+    source $M\nabla^2 g$ (Neumann faces of $g$); $\eta$: implicit
+    $\partial_t\eta - L\kappa\nabla^2\eta$ with the source $-L\,\partial F/\partial\eta$ at
+    fixed $c$. The PR6 nonlinear solve (Anderson) iterates the sources to the fully implicit
+    backward Euler step, in place of the explicit AB3 with 1000 substeps.
+  \item \textbf{Verification.} No gated comparison with the masked run and no MOOSE build;
+    conservation, energy decrease, convergence, a mirror test and the spectral solver on
+    the unmasked periodic problem.
+\end{itemize}
 
-\status{proposed. Depends on PR5 (its no-flux biharmonic if the KKS equations carry
-a fourth-order term) and PR6.}
+\textbf{Results} ($dt = 0.1$, 10 steps, $dx = 1$ unless varied):
+\begin{itemize}
+  \item total $c$ conserved to $5\times10^{-13}$ (of 1738); the free energy decreases
+    every step at every resolution tried.
+  \item The strip equals the mirrored initial condition on the doubled periodic domain
+    $-20 < x < 60$ (halved integrals) to $3\times10^{-14}$ relative: the test's gold.
+  \item $dt$ halved four times: differences of $\int\eta$ and $F$ at $t = 1$ fall by
+    2.03--2.11 per halving (first order). $dx$ halved twice: by 4.00--4.07 (second order).
+  \item The extrapolated limit ($dt, dx \to 0$) of $\int\eta$ is within
+    $7.7\times10^{-2}$ ($3\times10^{-5}$ relative) of the spectral AB3 solver on the doubled
+    periodic domain without the mask at $dx = 0.5$, whose own change from $dx = 1$ is
+    $7.6\times10^{-2}$. The spectral run at $dx = 0.25$ gives NaN; not investigated.
+  \item PETSc multigrid and torch PCG (CPU), 1 and 4 ranks agree with the gold to
+    $10^{-9}$. 26--31 Anderson iterations per step at $dt = 0.1$, 8 at $dt = 0.00625$.
+  \item MPS (single precision): the nonlinear residual stalls at $10^{-5}$ of its initial
+    value in the second step and the iteration does not converge at
+    \texttt{nl\_rel\_tol} $= 10^{-5}$ or $5\times10^{-5}$; no MPS test. Open.
+\end{itemize}
+
+\textbf{Example} (\texttt{examples/implicit\_kks/KKS\_no\_flux\_implicit.i}): to $t = 100$
+with \texttt{TensorSolveIterationAdaptiveDT}, 682 steps, total $c$ conserved to
+$4\times10^{-12}$, energy non-increasing (88.43 to 42.02). As the grain relaxes the initial
+residual of a step falls to $10^{-2}$ and \texttt{nl\_rel\_tol} $= 10^{-10}$ of it is below
+the residual's round-off ($10^{-12}$), so with the relative test alone the iteration stalled
+and the step was cut to \texttt{dtmin} at $t = 40.8$. The example adds
+\texttt{nl\_abs\_tol} $= 10^{-9}$; the test input keeps the relative test only.
+
+\status{implemented on branch \texttt{implicit\_fd\_pr6} (2026-10-27); the review panel is
+open.}
 
 \pr{7b}{Second-Order Time Integration (BDF2)}
 \textbf{Scope (user, 2026-10-27):} BDF2 for the transient fields of
@@ -1703,7 +1747,7 @@ PR4a & AMG mixed mode, contingent & proposed & --- \\
 PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient) & --- \\
 PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & done (tag pr5a-steady-transient) \\
 PR6 & Picard, two-field coupling & implemented on \texttt{implicit\_fd\_pr6}, in review & coupled BE recurrence, time source, bicrystal Newton reference; CPU 1--4 ranks, MPS \\
-PR7 & SBM/KKS no-flux port & proposed & --- \\
+PR7 & SBM/KKS no-flux port & implemented, review open & --- \\
 PR7b & BDF2 time integration & proposed (user, 2026-10-27) & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\
 --- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\

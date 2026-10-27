@@ -1787,4 +1787,54 @@
       detail = 'with a relative nonlinear tolerance of 1 or more.'
     []
   []
+
+  [kks_no_flux]
+    issues = '#192'
+    requirement = 'The system shall step the Kim-Kim-Suzuki model with zero-flux faces fully implicitly, conserving the total concentration to round-off and decreasing the free energy, and match the mirrored initial condition on the doubled periodic domain (the gold: its integrals halved), with'
+    # the strip and the mirrored periodic run agree to 3e-14 relative; the dt and dx studies
+    # converge at first and second order, and their limit is within 3e-5 of the spectral AB3
+    # solver on the doubled periodic domain without the mask (doc/roadmap, PR7)
+    [petsc]
+      type = CSVDiff
+      input = kks_no_flux.i
+      cli_args = 'Outputs/file_base=kks_no_flux'
+      csvdiff = kks_no_flux.csv
+      rel_err = 1e-9
+      # the change of the total concentration is round-off, 1e-12
+      override_columns = 'total_c_change'
+      override_rel_err = '1'
+      override_abs_zero = '1e-10'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver,'
+    []
+    [petsc_4_ranks]
+      type = CSVDiff
+      input = kks_no_flux.i
+      cli_args = 'Outputs/file_base=kks_no_flux'
+      csvdiff = kks_no_flux.csv
+      rel_err = 1e-9
+      override_columns = 'total_c_change'
+      override_rel_err = '1'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_no_flux/petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver on 4 ranks, and'
+    []
+    [torch]
+      type = CSVDiff
+      input = kks_no_flux.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=kks_no_flux'
+      csvdiff = kks_no_flux.csv
+      rel_err = 1e-9
+      override_columns = 'total_c_change'
+      override_rel_err = '1'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_no_flux/petsc_4_ranks'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver under the PETSc Anderson iteration.'
+    []
+  []
 []
