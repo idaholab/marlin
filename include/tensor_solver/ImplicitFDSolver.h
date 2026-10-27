@@ -87,9 +87,6 @@ protected:
     std::unique_ptr<PetscSolve> _petsc;
     /// boundary condition of u on each face (face 2d + upper; null on periodic faces)
     std::vector<const TensorRobinBC *> _face_bcs;
-    /// sum_i A_i 0, the boundary data's part of the affine operator action (undefined
-    /// without boundary faces); the linear operator sum_i A_i x applies them with zero face data
-    torch::Tensor _affine;
     /// u^n and sum_i r_i (the time derivatives' u^n/dt) of the current substep
     torch::Tensor _u_old;
     torch::Tensor _rhs_old;
@@ -108,7 +105,7 @@ protected:
   void findExplicitComputes();
 
   /// the right-hand side of the linear part, sum_i r_i + f - g, from the explicit terms in the
-  /// buffers (sets _affine = g; a singular field's round-off mean is removed)
+  /// buffers (a singular field's round-off mean is removed)
   torch::Tensor fieldRhs(Field & field);
 
   /// solve the linear part of sum_i A_i x = b with the selected backend, warm started from x,
@@ -123,8 +120,11 @@ protected:
   /// boundary conditions' ghost values, so affine on a domain with boundary faces
   torch::Tensor applyOperator(Field & field, const torch::Tensor & x);
 
-  /// the linear part of applyOperator: sum_i A_i x - sum_i A_i 0
+  /// the linear part of applyOperator: applyOperator with zero face data
   torch::Tensor applyLinearOperator(Field & field, const torch::Tensor & x);
+
+  /// whether u has a boundary face, so that applyOperator is affine
+  static bool hasBoundaryFaces(const Field & field);
 
   /// the Jacobi diagonal on the owned cells: the diagonal of the folded operator, which next to
   /// a boundary face includes the ghosts' dependence on the cell itself

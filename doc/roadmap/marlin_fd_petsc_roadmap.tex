@@ -1517,7 +1517,8 @@ $F(U) = A U - b(U) = 0$, with $A$ the sum of each field's
 \texttt{LinearFDOperator}s and $b(U)$ the $u^n/dt$ terms plus the explicit
 sources evaluated at $U$. Today's field-by-field linear solve with $A$ (PCMG or
 torch PCG) is the preconditioner. PETSc SNES drives the iteration, so the method
-is a \texttt{petsc\_options} choice: Picard (\texttt{nrichardson}), Anderson,
+is a \texttt{petsc\_options} choice: Picard (the default \texttt{newtonls} with the
+field solves as preconditioner and the basic line search), Anderson,
 NGMRES, and later Newton-Krylov. A plain Picard loop in torch covers the torch-only
 backend. The nonlinear driver is chosen independently of the linear solver
 (\texttt{nonlinear\_solver = AUTO|PETSC|TORCH}, user, 2026-10-27), so the SNES
@@ -1701,7 +1702,7 @@ PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push revie
 PR4a & AMG mixed mode, contingent & proposed & --- \\
 PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient) & --- \\
 PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & done (tag pr5a-steady-transient) \\
-PR6 & Picard, two-field coupling & proposed & --- \\
+PR6 & Picard, two-field coupling & implemented on \texttt{implicit\_fd\_pr6}, in review & coupled BE recurrence, time source, bicrystal Newton reference; CPU 1--4 ranks, MPS \\
 PR7 & SBM/KKS no-flux port & proposed & --- \\
 PR7b & BDF2 time integration & proposed (user, 2026-10-27) & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\

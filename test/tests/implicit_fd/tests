@@ -939,7 +939,20 @@
       prereq = 'pfhub_6a_nonlinear/petsc'
       compute_devices = 'cpu cuda'
       min_slots = 2 # memory heavy
-      detail = 'the torch preconditioned conjugate gradient solver.'
+      detail = 'the torch preconditioned conjugate gradient solver, and'
+    []
+    [petsc_3_ranks]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'end_time=0.01 TensorSolver/nonlinear_solve=true Outputs/file_base=pfhub_6a_nonlinear'
+      csvdiff = pfhub_6a_nonlinear.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      prereq = 'pfhub_6a_nonlinear/torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver on 3 ranks.'
     []
   []
 
@@ -1459,6 +1472,18 @@
       compute_devices = 'cpu'
       detail = 'Anderson mixing over the torch field solves,'
     []
+    [petsc_3_ranks]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/linear_solver=PETSC'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/anderson_torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'the PETSc nonlinear Picard iteration on 3 ranks,'
+    []
     [torch_mps]
       type = CSVDiff
       input = coupled_backward_euler.i
@@ -1551,7 +1576,21 @@
       rel_err = 1e-10
       prereq = 'nonlinear_bicrystal/anderson'
       compute_devices = 'cpu'
-      detail = 'Anderson mixing over the torch field solves, and'
+      detail = 'Anderson mixing over the torch field solves,'
+    []
+    [anderson_3_ranks]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      prereq = 'nonlinear_bicrystal/anderson_torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing on 3 ranks, and'
     []
     [anderson_torch_mps]
       type = CSVDiff
@@ -1621,6 +1660,21 @@
       compute_devices = 'cpu'
       detail = 'the nonlinear iteration does not converge,'
     []
+    [anderson_default_max_its]
+      type = RunApp
+      input = bicrystal.i
+      # nl_max_its at its default, 50 (bicrystal.i sets 200), also bounds a method chosen by
+      # option, whose own default is 10000 iterations
+      cli_args = "TensorSolver/nl_max_its=50 Executioner/num_steps=1 dt=4 "
+                 "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Executioner/TimeStepper/type=TensorSolveIterationAdaptiveDT "
+                 "Executioner/TimeStepper/dt=4 Executioner/TimeStepper/min_iterations=0 "
+                 "Executioner/TimeStepper/max_iterations=1000 Outputs/csv=false"
+      expect_out = 'The nonlinear solve failed after 50 iterations: DIVERGED_MAX_IT.*Solve failed, cutting timestep'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing does not converge within the default iteration limit,'
+    []
     [field_solve_petsc]
       type = RunApp
       input = cutback.i
@@ -1675,7 +1729,24 @@
       expect_err = "A field named 'nonlinear' would share the PETSc options prefix of the nonlinear "
                    "solve."
       compute_devices = 'cpu'
-      detail = 'with a field named like the prefix of the nonlinear solve options.'
+      detail = 'with a field named like the prefix of the nonlinear solve options,'
+    []
+    [field_name_prefixed]
+      type = RunException
+      input = time_source.i
+      cli_args = 'TensorSolver/buffer=nonlinear_npc'
+      expect_err = "A field named 'nonlinear_npc' would share the PETSc options prefix of the "
+                   "nonlinear solve."
+      compute_devices = 'cpu'
+      detail = 'with a field named with that prefix, and'
+    []
+    [nl_rel_tol_range]
+      type = RunException
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/nl_rel_tol=1'
+      expect_err = 'nl_rel_tol >= 0 & nl_rel_tol < 1'
+      compute_devices = 'cpu'
+      detail = 'with a relative nonlinear tolerance of 1 or more.'
     []
   []
 []

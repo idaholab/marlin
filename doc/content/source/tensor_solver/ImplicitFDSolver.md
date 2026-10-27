@@ -37,7 +37,8 @@ the mean of a non-conserved field follows from the summed equations in the same 
 
 The fields are solved one after another in the order of
 [!param](/TensorSolver/ImplicitFDSolver/buffer), with every explicit term, such as a source
-computed from another field, evaluated once before the first solve: each field sees the others at
+computed from another field, evaluated once before the first solve (without
+[!param](/TensorSolver/ImplicitFDSolver/nonlinear_solve); see below): each field sees the others at
 the start of the step, so the result does not depend on the order. A steady field (one without a
 time derivative) coupled to a transient field through such sources, e.g. a Poisson potential
 $-\nabla^2 \phi = s c$ with $\partial_t c = D \nabla^2 c + k \phi$, is computed from $c^n$, and the
@@ -52,8 +53,9 @@ previous solution. When a solve does not converge within
 (with one substep per time step); with any other time stepper it is an error. After the solve, the
 operators' output buffers hold the operators applied to the new solution.
 
-The [!param](/TensorSolver/ImplicitFDSolver/root_compute) is evaluated before every solve to
-update the explicit terms, such as the source. The field operators in it are skipped, since the
+The [!param](/TensorSolver/ImplicitFDSolver/root_compute) is evaluated before every solve (with
+[!param](/TensorSolver/ImplicitFDSolver/nonlinear_solve): at every iterate) to update the explicit
+terms, such as the source. The field operators in it are skipped, since the
 solve applies them itself.
 
 The `PETSC` linear solver (the default except on MPS) is PETSc's conjugate gradient method
@@ -111,17 +113,31 @@ petsc_options_iname = '-snes_type -npc_snes_type'
 petsc_options_value = 'anderson newtonls'
 ```
 
-Without `-npc_snes_type newtonls` these methods do not use the field solves at all: they mix the
-raw residuals (0 linear iterations). On a stiff problem they then fail to converge. Their iterates
-also need not keep the zero-mean right-hand side of a field with a singular operator: a field solve
-inside the residual evaluation then reports a mean above round-off.
+Without `-npc_snes_type newtonls` these methods (and `nrichardson`) do not use the field solves
+at all: they mix the raw residuals (0 linear iterations). On a stiff problem they then fail to
+converge. Their iterates also need not keep the zero-mean right-hand side of a field with a
+singular operator: the residual evaluation then stops with the error on the mean of that field.
+
+During the iteration the explicit computes run at every iterate and at the new time
+$t^{n+1}$, so the converged step is $A U = u^n/\Delta t + f(U, t^{n+1})$, and boundary values
+taken from buffers are refilled from the iterate. The iteration stops when
+$\|F(U)\|_2 <$ [!param](/TensorSolver/ImplicitFDSolver/nl_abs_tol) or
+$\|F(U)\|_2 \le$ [!param](/TensorSolver/ImplicitFDSolver/nl_rel_tol) $\|F(U^0)\|_2$, and fails
+after [!param](/TensorSolver/ImplicitFDSolver/nl_max_its) iterations (`-snes_rtol`, `-snes_atol`
+and `-snes_max_it` in `petsc_options` override these for the SNES). A failed step is retried with
+a smaller time step by `TensorSolveIterationAdaptiveDT`, starting again from $u^n$; with any other
+time stepper it is an error. The iteration count reported to the time stepper is the number of
+nonlinear iterations, so its `min_iterations` and `max_iterations` refer to them; the total of
+linear iterations is printed with it.
 
 ## Boundary conditions
 
 On a non-periodic axis, each face of $u$ has a [TensorDirichletBC.md], [TensorNeumannBC.md] or
 [TensorRobinBC.md] (see the [BCs system](syntax/TensorComputes/BCs/index.md) for face values and
-their timing). With boundary values the operator action is affine, $A u + g$, and the solver solves
-$A u = b - g$, with $g$ the action on $u = 0$, recomputed every solve. A Dirichlet face, or a Robin face with $a \ne 0$, makes the system
+their timing; with [!param](/TensorSolver/ImplicitFDSolver/nonlinear_solve), buffer values are
+those at the iterate). With boundary values the operator action is affine, $A u + g$, and the
+solver solves $A u = b - g$, with $g$ the action on $u = 0$, recomputed every solve. A Dirichlet
+face, or a Robin face with $a \ne 0$, makes the system
 definite; with Neumann faces only it keeps the constants as its nullspace, and the right-hand
 side, including the fluxes, must then have zero mean up to round-off. Source and fluxes that
 balance in the continuous problem generally leave a discrete mean of order $h^2$, which is an

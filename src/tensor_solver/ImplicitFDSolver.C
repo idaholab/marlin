@@ -116,7 +116,7 @@ ImplicitFDSolver::validParams()
       "Without it the explicit terms are evaluated once per step, at t (lagged).");
   params.addRangeCheckedParam<Real>("nl_rel_tol",
                                     1e-8,
-                                    "nl_rel_tol >= 0",
+                                    "nl_rel_tol >= 0 & nl_rel_tol < 1",
                                     "Relative tolerance on the coupled residual 2-norm of the "
                                     "nonlinear solve, relative to its initial value");
   params.addRangeCheckedParam<Real>("nl_abs_tol",
@@ -196,9 +196,9 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
   {
     std::vector<std::string> option_names;
     for (const auto & flag : getParam<MultiMooseEnum>("petsc_options"))
-      option_names.push_back(flag.rawName());
+      option_names.push_back(MooseUtils::toLower(flag.rawName()));
     for (const auto & name : getParam<MultiMooseEnum>("petsc_options_iname"))
-      option_names.push_back(name.rawName());
+      option_names.push_back(MooseUtils::toLower(name.rawName()));
     for (const auto & name : option_names)
       (isNonlinearOption(name) ? nonlinear_options : field_options).push_back(name);
   }
@@ -256,7 +256,8 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
   // PETSc matches option names case-insensitively, so such fields would share a prefix
   for (const auto i : index_range(buffers))
   {
-    if (MooseUtils::toLower(buffers[i]) == "nonlinear")
+    if (const auto name = MooseUtils::toLower(buffers[i]);
+        name == "nonlinear" || MooseUtils::startsWith(name, "nonlinear_"))
       paramError("buffer",
                  "A field named '",
                  buffers[i],
@@ -506,13 +507,8 @@ ImplicitFDSolver::fieldRhs(Field & field)
 
   // with boundary faces the operator action is affine, sum_i A_i x + g with g from the boundary
   // values: solve the linear part with b - g (g = sum_i A_i 0, for the current values)
-  if (std::any_of(field._face_bcs.begin(),
-                  field._face_bcs.end(),
-                  [](const auto * face_bc) { return face_bc; }))
-  {
-    field._affine = applyOperator(field, torch::zeros_like(b));
-    b -= field._affine;
-  }
+  if (hasBoundaryFaces(field))
+    b -= applyOperator(field, torch::zeros_like(b));
 
   if (field._singular)
   {
@@ -603,15 +599,27 @@ ImplicitFDSolver::applyOperator(Field & field, const torch::Tensor & x)
   return y;
 }
 
+bool
+ImplicitFDSolver::hasBoundaryFaces(const Field & field)
+{
+  return std::any_of(
+      field._face_bcs.begin(), field._face_bcs.end(), [](const auto * face_bc) { return face_bc; });
+}
+
 torch::Tensor
 ImplicitFDSolver::applyLinearOperator(Field & field, const torch::Tensor & x)
 {
   // the operator with zero boundary data is A x itself; (A x + g) - g would leave a round-off
   // error of eps |g|, a floor for the solve of a small right-hand side (a nonlinear correction)
+  // restored on every exit (an exception from the operator), to the caller's value if nested
+  struct HomogeneousScope
+  {
+    TensorProblem & problem;
+    const bool previous = problem.homogeneousBoundaryData();
+    ~HomogeneousScope() { problem.setHomogeneousBoundaryData(previous); }
+  } scope{_tensor_problem};
   _tensor_problem.setHomogeneousBoundaryData(true);
-  const auto y = applyOperator(field, x);
-  _tensor_problem.setHomogeneousBoundaryData(false);
-  return y;
+  return applyOperator(field, x);
 }
 
 namespace
@@ -1343,7 +1351,7 @@ ImplicitFDSolver::nonlinearRhs(const std::vector<torch::Tensor> & U)
 
   // fieldRhs applied the operators to 0 (for the affine part): give their outputs A_i U again
   for (const auto i : index_range(_fields))
-    if (_fields[i]._affine.defined())
+    if (hasBoundaryFaces(_fields[i]))
       applyOperator(_fields[i], U[i]);
   return b;
 }
@@ -1556,8 +1564,7 @@ ImplicitFDSolver::setupNonlinearPetsc()
     PetscCallAbort(comm, MatShellSetVecType(nl.A, VECCUDA));
 #endif
 
-  // F(U) = A U - b(U) with A as the Jacobian (right preconditioning by the field solves);
-  // -nonlinear_snes_mf_operator gives Newton-Krylov with A as the preconditioner
+  // F(U) = A U - b(U) with A as the Jacobian (right preconditioning by the field solves)
   PetscCallAbort(comm, SNESCreate(comm, &nl.snes));
   PetscCallAbort(comm, SNESSetOptionsPrefix(nl.snes, "nonlinear_"));
   PetscCallAbort(
@@ -1565,20 +1572,35 @@ ImplicitFDSolver::setupNonlinearPetsc()
       SNESSetPicard(
           nl.snes, nl.r, nonlinearRhsCallback, nl.A, nl.A, nonlinearJacobianCallback, this));
   // defaults, set before SNESSetFromOptions so that user options win: the full Picard defect
-  // correction (D13) with the tests on ||F||_2 alone, no step length test (D12)
+  // correction (D13); the tests on ||F||_2 alone, no step length test (D12), follow below
   PetscCallAbort(comm, SNESSetType(nl.snes, SNESNEWTONLS));
   SNESLineSearch linesearch;
   PetscCallAbort(comm, SNESGetLineSearch(nl.snes, &linesearch));
   PetscCallAbort(comm, SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC));
-  PetscCallAbort(comm,
-                 SNESSetTolerances(
-                     nl.snes, _nl_abs_tol, _nl_rel_tol, 0.0, PetscInt(_nl_max_its), PETSC_CURRENT));
-  // no divergence test, as in the TORCH_PCG loop: a growing residual fails at nl_max_its
-  PetscCallAbort(comm, SNESSetDivergenceTolerance(nl.snes, PETSC_UNLIMITED));
   setFieldSolvePreconditioner(nl.snes);
 
   insertPetscOptions("nonlinear_", true);
   PetscCallAbort(comm, SNESSetFromOptions(nl.snes));
+
+  // the tolerances after the options, since a type set there (e.g. anderson) resets them to its
+  // own defaults (10000 iterations); those given as options win. No divergence test, as in the
+  // torch loop: a growing residual fails at nl_max_its
+  const auto given = [comm](const char * name)
+  {
+    PetscBool set;
+    PetscCallAbort(comm, PetscOptionsHasName(nullptr, "nonlinear_", name, &set));
+    return bool(set);
+  };
+  const auto current = PetscReal(PETSC_CURRENT);
+  PetscCallAbort(comm,
+                 SNESSetTolerances(nl.snes,
+                                   given("-snes_atol") ? current : _nl_abs_tol,
+                                   given("-snes_rtol") ? current : _nl_rel_tol,
+                                   given("-snes_stol") ? current : 0.0,
+                                   given("-snes_max_it") ? PETSC_CURRENT : PetscInt(_nl_max_its),
+                                   PETSC_CURRENT));
+  if (!given("-snes_divergence_tolerance"))
+    PetscCallAbort(comm, SNESSetDivergenceTolerance(nl.snes, PETSC_UNLIMITED));
 
   // a nonlinear preconditioner (-nonlinear_npc_snes_type, e.g. under anderson) uses the field
   // solves and the full step too, unless its options say otherwise (read again in SNESSetUp)
