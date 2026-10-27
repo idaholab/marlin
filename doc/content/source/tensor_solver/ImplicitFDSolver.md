@@ -83,6 +83,26 @@ every field, and command line options (e.g. `-u_mg_levels_ksp_max_it 3`) overrid
 The `TORCH_PCG` linear solver is a Jacobi preconditioned conjugate gradient method in torch. It runs
 on every device, in single precision on devices without double precision support.
 
+## Nonlinear iteration
+
+With `nonlinear_solve = true` each step is iterated to the fully implicit backward Euler step of
+all fields. On the `PETSC` backend a PETSc SNES (options prefix `nonlinear_`) drives the
+iteration: options starting with `-snes` or `-npc_` in `petsc_options` go to it. The default is the
+Picard iteration, with the field solves as its preconditioner. It converges only while the
+explicit terms vary slowly enough with the fields, roughly $\Delta t\, L f'' < 1$ for an
+Allen-Cahn reaction. Anderson mixing or nonlinear GMRES extend that several times. They must take
+the field solves as their nonlinear preconditioner:
+
+```
+petsc_options_iname = '-snes_type -npc_snes_type'
+petsc_options_value = 'anderson newtonls'
+```
+
+Without `-npc_snes_type newtonls` these methods do not use the field solves at all: they mix the
+raw residuals (0 linear iterations). On a stiff problem they then fail to converge. Their iterates
+also need not keep the zero-mean right-hand side of a field with a singular operator: a field solve
+inside the residual evaluation then reports a mean above round-off.
+
 ## Boundary conditions
 
 On a non-periodic axis, each face of $u$ has a [TensorDirichletBC.md], [TensorNeumannBC.md] or

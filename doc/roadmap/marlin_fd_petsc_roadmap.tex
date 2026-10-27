@@ -1555,6 +1555,14 @@ backend.
   preconditioner does not see: strong coupling costs iterations or ends in a dt
   cut. Scalar and function boundary data are unchanged.
 \end{itemize}
+\textbf{Finding (substep 4): the mixing methods need the field solves as their
+NPC.} With \texttt{-snes\_type anderson} or \texttt{ngmres} alone, SNES mixes the
+raw residuals and never calls the PCSHELL (0 linear iterations): the bicrystal
+does not converge in 200 iterations, and on the coupled $c/\phi$ pair an iterate
+leaves a mean of $3$--$5\times10^{-13}$ in $\phi$'s right-hand side, above the
+singular-field check. With \texttt{-npc\_snes\_type newtonls} (whose linear
+solve is the field-solve PC) both converge to round-off. Documented in
+\texttt{ImplicitFDSolver.md}; no code change (user, 2026-10-26).
 \textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
 source's derivative with respect to its own field (a per-cell diagonal from
 autograd) to that field's operator, with Newton-Krylov (autograd Jacobian
