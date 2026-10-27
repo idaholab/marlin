@@ -1347,4 +1347,208 @@
       detail = 'with an operator that is not a finite-difference operator.'
     []
   []
+
+  [nonlinear_coupled]
+    requirement = 'The system shall iterate an implicit finite-difference step of a transient field and a steady field, coupled through sources, to the fully implicit backward Euler step, matching the exact recurrence of a periodic Fourier mode to round-off, independent of the order of the fields, with'
+    [torch]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      csvdiff = coupled_backward_euler_out.csv
+      # the errors and the mean of c are round-off: anything above 1e-12 fails
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the plain Picard iteration of the torch preconditioned conjugate gradient solver,'
+    []
+    [swapped]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = "TensorSolver/buffer='phi c' TensorSolver/operators='lap_phi_op; dcdt_op lap_c_op' "
+                 "TensorSolver/source='src_phi src_c'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/torch'
+      compute_devices = 'cpu'
+      detail = 'the fields listed in the other order,'
+    []
+    [petsc]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/linear_solver=PETSC'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/swapped'
+      compute_devices = 'cpu'
+      detail = 'the PETSc nonlinear Picard iteration over the multigrid field solves,'
+    []
+    [petsc_cuda]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/linear_solver=PETSC'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'the PETSc nonlinear Picard iteration on CUDA,'
+    []
+    [anderson]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # the field solves enter through the nonlinear preconditioner (without it, Anderson mixes
+      # unpreconditioned residuals)
+      cli_args = "TensorSolver/linear_solver=PETSC TensorSolver/petsc_options_iname='-snes_type "
+                 "-npc_snes_type' TensorSolver/petsc_options_value='anderson newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/petsc'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing, and'
+    []
+    [ngmres]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = "TensorSolver/linear_solver=PETSC TensorSolver/petsc_options_iname='-snes_type "
+                 "-npc_snes_type' TensorSolver/petsc_options_value='ngmres newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/anderson'
+      compute_devices = 'cpu'
+      detail = 'nonlinear GMRES.'
+    []
+  []
+
+  [nonlinear_bicrystal]
+    requirement = 'The system shall iterate the implicit finite-difference step of two nonlinear coupled Allen-Cahn order parameters (a shrinking circular grain) to the fully implicit backward Euler step, matching a Newton reference with the exact Jacobian, with'
+    # the reference (bicrystal_newton.py) solves each step to round-off; the nonlinear and linear
+    # solves stop at relative residuals of 1e-13, and the observed differences are 1e-13. 1e-10 is
+    # well above that and far below the difference of the lagged scheme (40-70% at these steps).
+    [anderson]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = Outputs/file_base=bicrystal_anderson
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing at a time step beyond the reach of the plain Picard iteration,'
+    []
+    [anderson_cuda]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = Outputs/file_base=bicrystal_anderson
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'Anderson mixing on CUDA, and'
+    []
+    [picard]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = "dt=0.25 TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
+                 "Outputs/file_base=bicrystal_picard"
+      csvdiff = bicrystal_picard.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'the plain Picard iteration at a smaller time step.'
+    []
+  []
+
+  [nonlinear_time_level]
+    requirement = 'The system shall evaluate the sources of an iterated implicit finite-difference step at the end of the step, integrating a time-dependent source exactly with backward Euler'
+    type = CSVDiff
+    input = time_source.i
+    csvdiff = time_source_out.csv
+    # the source at the start of the step gives errors of 0.01 t / 0.1
+    abs_zero = 1e-12
+    compute_devices = 'cpu cuda'
+    min_slots = 2 # memory heavy
+  []
+
+  [nonlinear_buffer_bc]
+    requirement = 'The system shall refill boundary data held in buffers at every iterate of an iterated implicit finite-difference step, matching the result with the same data from a function'
+    type = CSVDiff
+    input = bc_mms.i
+    # the gold of the function BC (be_3pt): without the iteration the buffer data lag by a step
+    # (0.0225 against 0.0026)
+    cli_args = 'tf=1 ops="dudt lap" num_steps=2 TensorComputes/BCs/active="left right bottom top_buffer" TensorSolver/nonlinear_solve=true Outputs/file_base=bc_be_3pt_nonlinear'
+    csvdiff = bc_be_3pt_nonlinear.csv
+    rel_err = 1e-6
+    compute_devices = 'cpu cuda'
+    min_slots = 2 # memory heavy
+  []
+
+  [nonlinear_failure]
+    requirement = 'The system shall retry an iterated implicit finite-difference step with a smaller time step when'
+    [nonlinear_max_its]
+      type = RunApp
+      input = bicrystal.i
+      cli_args = "TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
+                 "Executioner/num_steps=1 "
+                 "Executioner/TimeStepper/type=TensorSolveIterationAdaptiveDT "
+                 "Executioner/TimeStepper/dt=0.5 Executioner/TimeStepper/min_iterations=0 "
+                 "Executioner/TimeStepper/max_iterations=1000 Outputs/csv=false"
+      expect_out = 'The nonlinear solve failed after 200 iterations: DIVERGED_MAX_IT.*Solve failed, cutting timestep.*Time Step 1, time = 0.25'
+      compute_devices = 'cpu'
+      detail = 'the nonlinear iteration does not converge,'
+    []
+    [field_solve_petsc]
+      type = RunApp
+      input = cutback.i
+      cli_args = 'TensorSolver/nonlinear_solve=true TensorSolver/linear_solver=PETSC TensorSolver/l_max_its=7 Outputs/csv=false'
+      expect_out = "The PETSC solve of field 'u' failed after 7 iterations.*Solve failed, cutting "
+                   "timestep.*Solve failed, cutting timestep.*Time Step 1, time = 0.002"
+      compute_devices = 'cpu'
+      detail = 'a PETSc field solve inside the iteration fails, and'
+    []
+    [field_solve_torch]
+      type = RunApp
+      input = cutback.i
+      cli_args = 'TensorSolver/nonlinear_solve=true Outputs/csv=false'
+      expect_out = 'did not converge in 30 iterations.*Solve failed, cutting timestep.*did not converge in 30 iterations.*Solve failed, cutting timestep.*Time Step 1, time = 0.002'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'a torch field solve inside the iteration fails.'
+    []
+  []
+
+  [nonlinear_errors]
+    requirement = 'The system shall report an error for the nonlinear iteration of an implicit finite-difference step'
+    [no_adaptive_dt]
+      type = RunException
+      input = bicrystal.i
+      cli_args = "TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
+                 "Outputs/csv=false"
+      expect_err = 'The nonlinear solve failed after 200 iterations: DIVERGED_MAX_IT. Use the TensorSolveIterationAdaptiveDT time stepper'
+      compute_devices = 'cpu'
+      detail = 'when it does not converge without an adaptive time stepper,'
+    []
+    [nl_param]
+      type = RunException
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/nonlinear_solve=false'
+      expect_err = 'TensorSolver/nl_rel_tol: This parameter is used only with nonlinear_solve = true.'
+      compute_devices = 'cpu'
+      detail = 'with a nonlinear tolerance but no nonlinear iteration,'
+    []
+    [snes_option]
+      type = RunException
+      input = steady_transient.i
+      cli_args = "TensorSolver/linear_solver=PETSC TensorSolver/petsc_options_iname='-snes_type' "
+                 "TensorSolver/petsc_options_value='anderson'"
+      expect_err = 'configures the nonlinear solve, which is used only with nonlinear_solve = true.'
+      compute_devices = 'cpu'
+      detail = 'with a nonlinear solver option but no nonlinear iteration, and'
+    []
+    [field_name]
+      type = RunException
+      input = time_source.i
+      cli_args = 'TensorSolver/buffer=nonlinear'
+      expect_err = "A field named 'nonlinear' would share the PETSc options prefix of the nonlinear "
+                   "solve."
+      compute_devices = 'cpu'
+      detail = 'with a field named like the prefix of the nonlinear solve options.'
+    []
+  []
 []
