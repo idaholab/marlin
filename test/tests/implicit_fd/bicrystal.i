@@ -9,8 +9,8 @@
 # the grain area falls at the constant rate dA/dt = -2 pi L kappa (L kappa = M gamma).
 #
 # The plain Picard iteration converges only for dt L f'' < 1 roughly (f'' = 2 m in the grains), as
-# the field solves do not see the reaction; Anderson mixing (the default here, through
-# petsc_options) extends that several times.
+# the field solves do not see the reaction; Anderson mixing (the tests' petsc_options
+# '-snes_type -npc_snes_type' = 'anderson newtonls') extends that several times.
 #
 # The parameters here are small for a fast regression test, compared with the NumPy Newton
 # reference bicrystal_newton.py. The area rate needs a grain much larger than the interface width
@@ -137,13 +137,10 @@ dt = 0.5
   buffer = 'eta1 eta2'
   operators = 'deta1_op lap_eta1_op; deta2_op lap_eta2_op'
   source = 'src1 src2'
-  linear_solver = PETSC
   l_tol = 1e-13
   nonlinear_solve = true
   nl_rel_tol = 1e-13
   nl_max_its = 200
-  petsc_options_iname = '-snes_type -npc_snes_type'
-  petsc_options_value = 'anderson newtonls'
 []
 
 [Postprocessors]

@@ -1444,7 +1444,19 @@
       abs_zero = 1e-12
       prereq = 'nonlinear_coupled/anderson'
       compute_devices = 'cpu'
-      detail = 'nonlinear GMRES.'
+      detail = 'nonlinear GMRES,'
+    []
+    [torch_mps]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # MPS has no double precision: tolerances single precision reaches (l_tol 1e-6 does not
+      # converge for phi); the measured errors are 3e-7 in c, 4e-8 in phi and 4e-9 in the mean
+      cli_args = 'TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-6
+      rel_err = 1e-5
+      compute_devices = 'mps'
+      detail = 'and the plain Picard iteration of the torch solver in single precision on MPS.'
     []
   []
 
@@ -1456,7 +1468,9 @@
     [anderson]
       type = CSVDiff
       input = bicrystal.i
-      cli_args = Outputs/file_base=bicrystal_anderson
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
       csvdiff = bicrystal_anderson.csv
       rel_err = 1e-10
       compute_devices = 'cpu'
@@ -1465,7 +1479,9 @@
     [anderson_cuda]
       type = CSVDiff
       input = bicrystal.i
-      cli_args = Outputs/file_base=bicrystal_anderson
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
       csvdiff = bicrystal_anderson.csv
       rel_err = 1e-10
       compute_devices = 'cuda'
@@ -1476,24 +1492,48 @@
     [picard]
       type = CSVDiff
       input = bicrystal.i
-      cli_args = "dt=0.25 TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
-                 "Outputs/file_base=bicrystal_picard"
+      cli_args = 'dt=0.25 Outputs/file_base=bicrystal_picard'
       csvdiff = bicrystal_picard.csv
       rel_err = 1e-10
       compute_devices = 'cpu'
-      detail = 'the plain Picard iteration at a smaller time step.'
+      detail = 'the plain Picard iteration at a smaller time step, and'
+    []
+    [picard_torch_mps]
+      type = CSVDiff
+      input = bicrystal.i
+      # MPS has no double precision: tolerances single precision reaches (1e-6 stalls at a
+      # relative residual of 8e-6); the measured differences are 1.1e-6 relative in the area and
+      # 5e-7 in the extremes
+      cli_args = 'dt=0.25 TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 Outputs/file_base=bicrystal_picard'
+      csvdiff = bicrystal_picard.csv
+      rel_err = 1e-5
+      compute_devices = 'mps'
+      detail = 'the plain Picard iteration of the torch solver in single precision on MPS.'
     []
   []
 
   [nonlinear_time_level]
     requirement = 'The system shall evaluate the sources of an iterated implicit finite-difference step at the end of the step, integrating a time-dependent source exactly with backward Euler'
-    type = CSVDiff
-    input = time_source.i
-    csvdiff = time_source_out.csv
-    # the source at the start of the step gives errors of 0.01 t / 0.1
-    abs_zero = 1e-12
-    compute_devices = 'cpu cuda'
-    min_slots = 2 # memory heavy
+    [double]
+      type = CSVDiff
+      input = time_source.i
+      csvdiff = time_source_out.csv
+      # the source at the start of the step gives errors of 0.01 t / 0.1
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'in double precision, and'
+    []
+    [mps]
+      type = CSVDiff
+      input = time_source.i
+      # single precision: the measured error is 4e-9, the lagged scheme's 1e-2
+      cli_args = 'TensorSolver/l_tol=1e-6 TensorSolver/nl_rel_tol=1e-5'
+      csvdiff = time_source_out.csv
+      abs_zero = 1e-6
+      compute_devices = 'mps'
+      detail = 'in single precision on MPS.'
+    []
   []
 
   [nonlinear_buffer_bc]
@@ -1514,8 +1554,7 @@
     [nonlinear_max_its]
       type = RunApp
       input = bicrystal.i
-      cli_args = "TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
-                 "Executioner/num_steps=1 "
+      cli_args = "Executioner/num_steps=1 "
                  "Executioner/TimeStepper/type=TensorSolveIterationAdaptiveDT "
                  "Executioner/TimeStepper/dt=0.5 Executioner/TimeStepper/min_iterations=0 "
                  "Executioner/TimeStepper/max_iterations=1000 Outputs/csv=false"
@@ -1548,8 +1587,7 @@
     [no_adaptive_dt]
       type = RunException
       input = bicrystal.i
-      cli_args = "TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
-                 "Outputs/csv=false"
+      cli_args = 'Outputs/csv=false'
       expect_err = 'The nonlinear solve failed after 200 iterations: DIVERGED_MAX_IT. Use the TensorSolveIterationAdaptiveDT time stepper'
       compute_devices = 'cpu'
       detail = 'when it does not converge without an adaptive time stepper,'
