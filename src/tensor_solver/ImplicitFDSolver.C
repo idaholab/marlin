@@ -1339,7 +1339,8 @@ ImplicitFDSolver::nonlinearRhs(const std::vector<torch::Tensor> & U)
   for (const auto i : index_range(_fields))
   {
     applyOperator(_fields[i], U[i]);
-    _tensor_problem.exchangeGhostLayers(_fields[i]._name, _tensor_problem.getMaxGhostLayer());
+    _tensor_problem.exchangeGhostLayers(_fields[i]._name,
+                                        _tensor_problem.getBufferGhostLayers(_fields[i]._name));
   }
   for (auto * cmp : _explicit_computes)
     cmp->realSpaceComputeBuffer();
