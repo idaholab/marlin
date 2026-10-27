@@ -1660,15 +1660,15 @@ restriction of the diagonal (as D6).
   \item total $c$ conserved to $5\times10^{-13}$ (of 1738); the free energy decreases
     every step at every resolution tried.
   \item The strip equals the mirrored initial condition on the doubled periodic domain
-    $-20 < x < 60$ (halved integrals) to $3\times10^{-14}$ relative: the test's gold.
+    $-20 < x < 60$ (halved integrals) to $5\times10^{-14}$ relative: the test's gold.
   \item $dt$ halved four times: differences of $\int\eta$ and $F$ at $t = 1$ fall by
     2.03--2.11 per halving (first order). $dx$ halved twice: by 4.00--4.07 (second order).
   \item The extrapolated limit ($dt, dx \to 0$) of $\int\eta$ is within
     $7.7\times10^{-2}$ ($3\times10^{-5}$ relative) of the spectral AB3 solver on the doubled
     periodic domain without the mask at $dx = 0.5$, whose own change from $dx = 1$ is
     $7.6\times10^{-2}$. The spectral run at $dx = 0.25$ gives NaN; not investigated.
-  \item PETSc multigrid and torch PCG (CPU), 1 and 4 ranks agree with the gold to
-    $10^{-9}$. 26--31 Anderson iterations per step at $dt = 0.1$, 8 at $dt = 0.00625$.
+  \item PETSc multigrid and torch PCG (CPU), 1 and 4 ranks (split along $y$) agree with the gold to
+    $10^{-9}$. 26--33 Anderson iterations per step at $dt = 0.1$, 8 at $dt = 0.00625$.
   \item MPS (single precision): the nonlinear residual stalls at $10^{-5}$ of its initial
     value in the second step and the iteration does not converge at
     \texttt{nl\_rel\_tol} $= 10^{-5}$ or $5\times10^{-5}$; no MPS test. Open.

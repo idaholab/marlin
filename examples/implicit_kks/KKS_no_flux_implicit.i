@@ -1,7 +1,9 @@
 #
 # The Kim-Kim-Suzuki no-flux model of test/tests/implicit_fd/kks_no_flux.i (see there for the
 # equations, the split and the faces) run to t = 100 with an adaptive time step: the step grows
-# while the nonlinear solve takes few iterations and is cut on a failed solve.
+# while the nonlinear solve takes fewer than 15 iterations and is cut when it takes more than 40
+# or fails. CPU or CUDA: on MPS (single precision) the nonlinear residual stalls near 1e-5 of its
+# initial value.
 #
 
 # Constants for Initial Conditions
