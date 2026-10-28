@@ -2009,6 +2009,35 @@
     []
   []
 
+  [sbm_slab]
+    design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
+    requirement = 'The system shall solve the smoothed boundary diffusion equation with implicit finite differences, with zero flux at diffuse walls, converging to the sharp-interface solution as the wall width decreases,'
+    # sbm_slab.i: against the sharp Neumann slab solution the error falls at order ~2 in the wall
+    # width (0.08 to 0.005, see the input); the gold is the l = 0.02 run, error = 2.49e-5. The
+    # torch solve agrees with it to 1e-6 relative in error (a difference of two O(1) values,
+    # at l_tol = 1e-12).
+    [petsc]
+      type = CSVDiff
+      input = sbm_slab.i
+      cli_args = 'Outputs/file_base=sbm_slab'
+      csvdiff = sbm_slab.csv
+      rel_err = 1e-5
+      compute_devices = 'cpu'
+      detail = 'with the PETSc multigrid solver, and'
+    []
+    [torch]
+      type = CSVDiff
+      input = sbm_slab.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=sbm_slab'
+      csvdiff = sbm_slab.csv
+      rel_err = 1e-5
+      prereq = 'sbm_slab/petsc'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'with the torch solver.'
+    []
+  []
+
   [inactive_cells_errors]
     design = 'ImplicitFDSolver.md'
     requirement = 'The system shall report an error in the implicit solve when a cell with a zero diagonal'
