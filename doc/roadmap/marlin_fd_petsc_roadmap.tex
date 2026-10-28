@@ -1842,10 +1842,11 @@ run, limited by the spatial discretisation.
 \begin{itemize}[leftmargin=*]
 \item \texttt{coefficient\_dt.i}: $a = 1$ reproduces the BDF2 mode gold; with
 $a = 1 + 0.5\sin 2\pi x\sin 2\pi y$ both backends match a scipy sparse solve
-(\texttt{coefficient\_dt.py}) to $1.5\times10^{-8}$, and $\int a u$ is conserved.
+(\texttt{coefficient\_dt.py}) to $1.4\times10^{-8}$, and $\int a u$ is conserved.
 \item \texttt{sbm\_inactive.i}: the inactive cells stay at $u^n$ exactly; the active cells
 match scipy on the active block (\texttt{sbm\_inactive.py}) to $3\times10^{-9}$ (PETSc, 4 ranks),
-$2\times10^{-12}$ (torch) and $2.5\times10^{-11}$ (nonlinear solve).
+$2\times10^{-12}$ (torch) and $2\times10^{-14}$ (the tested torch nonlinear iteration;
+$2.5\times10^{-11}$ with the PETSc one); in single precision, $7\times10^{-7}$ (CPU, MPS).
 \item \texttt{sbm\_slab.i}: the error against the sharp zero-flux solution at $t = 0.1$ is
 $3.7\times10^{-4}$, $1.05\times10^{-4}$, $2.5\times10^{-5}$, $6.1\times10^{-6}$ and
 $1.8\times10^{-6}$ for $l = 0.08$ to $0.005$ (halving, 4 cells per $l$): order 2 in $l$.
@@ -1853,7 +1854,8 @@ $1.8\times10^{-6}$ for $l = 0.08$ to $0.005$ (halving, 4 cells per $l$): order 2
 both backends and 1 and 4 ranks within $10^{-13}$. At $t = 1$, $\int\psi\eta$ is 2328.73
 (time-converged, $dt = 0.01$) against 2329.46 for the spectral AB3 run
 (\texttt{KKS\_no\_flux\_bc.i}, the same grid and $\psi$), a gap of 0.73 in a change of 129; at
-$dx = 0.5$, 2329.434 against 2329.539 (gap 0.10).
+$dx = 0.5$ (time-converged, $dt = 0.01$ and $0.005$ within $10^{-3}$), 2329.355 against 2329.539
+(gap 0.18).
 \item \textbf{Identity-row scale (preconditioner only).} With the largest diagonal on the
 inactive identity rows, PCMG took about 100 iterations per solve on \texttt{kks\_sbm.i}; with the
 smallest active diagonal it takes 12--13, as with $\psi = 1$ (12) or a $\psi$ floor without
