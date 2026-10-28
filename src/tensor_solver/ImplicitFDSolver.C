@@ -600,15 +600,14 @@ ImplicitFDSolver::SolveResult
 ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x)
 {
   // the operators' stencil for this solve (for a FiniteDifferenceDivGrad, building it exchanges
-  // the coefficient's halo), and the Jacobi diagonal, built only if the torch solve or the
-  // eigenvalue reads it (a Dirichlet or Robin face, a != 0, gives no constant eigenvector)
+  // the coefficient's halo), and the Jacobi diagonal, built only if the eigenvalue reads it (a
+  // Dirichlet or Robin face, a != 0, gives no constant eigenvector)
   field._stencil = fieldStencil(field._fd_operators);
-  const bool torch_pcg = _linear_solver != LinearSolver::PETSC;
   const bool constant_mode =
       !field._singular && std::none_of(field._face_bcs.begin(),
                                        field._face_bcs.end(),
                                        [](const auto * bc) { return bc && bc->a() != 0.0; });
-  const auto diag = torch_pcg || constant_mode ? jacobiDiagonal(field) : torch::Tensor();
+  const auto diag = constant_mode ? jacobiDiagonal(field) : torch::Tensor();
 
   // with A 1 = lambda 1 (A symmetric), the sum of the equations fixes the mean of the exact
   // solution, mean(x) = mean(b) / lambda: the Krylov error in the constant mode is set to zero
@@ -618,6 +617,16 @@ ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x
                                          static_cast<Real>(_domain.getNumberOfCells())
                                    : 0.0;
 
+  // the inactive cells keep the value of x they come in with (u^n, or 0 for a correction); in
+  // the solve they are identity rows with x = b = 0, so their residual is zero from the start
+  findInactiveCells(field, b);
+  torch::Tensor held;
+  if (field._inactive.defined())
+  {
+    held = x.clone();
+    x.masked_fill_(field._inactive, 0.0);
+  }
+
   SolveResult result;
   const Real b_norm = std::sqrt(_domain.allreduceSum((b * b).sum()).cpu().item<double>());
   if (b_norm == 0.0)
@@ -626,7 +635,7 @@ ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x
   else if (_linear_solver == LinearSolver::PETSC)
     result = solvePetsc(field, b, x);
   else
-    result = solveTorchPCG(field, b, b_norm, diag, x);
+    result = solveTorchPCG(field, b, b_norm, x);
   if (!result.failure.empty())
     return result;
 
@@ -635,6 +644,9 @@ ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x
   else if (lambda > 0.0)
     x += b_mean / lambda -
          _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
+  // (a field with inactive cells is not singular, and its lambda is 0: A 1 vanishes there)
+  if (held.defined())
+    x.copy_(torch::where(field._inactive, held, x));
   return result;
 }
 
@@ -695,16 +707,66 @@ ImplicitFDSolver::applyLinearOperator(Field & field, const torch::Tensor & x)
 }
 
 void
-ImplicitFDSolver::checkPositiveDiagonal(const Field & field, const torch::Tensor & diag) const
+ImplicitFDSolver::findInactiveCells(Field & field, const torch::Tensor & b)
 {
-  // a zero diagonal (e.g. a steady FiniteDifferenceDivGrad with D = 0 on every face of a cell)
-  // is a cell decoupled from the rest: the operator is singular there
-  if (_domain.allreduceSum((diag <= 0).sum()).cpu().item<int64_t>() > 0)
+  field._inactive = torch::Tensor();
+  const auto diag = jacobiDiagonal(field);
+  if (_domain.allreduceSum((diag < 0).sum()).cpu().item<int64_t>() > 0)
     mooseError("The operator of field '",
                field._name,
-               "' has a nonpositive diagonal in some cells, so it is not positive definite there "
-               "(e.g. a FiniteDifferenceDivGrad coefficient that is zero on every face of a cell, "
-               "without a time derivative).");
+               "' has a negative diagonal in some cells, so it is not positive definite there.");
+
+  // a zero diagonal is a cell decoupled from the rest (e.g. psi = 0 on the cell and on all its
+  // faces in a smoothed boundary problem, so a zero time derivative weight and zero face
+  // coefficients); with a zero right-hand side it is inactive and keeps its value
+  const auto inactive = diag == 0;
+  if (_domain.allreduceSum(inactive.sum()).cpu().item<int64_t>() == 0)
+    return;
+  if (field._singular)
+    mooseError("The operator of field '",
+               field._name,
+               "' has inactive cells (a zero diagonal) and no time derivative. The nullspace of "
+               "such a steady operator is the constants on each connected active region, which "
+               "ImplicitFDSolver does not support.");
+  if (_domain.allreduceSum((inactive & (b != 0)).sum()).cpu().item<int64_t>() > 0)
+    mooseError("The operator of field '",
+               field._name,
+               "' has a zero diagonal in some cells where the right-hand side is nonzero, so the "
+               "equations there have no solution (e.g. a FiniteDifferenceDivGrad coefficient "
+               "that is zero on every face of a cell, without a time derivative, and a nonzero "
+               "source).");
+  // the operator is symmetric, so the inactive rows are zero if their columns are: A applied to
+  // the inactive indicator vanishes
+  const auto columns = applyLinearOperator(field, inactive.to(diag.scalar_type()));
+  if (_domain.allreduceSum((columns != 0).sum()).cpu().item<int64_t>() > 0)
+    mooseError("The operator of field '",
+               field._name,
+               "' has a zero diagonal but nonzero off-diagonal entries in some cells, which "
+               "makes it indefinite there.");
+
+  // the identity rows get the largest diagonal, so they do not widen the spectrum downward
+  field._inactive = inactive;
+  field._inactive_scale = diag.max().cpu().item<double>();
+  MPI_Allreduce(MPI_IN_PLACE, &field._inactive_scale, 1, MPI_DOUBLE, MPI_MAX, _domain.getMPIComm());
+}
+
+torch::Tensor
+ImplicitFDSolver::krylovOperator(Field & field, const torch::Tensor & x)
+{
+  const auto y = applyLinearOperator(field, x);
+  if (!field._inactive.defined())
+    return y;
+  // the inactive rows of A are zero
+  return torch::where(field._inactive, field._inactive_scale * x, y);
+}
+
+torch::Tensor
+ImplicitFDSolver::krylovDiagonal(const Field & field) const
+{
+  const auto diag = jacobiDiagonal(field);
+  if (!field._inactive.defined())
+    return diag;
+  return torch::where(field._inactive, torch::full_like(diag, field._inactive_scale), diag);
 }
 
 Real
@@ -757,13 +819,11 @@ ImplicitFDSolver::SolveResult
 ImplicitFDSolver::solveTorchPCG(Field & field,
                                 const torch::Tensor & b,
                                 Real b_norm,
-                                const torch::Tensor & diag,
                                 torch::Tensor & x)
 {
   // Jacobi preconditioner
-  checkPositiveDiagonal(field, diag);
-  const auto inv_diag = diag.reciprocal();
-  const auto A = [&](const torch::Tensor & v) { return applyLinearOperator(field, v); };
+  const auto inv_diag = krylovDiagonal(field).reciprocal();
+  const auto A = [&](const torch::Tensor & v) { return krylovOperator(field, v); };
   const auto M = [&inv_diag](const torch::Tensor & r) { return r * inv_diag; };
   const auto reduce_sum = [this](const torch::Tensor & t) { return _domain.allreduceSum(t); };
 
@@ -1052,8 +1112,6 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
   PetscCallMPIAbort(comm, MPI_Allreduce(MPI_IN_PLACE, &same, 1, MPI_INT, MPI_MIN, comm));
   if (same)
     return;
-  // PETSc's smoothers would divide by a zero diagonal
-  checkPositiveDiagonal(field, jacobiDiagonal(field));
   const auto & grid_spacing = _domain.getGridSpacing();
   const auto levels = ps.coarse.size() + 1;
   // the coarse rows next to a boundary face fold the ghosts with the homogeneous
@@ -1122,6 +1180,9 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
       auto & B = ps.coarse[k - 1];
       PetscFD::assembleStencilOperator(
           ps.hierarchy->dms[k], level_stencil, scale, faces, spacing, B);
+      // a coarse cell whose children are all inactive has a zero coefficient (the mean of
+      // nonnegative ones), so a zero row: it gets an identity row, as on the fine level
+      PetscFD::addIdentityOnZeroRows(B);
       // assembly clears MAT_SPD
       if (!field._singular)
       {
@@ -1275,8 +1336,7 @@ ImplicitFDSolver::shellMult(Mat A, Vec x, Vec y)
   {
     const auto shape = ps->field->_u_base.ownedView().sizes().vec();
     const auto in = torch::from_blob(const_cast<PetscScalar *>(x_array), shape, options);
-    torch::from_blob(y_array, shape, options)
-        .copy_(ps->solver->applyLinearOperator(*ps->field, in));
+    torch::from_blob(y_array, shape, options).copy_(ps->solver->krylovOperator(*ps->field, in));
   }
   catch (...)
   {
@@ -1315,7 +1375,7 @@ ImplicitFDSolver::shellDiagonal(Mat A, Vec d)
   PetscErrorCode ierr = PETSC_SUCCESS;
   try
   {
-    const auto diag = ps->solver->jacobiDiagonal(*ps->field);
+    const auto diag = ps->solver->krylovDiagonal(*ps->field);
     torch::from_blob(array, diag.sizes(), options).copy_(diag);
   }
   catch (...)

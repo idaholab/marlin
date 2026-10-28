@@ -509,6 +509,34 @@ assembleStencilOperator(DM da,
   PetscCallAbort(comm, MatAssemblyEnd(B, MAT_FINAL_ASSEMBLY));
 }
 
+void
+addIdentityOnZeroRows(Mat B)
+{
+  const MPI_Comm comm = PetscObjectComm((PetscObject)B);
+  Vec diag;
+  PetscCallAbort(comm, MatCreateVecs(B, nullptr, &diag));
+  PetscCallAbort(comm, MatGetDiagonal(B, diag));
+  PetscReal largest;
+  PetscCallAbort(comm, VecMax(diag, nullptr, &largest));
+  PetscInt local, zero_rows = 0;
+  PetscCallAbort(comm, VecGetLocalSize(diag, &local));
+  PetscScalar * array;
+  PetscCallAbort(comm, VecGetArray(diag, &array));
+  for (const auto i : make_range(local))
+    if (array[i] == 0.0)
+    {
+      array[i] = largest;
+      ++zero_rows;
+    }
+    else
+      array[i] = 0.0;
+  PetscCallAbort(comm, VecRestoreArray(diag, &array));
+  PetscCallMPIAbort(comm, MPI_Allreduce(MPI_IN_PLACE, &zero_rows, 1, MPIU_INT, MPI_SUM, comm));
+  if (zero_rows > 0)
+    PetscCallAbort(comm, MatDiagonalSet(B, diag, ADD_VALUES));
+  PetscCallAbort(comm, VecDestroy(&diag));
+}
+
 Real
 jacobiSpectrumBound(DM da,
                     const std::vector<FDStencilEntry> & stencil,
@@ -559,7 +587,10 @@ jacobiSpectrumBound(DM da,
                        else
                          off_diagonal += std::abs(value);
                      }
-                     bound = std::max(bound, 1.0 + off_diagonal / centre);
+                     // an inactive cell's zero row becomes an identity row (bound 1)
+                     bound = centre == 0.0 && off_diagonal == 0.0
+                                 ? std::max(bound, 1.0)
+                                 : std::max(bound, 1.0 + off_diagonal / centre);
                    });
   MPI_Allreduce(MPI_IN_PLACE, &bound, 1, MPI_DOUBLE, MPI_MAX, PetscObjectComm((PetscObject)da));
   return bound;

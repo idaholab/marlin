@@ -93,6 +93,10 @@ protected:
     /// the fine stencil of sum_i A_i, built once per field solve (solveField) and read by the
     /// Jacobi diagonal and the coarse-level assembly within it
     std::vector<FDStencilEntry> _stencil;
+    /// the inactive cells of the current solve (zero row, zero right-hand side), undefined if
+    /// there are none, and the scale of the identity rows the Krylov solve gives them
+    torch::Tensor _inactive;
+    Real _inactive_scale = 0.0;
   };
 
   virtual void substep() override;
@@ -133,20 +137,26 @@ protected:
   /// field's current _stencil), which next to a boundary face includes the ghosts' dependence on
   /// the cell itself
   torch::Tensor jacobiDiagonal(const Field & field) const;
-  /// error unless the folded diagonal is positive in every cell
-  void checkPositiveDiagonal(const Field & field, const torch::Tensor & diag) const;
+  /**
+   * Find the inactive cells of the solve of A x = b: cells with a zero folded diagonal (e.g.
+   * psi = 0 on the cell and all its faces), whose rows must be zero and whose b must be zero.
+   * The Krylov solve gives them identity rows and they keep their value of x.
+   */
+  void findInactiveCells(Field & field, const torch::Tensor & b);
+
+  /// the linear operator with identity rows (times the field's inactive scale) on inactive cells
+  torch::Tensor krylovOperator(Field & field, const torch::Tensor & x);
+
+  /// the Jacobi diagonal of krylovOperator
+  torch::Tensor krylovDiagonal(const Field & field) const;
 
   /// lambda if the linear operator maps the constants to lambda > 0 times the constants (up to
   /// round-off), else 0; diag is the field's Jacobi diagonal
   Real constantEigenvalue(Field & field, const torch::Tensor & diag);
 
-  /// solve sum_i A_i x = b (with ||b||_2 = b_norm) by torch preconditioned CG with the Jacobi
-  /// diagonal diag, warm started from x
-  SolveResult solveTorchPCG(Field & field,
-                            const torch::Tensor & b,
-                            Real b_norm,
-                            const torch::Tensor & diag,
-                            torch::Tensor & x);
+  /// solve sum_i A_i x = b (with ||b||_2 = b_norm) by torch Jacobi preconditioned CG, warm
+  /// started from x
+  SolveResult solveTorchPCG(Field & field, const torch::Tensor & b, Real b_norm, torch::Tensor & x);
 
   /// solve sum_i A_i x = b by PETSc KSPCG + PCMG, warm started from x (both contiguous)
   SolveResult solvePetsc(Field & field, torch::Tensor & b, torch::Tensor & x);
