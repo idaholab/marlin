@@ -31,9 +31,10 @@ if [ -z "${DEVICE:-}" ]; then
     DEVICE=cpu
   fi
 fi
-# time steps per run (each is `substeps` = 1000 linear solves, as in the input);
-# at least 2, since the first step is excluded from the time per step
+# output steps per run (each is `output_interval` = 1000 time steps of one linear solve, as in
+# the input); at least 2, since the first output step is excluded from the time per step
 STEPS=${STEPS:-3}
+SOLVES_PER_STEP=1000
 MARLIN=${MARLIN:-../../marlin-opt}
 INPUT=../01_spinodal_decomposition/1a_implicit_fd.i
 OUT=results
@@ -73,14 +74,14 @@ for n in $SIZES; do
     # ${a[@]+"${a[@]}"}: an empty array expands to nothing under set -u in bash 3.2 (macOS)
     "$MARLIN" -i "$INPUT" \
       Domain/nx=$n Domain/ny=$n \
-      Executioner/num_steps=$STEPS \
+      Executioner/num_steps=$((STEPS * SOLVES_PER_STEP)) \
       TensorSolver/linear_solver=$backend \
       "TensorOutputs/active=''" \
       Outputs/file_base="$base" \
       ${extra[@]+"${extra[@]}"} \
       --compute-device="$DEVICE" > "$base.log" 2>&1 || status="FAILED($?)"
 
-    # wall_time column of the postprocessor CSV (one row per step): the last value and
+    # wall_time column of the postprocessor CSV (one row per output step): the last value and
     # the time per step after the first step
     read -r rows wall per_step < <(
       awk -F, 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "wall_time") c = i; next }

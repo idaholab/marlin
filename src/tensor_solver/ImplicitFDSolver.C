@@ -143,6 +143,8 @@ ImplicitFDSolver::validParams()
   params += Moose::PetscSupport::getPetscValidParams();
   params.suppressParameter<MooseEnum>("solve_type");
   params.suppressParameter<MooseEnum>("mffd_type");
+  // one solve per time step; a failed solve is retried with a smaller dt
+  params.suppressParameter<unsigned int>("substeps");
 
   return params;
 }
@@ -571,14 +573,13 @@ ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x
 void
 ImplicitFDSolver::failSubstep(const std::string & failure)
 {
-  // only a TensorSolveIterationAdaptiveDT time stepper cuts dt on a failed solve, and
-  // the old states are already advanced past a failed later substep
+  // only a TensorSolveIterationAdaptiveDT time stepper cuts dt on a failed solve
   const auto * transient = dynamic_cast<const TransientBase *>(_app.getExecutioner());
-  if (_substeps > 1 || !transient ||
+  if (!transient ||
       !dynamic_cast<const TensorSolveIterationAdaptiveDT *>(transient->getTimeStepper()))
     mooseError(failure,
-               " Use the TensorSolveIterationAdaptiveDT time stepper (with substeps = 1) to "
-               "retry the step with a smaller dt.");
+               " Use the TensorSolveIterationAdaptiveDT time stepper to retry the step with a "
+               "smaller dt.");
 
   _console << failure << std::endl;
   // retry from the previous state of every field

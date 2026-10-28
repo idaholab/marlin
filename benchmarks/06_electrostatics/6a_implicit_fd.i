@@ -36,8 +36,8 @@
 n = 200
 L = 100
 end_time = 400
-# solves per time step (each output step); the solves advance by dt / substeps
-substeps = 20
+# time steps per output row; the step grows by 1.1 over each output interval
+output_interval = 20
 
 [Domain]
   dim = 2
@@ -238,7 +238,6 @@ substeps = 20
   operators = 'dcdt bih; lap_phi_op'
   source = 'rhs_c rhs_phi'
   root_compute = explicit
-  substeps = ${substeps}
   l_tol = 1e-10
 []
 
@@ -280,11 +279,11 @@ substeps = 20
   end_time = ${end_time}
   [TimeStepper]
     type = IterationAdaptiveDT
-    growth_factor = 1.1
-    # solve steps from 1e-4 to 0.5
-    dt = '${fparse 1e-4 * substeps}'
+    growth_factor = '${fparse 1.1^(1 / output_interval)}'
+    # time steps from 1e-4 to 0.5
+    dt = 1e-4
   []
-  dtmax = '${fparse 0.5 * substeps}'
+  dtmax = 0.5
 []
 
 [TensorOutputs]
@@ -292,10 +291,14 @@ substeps = 20
     type = XDMFTensorOutput
     buffer = 'c phi'
     enable_hdf5 = true
+    execute_on = 'INITIAL TIMESTEP_END FINAL'
+    time_step_interval = ${output_interval}
   []
 []
 
 [Outputs]
   csv = true
-  execute_on = 'INITIAL TIMESTEP_END'
+  # FINAL: the last step, which need not end an output interval
+  execute_on = 'INITIAL TIMESTEP_END FINAL'
+  time_step_interval = ${output_interval}
 []

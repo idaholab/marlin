@@ -1200,8 +1200,8 @@
     requirement = 'The system shall reproduce analytic diffusion solutions from Crank, "The Mathematics of Diffusion" (2nd ed.), with implicit backward Euler finite differences and Dirichlet faces, matching an independent dense solve of the same discretisation, for'
     # golds from a dense SciPy backward Euler solve (the cell-centred 3-point
     # Laplacian with ghost 2c - u0). The error against the analytic solution is first order in
-    # the substep down to the spatial floor of the semi-discrete solution, 3.2e-4: 5.8e-3, 1.7e-3,
-    # 6.7e-4 at 25, 100, 400 substeps. The explicit real_space tests of the same problems give
+    # dt down to the spatial floor of the semi-discrete solution, 3.2e-4: 5.8e-3, 1.7e-3,
+    # 6.7e-4 at 25, 100, 400 time steps. The explicit real_space tests of the same problems give
     # 2.3e-4 with 250 forward Euler substeps.
     [semi_infinite]
       type = CSVDiff
@@ -1319,9 +1319,9 @@
     [failed_solve_without_cutback]
       type = RunException
       input = cutback.i
-      # two substeps of dt / 2 = 0.004 need about 34 iterations
-      cli_args = 'TensorSolver/substeps=2'
-      expect_err = 'did not converge in 30 iterations.*Use the TensorSolveIterationAdaptiveDT time stepper \(with substeps = 1\)'
+      # the same dt = 0.008 with the default time stepper, which cannot cut the step
+      cli_args = 'Executioner/inactive=TimeStepper Executioner/dt=0.008'
+      expect_err = 'did not converge in 30 iterations.*Use the TensorSolveIterationAdaptiveDT time stepper to retry'
       detail = 'with a linear solve that does not converge when the time step cannot be retried,'
     []
     [fields_differing_in_case]

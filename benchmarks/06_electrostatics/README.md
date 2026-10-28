@@ -6,7 +6,8 @@ transient concentration `c` (backward Euler, the biharmonic implicit) and the st
 writes the PFHub outputs (`free_energy`, `x_cut_plane`, `y_cut_plane`) from a run's CSV and HDF5
 output.
 
-Free energy against the PFHub submissions (CPU, PETSc, 2026-10-26, commit of this input):
+Free energy against the PFHub submissions (CPU, PETSc, 2026-10-28, commit of this input; the step
+grows smoothly by 1.1 every 20 steps from 1e-4 to the cap):
 
 | run                               |  t = 5 |  t = 50 | t = 200 | t = 400 |
 | --------------------------------- | ------:| -------:| -------:| -------:|
@@ -16,16 +17,22 @@ Free energy against the PFHub submissions (CPU, PETSc, 2026-10-26, commit of thi
 | FiPy, 100^2                       | 171.29 |  138.93 |  126.07 |  114.28 |
 | MMSP, dx = 1                      | 173.98 |  134.48 |  117.34 |  102.89 |
 | MEMPHIS, 100^2 (a)                | 171.50 |  137.50 |  120.00 |  103.00 |
-| this input, 100^2, solve dt 0.5   | 172.90 |  138.40 |  121.83 |  104.00 |
-| this input, 200^2, solve dt 0.5   | 172.85 |  138.50 |  121.88 |  104.01 |
-| this input, 100^2, solve dt 0.05  | 172.90 |  138.35 |  121.70 |  103.82 |
+| this input, 100^2, dt 0.5         | 172.89 |  138.43 |  121.83 |  104.10 |
+| this input, 200^2, dt 0.5         | 172.84 |  138.52 |  121.88 |  104.11 |
+| this input, 100^2, dt 0.05        | 172.89 |  138.35 |  121.70 |  103.82 |
 
-The 100^2 and 200^2 grids agree to 0.014 at t = 400. Against a solve step of 0.05, F at t = 400
-differs by 0.176, 0.081 and 0.019 at 0.5, 0.25 and 0.1 (about first order; backward Euler with
-the explicit terms lagged). On the cuts at t = 400, c differs by up to 1.9e-2 between solve steps
-0.5 and 0.05 and by 7e-3 between 100^2 and 200^2. The value at t = 0 is that of the initial
-guess of `phi`, solved from the first step on (left out of the PFHub file). Wall time to t = 400
-on one CPU core: 18 s (100^2), 65 s (200^2), from MOOSE's "Finished Executing".
+The 100^2 and 200^2 grids agree to 0.01 at t = 400. Against a step cap of 0.05, F at t = 400
+differs by 0.280, 0.083 and 0.019 at caps of 0.5, 0.25 and 0.1 (backward Euler with the explicit
+terms lagged; between 0.25 and 0.1 about first order). On the cuts at t = 400, c differs by up to
+1.9e-2 between caps 0.5 and 0.05 and by 7e-3 between 100^2 and 200^2. Total c is conserved to
+2e-13 relative. The value at t = 0 is that of the initial guess of `phi`, solved from the first
+step on (left out of the PFHub file). Wall time to t = 400 on one CPU core: 25 s (100^2, 2378
+steps), 77 s (200^2), from MOOSE's "Finished Executing". The CSV and XDMF/HDF5 outputs are
+written every 20 steps and at the last one.
+
+Before 2026-10-28 this input took 20 equal solves per step with the step growing by 1.1 per step
+(`substeps = 20`); on that staircase schedule F(400) was 104.00 (100^2), 104.01 (200^2) and the
+cap errors 0.176, 0.081, 0.019.
 
 (a) MEMPHIS reports F at t = 4, 6, 40 and 60; its t = 5 and t = 50 entries are linear
 interpolations.
@@ -42,15 +49,15 @@ nonlinear iterations (`TensorSolveIterationAdaptiveDT`, window 8 to 15), capped 
 | nonlinear, dtmax 0.005 (reference)    | 172.86 |  138.33 |         |         |
 
 It took 8030 steps to t = 400 with no cuts, 8.9 nonlinear iterations per step on average and
-at most 10. Wall time to t = 400 on one CPU core: 1032 s, against 18 s for the lagged input at
+at most 10. Wall time to t = 400 on one CPU core: 1032 s, against 25 s for the lagged input at
 its larger steps. The XDMF/HDF5 output is written at every step (1.2 GB at 100^2).
 
 Error of F against the reference, with the solve dt at that time (100^2):
 
 | run                              | t = 5           | t = 50          |
 | -------------------------------- | ---------------:| ---------------:|
-| lagged, solve dt up to 0.5       | +0.039 (0.023)  | +0.078 (0.25)   |
-| lagged, solve dt up to 0.1       | +0.039 (0.023)  | +0.046 (0.1)    |
+| lagged, solve dt up to 0.5 (b)   | +0.039 (0.023)  | +0.078 (0.25)   |
+| lagged, solve dt up to 0.1 (b)   | +0.039 (0.023)  | +0.046 (0.1)    |
 | nonlinear, dtmax 0.02            | -0.020 (0.02)   | -0.002 (0.02)   |
 | nonlinear, dtmax 0.05            | -0.060 (0.05)   | -0.005 (0.05)   |
 | nonlinear, dtmax 0.1             | -0.123 (0.1)    | -0.009 (0.1)    |
@@ -65,9 +72,12 @@ demonstration setting: its steps are about twice the lagged input's at t = 5 and
 them at t = 50.
 
 (a) `6a_implicit_fd.i` with `TensorSolver/nonlinear_solve=true` and the same Anderson options, on
-the lagged input's step schedule (IterationAdaptiveDT, 20 solves per step). It reaches t = 400
+the lagged input's former step schedule (IterationAdaptiveDT, 20 solves per step). It reaches t = 400
 (F = 103.77) with up to 24 iterations per step. The plain Picard iteration (without Anderson)
 fails there near t = 41, where the solve dt passes about 0.19.
+
+(b) On the lagged input's former step schedule (20 equal solves per step, the step growing by 1.1
+per step), the schedule of the comparison in the paragraph above.
 
 `plot_comparison.py <run_dir>` draws `free_energy_6a.png` (the curves above) and `cost_6a.png`
 (memory against wall time per unit simulated time) from the three runs in `<run_dir>` and the

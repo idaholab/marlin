@@ -49,8 +49,8 @@ The solve stops when the unpreconditioned residual satisfies
 $\|b - A u\|_2 \le$ [!param](/TensorSolver/ImplicitFDSolver/l_tol) $\|b\|_2$, starting from the
 previous solution. When a solve does not converge within
 [!param](/TensorSolver/ImplicitFDSolver/l_max_its) iterations, a
-`TensorSolveIterationAdaptiveDT` time stepper retries the time step with a smaller time step
-(with one substep per time step); with any other time stepper it is an error. After the solve, the
+`TensorSolveIterationAdaptiveDT` time stepper retries the time step with a smaller time step;
+with any other time stepper it is an error. After the solve, the
 operators' output buffers hold the operators applied to the new solution.
 
 The [!param](/TensorSolver/ImplicitFDSolver/root_compute) is evaluated before every solve (with

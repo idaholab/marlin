@@ -1479,7 +1479,8 @@ the zero split (Neumann faces of $B$ and the biharmonic's Neumann pair) gives th
 same $c$ as the benchmark's split to round-off (checked in 1D: difference 0.0).
 An inhomogeneous biharmonic face condition was approved and then dropped as
 unnecessary (user, 2026-10-26). $F(400)$: 104.00 ($100^2$), 104.01 ($200^2$),
-103.82 ($100^2$, solve $\Delta t = 0.05$), against the submissions'
+103.82 ($100^2$, solve $\Delta t = 0.05$) on the original schedule of 20 substeps per step
+(104.10, 104.11, 103.82 on the smooth schedule of PR7b), against the submissions'
 102.9--105.8 (INL MOOSE 103.6, CORAL 104.9, PRISMS-PF 105.8, MMSP 102.9,
 MEMPHIS 103.0; FiPy 114.3). Total $c$ conserved to $2\times10^{-13}$ relative.
 
@@ -1608,7 +1609,7 @@ $1.85\times10^{-3}$, 8--9 at $0.034$, 12 at $0.15$. A step twice as long costs f
 than two steps, so the window was widened from 4--10 to 8--15 (user, 2026-10-27).
 \item At the same solve $dt$ the nonlinear error is several times smaller than the lagged
 one: $-0.009$ against $+0.039$ at $t = 5$ ($dt = 0.023$), $+0.002$ against $+0.078$ at
-$t = 50$ ($dt = 0.25$), both on the lagged input's step schedule.
+$t = 50$ ($dt = 0.25$), both on the lagged input's step schedule (then 20 substeps per step).
 \item The iteration window does not see the time error. With 8--15 alone $dt$ reaches
 $0.15$ by $t \approx 1$ and $F(5)$ is off by $-0.18$; caps of $0.1$, $0.05$, $0.02$ give
 $-0.12$, $-0.060$, $-0.020$ (first order). The input caps at $0.05$ (user,
@@ -1618,7 +1619,7 @@ them at $t = 50$ ($-0.005$). Second order in time is PR7b.
 as the differences it was used to measure there; the numbers above use $dt \le 0.005$.
 \item To $t = 400$: 8030 steps, no cuts, 8.9 iterations per step (at most 10),
 $F(400) = 103.79$, total $c$ conserved to $3\times10^{-11}$; 1032\,s on one core,
-against 18\,s for the lagged input at its larger steps.
+against 18\,s for the lagged input at its larger steps (25\,s on the smooth schedule of PR7b).
 \end{itemize}
 
 \textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
@@ -1714,7 +1715,21 @@ alternative to the iteration-driven stepper.
 and on the scalar Newton reference (the BDF2 recurrence); order 2 of $F(t)$ in the
 6a study; mass conservation to round-off.
 
-\status{proposed (user, 2026-10-27). After PR6.}
+\textbf{Substeps removed (first PR7b step, user, 2026-10-28).} \texttt{ImplicitFDSolver}
+no longer takes \texttt{substeps}: one solve per time step, so a failed solve can always be
+retried with a smaller $dt$, and a step history holds the previous step. The inputs that
+used substeps (the Crank tests, PFHub 1a/1b/6a and their regression tests) now take the
+smooth equivalent schedule: the first $dt$ and \texttt{dtmax} divided by the former substep
+count $s$, the growth factor $1.1^{1/s}$ per step (the same growth over $s$ steps), and
+output every $s$ steps through a new \texttt{time\_step\_interval} of the tensor outputs
+(with \texttt{FINAL} for the last step). The Crank results are unchanged to $2\times10^{-7}$
+relative (the same steps). The 1b and 6a regression golds were regenerated (the solve steps
+differ: $F$ by up to $2\times10^{-4}$ relative for 1b, $2\times10^{-2}$ for 6a at
+matching times). PFHub 6a on the smooth schedule: $F(400) = 104.10$ ($100^2$), 104.11
+($200^2$), 103.82 (cap 0.05); against the cap of 0.05, caps 0.5, 0.25, 0.1 differ by
+0.280, 0.083, 0.019.
+
+\status{proposed (user, 2026-10-27). After PR6. Substeps removal implemented (2026-10-28).}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact

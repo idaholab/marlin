@@ -7,8 +7,8 @@ geometric multigrid) and `TORCH_PCG` (Jacobi CG) linear solvers, on grids from
 512^2 to 8192^2 cells.
 
 The domain stays [0,200]^2 and only the grid is refined, so the runs are not
-PFHub 1a results; they are for timing only. Each time step is 1000 linear
-solves (`substeps`), and the `wall_time` postprocessor gives the run time.
+PFHub 1a results; they are for timing only. Each output step is 1000 time steps
+of one linear solve (`output_interval`), and the `wall_time` postprocessor gives the run time.
 
 ```
 ./run_scaling.sh

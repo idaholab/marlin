@@ -21,8 +21,8 @@
 # solver keeps to round-off (it sets the mean of each solution to the conserved one).
 #
 
-# substeps per time step, as in 1a_solver.i (each substep is one linear solve)
-substeps = 20
+# time steps per output row; the step grows by 1.1 over each output interval
+output_interval = 20
 
 [Domain]
   dim = 2
@@ -166,7 +166,6 @@ substeps = 20
   operators = 'dcdt bih'
   source = rhs
   root_compute = explicit
-  substeps = ${substeps}
   l_tol = 1e-13
 []
 
@@ -208,16 +207,17 @@ substeps = 20
 
 [Executioner]
   type = Transient
-  num_steps = 5
+  num_steps = '${fparse 5 * output_interval}'
   [TimeStepper]
     type = IterationAdaptiveDT
-    growth_factor = 1.1
-    dt = 1
+    growth_factor = '${fparse 1.1^(1 / output_interval)}'
+    dt = '${fparse 1 / output_interval}'
   []
-  dtmax = 300
+  dtmax = '${fparse 300 / output_interval}'
 []
 
 [Outputs]
   csv = true
   execute_on = 'TIMESTEP_END'
+  time_step_interval = ${output_interval}
 []

@@ -56,4 +56,10 @@ protected:
   std::map<std::string, const torch::Tensor *> _out_buffers;
 
   const ExecFlagEnum _execute_on;
+
+  /// TIMESTEP_END output runs only on every time_step_interval-th time step
+  const unsigned int _time_step_interval;
+
+  /// the simulation time last output (so FINAL does not repeat it)
+  Real _last_output_time;
 };

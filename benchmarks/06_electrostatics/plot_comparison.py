@@ -82,26 +82,26 @@ PFHUB = [
 ]
 
 # Runs of 6a_implicit_fd.i to t = 400 on one core of an Apple M5 Pro (serial PETSc, CPU),
-# 2026-10-26, run with the arguments n=100, n=200 and n=100 Executioner/dtmax=1. Wall time and
+# 2026-10-28, run with the arguments n=100, n=200 and n=100 Executioner/dtmax=0.05. Wall time and
 # memory from the "Finished Executing" line of the console output.
 OURS = [
     {
-        "name": "Marlin, 100^2, solve dt 0.5",
+        "name": "Marlin, 100^2, dt 0.5",
         "file_base": "n100",
-        "wall_time": 17.8,
-        "memory": 222,
+        "wall_time": 24.5,
+        "memory": 227,
     },
     {
-        "name": "Marlin, 200^2, solve dt 0.5",
+        "name": "Marlin, 200^2, dt 0.5",
         "file_base": "n200",
-        "wall_time": 64.7,
-        "memory": 271,
+        "wall_time": 77.3,
+        "memory": 270,
     },
     {
-        "name": "Marlin, 100^2, solve dt 0.05",
+        "name": "Marlin, 100^2, dt 0.05",
         "file_base": "n100_dt05",
-        "wall_time": 64.1,
-        "memory": 161,
+        "wall_time": 71.8,
+        "memory": 242,
     },
 ]
 OURS_SIM_TIME = 400

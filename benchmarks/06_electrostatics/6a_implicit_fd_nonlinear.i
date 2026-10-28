@@ -23,8 +23,8 @@
 #
 # The time step follows the nonlinear iterations: it grows by 1.2 after a step of fewer than 8,
 # halves after more than 15, and is halved and retried on a failed solve. The iteration count
-# says nothing of the time error of backward Euler, which dtmax bounds. One solve per time
-# step (the cut needs substeps = 1). The first step starts from the initial guess of phi below;
+# says nothing of the time error of backward Euler, which dtmax bounds. The first step starts
+# from the initial guess of phi below;
 # the iteration replaces it by the steady solution of c^1, so no lag is left. The free energy at
 # t = 0 is that of the guess.
 #
