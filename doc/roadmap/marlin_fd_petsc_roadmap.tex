@@ -361,7 +361,7 @@ accepts several fields (for example \texttt{buffer = 'c phi'} with
 \texttt{operators = 'dcdt lap\_c; lap\_phi'}; \texttt{steady\_transient.i}
 and \texttt{pfhub\_6a.i}). The explicit computes run once before the field loop, so a
 source computed from another field sees that field at $t^n$ even if it was
-solved earlier in the same substep: the result does not depend on the order
+solved earlier in the same time step: the result does not depend on the order
 of \texttt{buffer} (decision D8). Re-solving the steady field against updated
 sources is the job of the Picard iteration (PR6); PR5a verifies the coupled
 case.
@@ -1744,8 +1744,10 @@ rebuild covers it (decision~3). Verification:
 (\texttt{bdf2\_mode.py}): $3\times10^{-8}$ (PETSc), $4\times10^{-10}$ (torch) relative. At
 fixed steps to $t = 0.1$ the error against the exact decay falls at order 2.24, 2.13, 2.06
 (backward Euler 1.06, 1.04, 1.02); manual runs of \texttt{bdf2\_mode.i} with
-\texttt{Executioner/TimeStepper/type=ConstantDT}, $dt = 0.1/m$ for $m = 10, 20, 40, 80$,
-\texttt{TensorSolver/l\_tol=1e-13}.
+\texttt{TensorComputes/Solve/dudt/order} 1 or 2,
+\texttt{Executioner/TimeStepper/type=ConstantDT}, \texttt{Executioner/TimeStepper/dt} $= 0.1/m$
+and \texttt{Executioner/num\_steps} $= m$ for $m = 10, 20, 40, 80$,
+\texttt{TensorSolver/l\_tol=1e-13} and \texttt{--allow-unused}.
 \item The bicrystal with the nonlinear iteration on varying steps, against a Newton BDF2
 reference: $4\times10^{-14}$.
 \item A step cut with the history in place equals a run on the accepted times from the start.
@@ -1762,7 +1764,7 @@ runs of \texttt{6a\_implicit\_fd\_nonlinear.i} with \texttt{n=100 end\_time=5},
 Euler on its first step. Recover does not restore the tensor buffers either (a known issue).
 \end{itemize}
 
-\status{implemented (2026-10-28), commits ``(PR7b)'' for \#192; milestone review done.}
+\status{done (2026-10-28), tag pr7b-bdf2, commits ``(PR7b)'' in \#192.}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact
@@ -1801,7 +1803,7 @@ PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variab
 PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & done (tag pr5a-steady-transient) \\
 PR6 & Picard, two-field coupling & done (tag pr6-picard), in PR \#192 & coupled BE recurrence, time source, bicrystal Newton reference; CPU 1--4 ranks, MPS \\
 PR7 & SBM/KKS no-flux port & done (tag pr7-kks-no-flux), in PR \#192 & mirror gold, conservation, energy decrease, $dt$/$dx$ orders, spectral limit; CPU 1--4 ranks \\
-PR7b & Substeps removed, output interval, BDF2 time integration & implemented, in PR \#192; review pending & exact variable-step recurrence, order 2, Newton BDF2 reference, cutback history, 6a \\
+PR7b & Substeps removed, output interval, BDF2 time integration & done (tag pr7b-bdf2), in PR \#192 & exact variable-step recurrence, order 2, Newton BDF2 reference, cutback history, 6a \\
 PR8 & Monolithic groundwork & deferred & --- \\
 --- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
 \bottomrule

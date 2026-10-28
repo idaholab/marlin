@@ -53,7 +53,7 @@
     # 10 steps every 4: steps 0, 4, 8 and, from FINAL, the last step 10
     cli_args = 'TensorOutputs/active="xdmf" TensorOutputs/xdmf/time_step_interval=4 TensorOutputs/xdmf/execute_on="INITIAL TIMESTEP_END FINAL" Outputs/file_base=xdmf_interval'
     xmldiff = xdmf_interval.xmf
-    issues = '#192'
+    issues = '#184'
     requirement = 'The system shall output a tensor in XDMF format every given number of time steps and at the final time'
     design = 'XDMFTensorOutput.md'
     compute_devices = 'cpu'
