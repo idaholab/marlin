@@ -1629,7 +1629,8 @@ field (Cahn-Hilliard's $\nabla^2 f'(c)$ gives $\nabla^2(f''\cdot)$, not a
 diagonal), $f'' < 0$ making the operator indefinite, and the coarse-level
 restriction of the diagonal (as D6).
 
-\status{design approved; implementation on branch \texttt{implicit\_fd\_pr6}.}
+\status{done: tag \texttt{pr6-picard}, milestone review addressed, in PR \#192 (with
+PR5 and PR7), 2026-10-27.}
 
 \pr{7}{Port SBM/KKS No-Flux Example to the Implicit FD Path}
 \textbf{Scope:} reimplement \texttt{test/tests/kks/KKS\_no\_flux\_bc.i} with
@@ -1682,8 +1683,12 @@ the residual's round-off ($10^{-12}$), so with the relative test alone the itera
 and the step was cut to \texttt{dtmin} at $t = 40.8$. The example adds
 \texttt{nl\_abs\_tol} $= 10^{-9}$; the test input keeps the relative test only.
 
-\status{implemented on branch \texttt{implicit\_fd\_pr6} (2026-10-27); the review panel is
-open.}
+\status{done: tag \texttt{pr7-kks-no-flux}, in PR \#192, 2026-10-27. The milestone review
+(numerics with an independent Newton backward-Euler reference, docs and parallel, mutation
+testing, verifier) found no error in the model or the split. It found a conservation gate
+that could not fail and a CUDA test skipped behind a CPU-only prerequisite (both fixed), and
+a redundant ghost exchange of the nonlinear iterate (removed; the one after the linear solve
+is an open question). CUDA runs in CI.}
 
 \pr{7b}{Second-Order Time Integration (BDF2)}
 \textbf{Scope (user, 2026-10-27):} BDF2 for the transient fields of
@@ -1742,12 +1747,12 @@ PR2b & Multi-rank PCMG & spike done (\texttt{b3dcd72}) & PETSc-owned hierarchy +
 PR2c & Non-SPD + torch PCSHELL smoother + fusion & spike done (\texttt{40f6977}, \texttt{65109ae}) & GS robust for upwind; central Pe $\ge1$ deferred; CUDA traced 2.4--3.2$\times$ eager \\
 PR3 & ImplicitFDSolver, periodic, matrix-free & merged (PR \#188) & MMS and BE orders 2/4; CPU 1--4 ranks, MPS, H200 \\
 PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no divergence test, preallocation, scaling script & PR \#189 open, not merged & biharmonic Fourier mode 2D/3D, both backends \\
-PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; rebased onto \#189 head, no PR yet & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
+PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; PR \#191 open (tag \texttt{pr4-implicit-bcs}) & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
 PR4a & AMG mixed mode, contingent & proposed & --- \\
 PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient) & --- \\
 PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & done (tag pr5a-steady-transient) \\
-PR6 & Picard, two-field coupling & implemented on \texttt{implicit\_fd\_pr6}, in review & coupled BE recurrence, time source, bicrystal Newton reference; CPU 1--4 ranks, MPS \\
-PR7 & SBM/KKS no-flux port & implemented, review open & --- \\
+PR6 & Picard, two-field coupling & done (tag pr6-picard), in PR \#192 & coupled BE recurrence, time source, bicrystal Newton reference; CPU 1--4 ranks, MPS \\
+PR7 & SBM/KKS no-flux port & done (tag pr7-kks-no-flux), in PR \#192 & mirror gold, conservation, energy decrease, $dt$/$dx$ orders, spectral limit; CPU 1--4 ranks \\
 PR7b & BDF2 time integration & proposed (user, 2026-10-27) & --- \\
 PR8 & Monolithic groundwork & deferred & --- \\
 --- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
