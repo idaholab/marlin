@@ -1893,6 +1893,57 @@
     []
   []
 
+  [kks_sbm]
+    design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
+    requirement = 'The system shall step the Kim-Kim-Suzuki model with smoothed boundary walls fully implicitly, with BDF2, holding the cells outside the walls inactive, conserving the integral of psi c to round-off and decreasing the free energy, with'
+    # the torch and PETSc backends, and 1 and 4 ranks, agree to 1e-13 relative. At t = 1 the run
+    # is within 0.73 of the spectral AB3 SBM solver (KKS_no_flux_bc.i, the same psi) in int psi
+    # eta, a gap that falls to 0.10 at dx = 0.5 (doc/roadmap, PR9).
+    [torch]
+      type = CSVDiff
+      input = kks_sbm.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=kks_sbm'
+      csvdiff = kks_sbm.csv
+      rel_err = 1e-9
+      # the change of int psi c is round-off (1e-12): smaller values count as zero, a larger one
+      # fails against the zeroed gold
+      override_columns = 'total_psi_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver under the PETSc Anderson iteration,'
+    []
+    [petsc]
+      type = CSVDiff
+      input = kks_sbm.i
+      cli_args = 'Outputs/file_base=kks_sbm'
+      csvdiff = kks_sbm.csv
+      rel_err = 1e-9
+      override_columns = 'total_psi_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_sbm/torch'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver, and'
+    []
+    [petsc_4_ranks]
+      type = CSVDiff
+      input = kks_sbm.i
+      cli_args = 'Outputs/file_base=kks_sbm'
+      csvdiff = kks_sbm.csv
+      rel_err = 1e-9
+      override_columns = 'total_psi_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_sbm/petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver on 4 ranks.'
+    []
+  []
+
   [coefficient_time_derivative]
     design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
     requirement = 'The system shall integrate implicit finite-difference time steps of a u_t with a cell-centred coefficient a, backward Euler on the first step and variable-step BDF2 after it,'
