@@ -14,7 +14,8 @@ where the $A_i$ are the finite-difference operators listed in
 $r_i$ their right-hand side contributions, and $f$ the optional explicit
 [!param](/TensorSolver/ImplicitFDSolver/source). Backward Euler diffusion
 $\partial_t u = D \nabla^2 u + f$ is written with a [TimeDerivativeOperator.md] (action
-$u/\Delta t$, contribution $u^n/\Delta t$) and a [FiniteDifferenceLaplacian.md] with `factor = -D`.
+$u/\Delta t$, contribution $u^n/\Delta t$) and a [FiniteDifferenceLaplacian.md] with `factor = -D`;
+the time derivative's `order = 2` gives variable-step BDF2 instead.
 
 The operator is applied matrix-free with each operator's own kernel. The system must be symmetric
 positive definite, or positive semidefinite with the constants as its nullspace (a steady periodic
@@ -87,8 +88,8 @@ on every device, in single precision on devices without double precision support
 
 ## Nonlinear iteration
 
-With `nonlinear_solve = true` each step is iterated to the fully implicit backward Euler step of
-all fields. `nonlinear_solver` picks the driver independently of `linear_solver`: `TORCH` is a
+With `nonlinear_solve = true` each step is iterated to the fully implicit step of all fields
+(backward Euler, or BDF2 with the time derivatives' `order = 2`). `nonlinear_solver` picks the driver independently of `linear_solver`: `TORCH` is a
 plain Picard iteration in torch, `PETSC` a PETSc SNES (options prefix `nonlinear_`), and `AUTO`
 selects `PETSC` with `linear_solver = PETSC` or when nonlinear options are given, `TORCH`
 otherwise. Options starting with `-snes` or `-npc_` in `petsc_options` go to the SNES; the other

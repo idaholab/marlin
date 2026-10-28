@@ -1729,7 +1729,33 @@ matching times). PFHub 6a on the smooth schedule: $F(400) = 104.10$ ($100^2$), 1
 ($200^2$), 103.82 (cap 0.05); against the cap of 0.05, caps 0.5, 0.25, 0.1 differ by
 0.280, 0.083, 0.019.
 
-\status{proposed (user, 2026-10-27). After PR6. Substeps removal implemented (2026-10-28).}
+\textbf{BDF2 as built (decisions by the user, 2026-10-28).} \texttt{TimeDerivativeOperator}
+\texttt{order = 2}: MOOSE's variable-step weights ($s = dt + dt_\text{old}$: $w_0 = 1 + dt/s$,
+$w_1 = -s/dt_\text{old}$, $w_2 = dt^2/(dt_\text{old} s)$), with a centre stencil entry of
+$w_0/dt$ and a contribution of $-(w_1 u^n + w_2 u^{n-1})/dt$. The first step is backward Euler.
+The operator keeps $u^n$, $u^{n-1}$ and $dt_\text{old}$ itself (the buffer states have no
+$u^0$). They are keyed by the start time of the step, so a retried step keeps them. It is
+allowed with the lagged scheme and documented there as first order overall when there are
+explicit terms. The solver is unchanged: a $w_0$ change is a stencil change, so the existing
+rebuild covers it (decision~3). Verification:
+\begin{itemize}[leftmargin=*]
+\item A periodic mode over 8 steps with ratios 0.5 to 2, against the exact BDF2 recurrence
+(\texttt{bdf2\_mode.py}): $3\times10^{-8}$ (PETSc), $4\times10^{-10}$ (torch) relative. At
+fixed steps to $t = 0.1$ the error against the exact decay falls at order 2.24, 2.13, 2.06
+(backward Euler 1.06, 1.04, 1.02).
+\item The bicrystal with the nonlinear iteration on varying steps, against a Newton BDF2
+reference: $4\times10^{-14}$.
+\item A step cut with the history in place equals a run on the accepted times from the start.
+\item Mutants caught: a retry that advances the history, constant-step weights, and a flipped
+$w_2$. A stencil without $w_0$ survives (it changes only the multigrid preconditioner, not the
+solution).
+\item PFHub 6a, fully implicit, $100^2$. $F$ against BDF2 at $dtmax = 0.005$, for dtmax 0.1, 0.05
+and 0.02: backward Euler $-0.130$, $-0.067$, $-0.027$ at $t = 5$; BDF2 $-3.8\times10^{-4}$,
+$-1.1\times10^{-4}$, $-1.9\times10^{-5}$ (at $t = 1$: $-2.1\times10^{-4}$, $-6.0\times10^{-5}$,
+$-8.1\times10^{-6}$, order 1.8--2.2). Same steps, no cuts, and wall time within 10\%.
+\end{itemize}
+
+\status{implemented (2026-10-28), commits ``(PR7b)'' in \#192; milestone review pending.}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact
@@ -1768,7 +1794,7 @@ PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variab
 PR5a & Steady + transient coupling & Sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread & done (tag pr5a-steady-transient) \\
 PR6 & Picard, two-field coupling & done (tag pr6-picard), in PR \#192 & coupled BE recurrence, time source, bicrystal Newton reference; CPU 1--4 ranks, MPS \\
 PR7 & SBM/KKS no-flux port & done (tag pr7-kks-no-flux), in PR \#192 & mirror gold, conservation, energy decrease, $dt$/$dx$ orders, spectral limit; CPU 1--4 ranks \\
-PR7b & BDF2 time integration & proposed (user, 2026-10-27) & --- \\
+PR7b & Substeps removed, output interval, BDF2 time integration & implemented, in PR \#192; review pending & exact variable-step recurrence, order 2, Newton BDF2 reference, cutback history, 6a \\
 PR8 & Monolithic groundwork & deferred & --- \\
 --- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
 \bottomrule

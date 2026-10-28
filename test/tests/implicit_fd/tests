@@ -203,6 +203,60 @@
     []
   []
 
+  [bdf2]
+    requirement = 'The system shall integrate implicit finite-difference time steps with the variable-step BDF2 formula, backward Euler on the first step,'
+    # bdf2_mode.py: the exact scalar BDF2 recurrence of the mode on the step sequence of
+    # bdf2_mode.i (ratios 0.5 to 2); the solves match it to 3e-8 (PETSc) and 4e-10 (torch PCG)
+    # relative at l_tol = 1e-8. At fixed steps to t = 0.1 the error against the exact decay falls
+    # at order 2.06 (backward Euler: 1.02).
+    [mode_petsc]
+      type = CSVDiff
+      input = bdf2_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=bdf2_mode_3pt'
+      csvdiff = bdf2_mode_3pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu'
+      detail = 'reproducing the exact recurrence of a periodic Fourier mode over changing time steps with the PETSc solver,'
+    []
+    [mode_torch]
+      type = CSVDiff
+      input = bdf2_mode.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG stencil=5 Outputs/file_base=bdf2_mode_5pt'
+      csvdiff = bdf2_mode_5pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the same with the 5-point stencil and the torch solver,'
+    []
+    [nonlinear]
+      type = CSVDiff
+      input = bicrystal.i
+      # bicrystal_newton.py ... 0.25 bdf2: Newton BDF2 steps of 0.25, 0.25, 0.5, 0.25, 0.375;
+      # the iteration matches it to 4e-14
+      cli_args = "dt=0.25 TensorComputes/Solve/deta1_op/order=2 "
+                 "TensorComputes/Solve/deta2_op/order=2 "
+                 "Executioner/TimeStepper/type=TimeSequenceStepper "
+                 "Executioner/TimeStepper/time_sequence='0.25 0.5 1 1.25 1.625' "
+                 "Outputs/file_base=bicrystal_bdf2"
+      csvdiff = bicrystal_bdf2.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'iterating two nonlinear coupled fields to the fully implicit BDF2 step of a Newton reference, and'
+    []
+    [cutback]
+      type = CSVDiff
+      input = cutback.i
+      # dt doubles from 0.002 until the third step fails the linear solve and is retried at 0.004;
+      # the gold is a run on the accepted times from the start (TimeSequenceStepper, no failure),
+      # which the retried run reproduces to all printed digits
+      cli_args = 'TensorComputes/Solve/dudt/order=2 Executioner/num_steps=4 Executioner/TimeStepper/dt=0.002 Executioner/TimeStepper/min_iterations=1000 Executioner/TimeStepper/growth_factor=2 Outputs/file_base=cutback_bdf2'
+      csvdiff = cutback_bdf2.csv
+      expect_out = 'Solve failed, cutting timestep'
+      compute_devices = 'cpu'
+      detail = 'keeping the step history of a retried step.'
+    []
+  []
+
   [biharmonic]
     requirement = 'The system shall integrate a periodic Fourier mode of u_t = -M kappa Laplacian(Laplacian(u)) with implicit backward Euler finite differences, reproducing the exact discrete amplification factor in every step,'
     [3pt_torch]
