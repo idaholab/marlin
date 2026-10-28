@@ -1898,7 +1898,7 @@
     requirement = 'The system shall step the Kim-Kim-Suzuki model with smoothed boundary walls fully implicitly, with BDF2, holding the cells outside the walls inactive, conserving the integral of psi c to round-off and decreasing the free energy, with'
     # the torch and PETSc backends, and 1 and 4 ranks, agree to 1e-13 relative. At t = 1 the run
     # is within 0.73 of the spectral AB3 SBM solver (KKS_no_flux_bc.i, the same psi) in int psi
-    # eta, a gap that falls to 0.10 at dx = 0.5 (doc/roadmap, PR9).
+    # eta, a gap that falls to 0.18 at dx = 0.5, both time-converged (doc/roadmap, PR9).
     [torch]
       type = CSVDiff
       input = kks_sbm.i
@@ -1949,7 +1949,7 @@
     requirement = 'The system shall integrate implicit finite-difference time steps of a u_t with a cell-centred coefficient a, backward Euler on the first step and variable-step BDF2 after it,'
     # a = 1 is bdf2_mode.i (the gold of its exact mode recurrence). coefficient_dt.py: scipy
     # sparse direct solves of the same steps with a = 1 + 0.5 sin(2 pi x) sin(2 pi y); the solves
-    # match it to 2e-8 relative at l_tol = 1e-8, and the integral of a u stays at 0.125.
+    # match it to 1.4e-8 relative at l_tol = 1e-8, and the integral of a u stays at 0.125.
     [unit_coefficient]
       type = CSVDiff
       input = coefficient_dt.i
@@ -2056,7 +2056,20 @@
       rel_err = 1e-7
       prereq = 'inactive_cells/torch_3_ranks'
       compute_devices = 'cpu'
-      detail = 'in the nonlinear iteration.'
+      detail = 'in the nonlinear iteration (the torch defect correction), and'
+    []
+    [torch_single]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Domain/floating_precision=SINGLE TensorSolver/l_tol=1e-5 Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      # single precision: the solve agrees with the double-precision gold to 7e-7 relative (CPU, MPS),
+      # and the held cells are exact
+      rel_err = 1e-5
+      prereq = 'inactive_cells/nonlinear'
+      compute_devices = 'cpu cuda mps'
+      min_slots = 2 # memory heavy
+      detail = 'in single precision with the torch solver.'
     []
   []
 

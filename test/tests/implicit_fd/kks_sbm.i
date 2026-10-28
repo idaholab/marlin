@@ -20,8 +20,8 @@
 # Comparison with the spectral SBM (2026-10-28): KKS_no_flux_bc.i on the same grid
 # (Domain/nx=100 Domain/ny=100, AB3 with 1000 substeps per step, the same psi) gives, at t = 1,
 # int psi eta = 2329.46 against 2328.73 here (dt = 0.01, time-converged to 0.1), a gap of 0.73 in a
-# change of about 129. At dx = 0.5 the two give 2329.539 and 2329.434: the gap falls with dx, as
-# both converge to the same SBM solution (int psi c agrees to 1e-8 relative, as both conserve it).
+# change of about 129. At dx = 0.5 (Domain/nx=200 Domain/ny=200), time-converged here, the two
+# give 2329.539 and 2329.355: the gap falls to 0.18 as both converge to the same SBM solution.
 #
 
 # Constants for Initial Conditions
