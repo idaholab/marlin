@@ -817,14 +817,14 @@
       type = RunException
       input = divgrad_mms.i
       cli_args = 'face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
-      expect_err = 'has a nonpositive diagonal in some cells, so it is not positive definite there'
+      expect_err = 'has a zero diagonal in some cells where the right-hand side is nonzero'
       detail = 'the coefficient is zero on every face of some cells in a steady problem,'
     []
     [decoupled_cells_petsc]
       type = RunException
       input = divgrad_mms.i
       cli_args = 'TensorSolver/linear_solver=PETSC face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
-      expect_err = 'has a nonpositive diagonal in some cells, so it is not positive definite there'
+      expect_err = 'has a zero diagonal in some cells where the right-hand side is nonzero'
       detail = 'the same with the PETSc solver,'
     []
     [harmonic_negative]
@@ -1944,6 +1944,87 @@
       compute_devices = 'cpu cuda'
       min_slots = 2 # memory heavy
       detail = 'and the same with the torch solver.'
+    []
+  []
+
+  [inactive_cells]
+    design = 'ImplicitFDSolver.md CoefficientTimeDerivativeOperator.md'
+    requirement = 'The system shall hold the cells with a zero diagonal and a zero right-hand side at their value of the start of the step in an implicit finite-difference solve, and solve the other cells as without them,'
+    # sbm_inactive.py: scipy sparse direct solves of the same smoothed boundary BDF2 steps on the
+    # active cells alone. The solves match it to 3e-9 relative (PETSc on 4 ranks, l_tol = 1e-8)
+    # and 2e-12 (torch PCG); held_change is exactly 0.
+    [petsc]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      compute_devices = 'cpu'
+      detail = 'with the PETSc multigrid solver,'
+    []
+    [petsc_4_ranks]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the same on 4 ranks,'
+    []
+    [torch]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/petsc_4_ranks'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'with the torch solver,'
+    []
+    [torch_3_ranks]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'the same on 3 ranks, and'
+    []
+    [nonlinear]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorSolver/nonlinear_solve=true TensorSolver/nonlinear_solver=TORCH Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/torch_3_ranks'
+      compute_devices = 'cpu'
+      detail = 'in the nonlinear iteration.'
+    []
+  []
+
+  [inactive_cells_errors]
+    design = 'ImplicitFDSolver.md'
+    requirement = 'The system shall report an error in the implicit solve when a cell with a zero diagonal'
+    [nonzero_rhs]
+      type = RunException
+      input = sbm_inactive.i
+      cli_args = "source_expression='if(abs(x-0.5)>0.4,1,0)'"
+      expect_err = 'has a zero diagonal in some cells where the right-hand side is nonzero'
+      detail = 'has a nonzero right-hand side, or'
+    []
+    [steady]
+      type = RunException
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/operators=divgrad TensorSolver/root_compute=divgrad'
+      expect_err = 'has inactive cells \(a zero diagonal\) and no time derivative'
+      detail = 'is in a steady problem.'
     []
   []
 

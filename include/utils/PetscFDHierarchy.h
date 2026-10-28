@@ -124,6 +124,12 @@ void assembleStencilOperator(DM da,
                              Mat B);
 
 /**
+ * Add an identity row, times the largest diagonal entry, to every row of the assembled B whose
+ * diagonal is zero (an inactive cell, whose row is zero).
+ */
+void addIdentityOnZeroRows(Mat B);
+
+/**
  * An AIJ matrix on the DMDA da (of the DM's matrix type) preallocated for exactly the
  * columns of the stencil, which assembleStencilOperator then fills. Any stencil with
  * the same offsets can be assembled into it.

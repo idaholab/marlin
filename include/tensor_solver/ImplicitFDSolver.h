@@ -90,6 +90,10 @@ protected:
     /// u^n and sum_i r_i (the time derivatives' contributions) of the current time step
     torch::Tensor _u_old;
     torch::Tensor _rhs_old;
+    /// the inactive cells of the current solve (zero row, zero right-hand side), undefined if
+    /// there are none, and the scale of the identity rows the Krylov solve gives them
+    torch::Tensor _inactive;
+    Real _inactive_scale = 0.0;
   };
 
   virtual void substep() override;
@@ -129,8 +133,18 @@ protected:
   /// the Jacobi diagonal on the owned cells: the diagonal of the folded operator, which next to
   /// a boundary face includes the ghosts' dependence on the cell itself
   torch::Tensor jacobiDiagonal(const Field & field) const;
-  /// error unless the folded diagonal is positive in every cell
-  void checkPositiveDiagonal(const Field & field, const torch::Tensor & diag) const;
+  /**
+   * Find the inactive cells of the solve of A x = b: cells with a zero folded diagonal (e.g.
+   * psi = 0 on the cell and all its faces), whose rows must be zero and whose b must be zero.
+   * The Krylov solve gives them identity rows and they keep their value of x.
+   */
+  void findInactiveCells(Field & field, const torch::Tensor & b);
+
+  /// the linear operator with identity rows (times the field's inactive scale) on inactive cells
+  torch::Tensor krylovOperator(Field & field, const torch::Tensor & x);
+
+  /// the Jacobi diagonal of krylovOperator
+  torch::Tensor krylovDiagonal(const Field & field) const;
 
   /// lambda if the linear operator maps the constants to lambda > 0 times the constants (up to
   /// round-off), else 0

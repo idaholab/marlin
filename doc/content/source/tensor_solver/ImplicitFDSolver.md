@@ -159,12 +159,28 @@ the problem, so whether it could be solved would depend on the grid.
 
 ## Variable coefficients
 
-An operator with a coefficient per cell ([FiniteDifferenceDivGrad.md]) gives the solver one
-stencil field per offset. The torch Jacobi preconditioner and the smoothers use the cell-wise
-diagonal, which varies with the coefficient. On the PETSc coarse levels the coefficient is the
-mean over each coarse cell's children, and the operator is rediscretised from it. A cell whose
-diagonal is not positive (a coefficient that is zero on every face of a cell, without a time
-derivative) is an error. The coarse levels are reassembled when the coefficient changes.
+An operator with a coefficient per cell ([FiniteDifferenceDivGrad.md],
+[CoefficientTimeDerivativeOperator.md]) gives the solver one stencil field per offset. The torch
+Jacobi preconditioner and the smoothers use the cell-wise diagonal, which varies with the
+coefficient. On the PETSc coarse levels the coefficient is the mean over each coarse cell's
+children, and the operator is rediscretised from it. The coarse levels are reassembled when the
+coefficient changes.
+
+## Inactive cells
+
+A cell whose diagonal is zero is decoupled from the rest, e.g. in the smoothed boundary method a
+cell with $\psi = 0$ on the cell and on all its faces, under
+$\psi \, \partial u / \partial t - \nabla \cdot (\psi D \nabla u)$ with the arithmetic face
+mean. If its right-hand side is zero as well, the cell is inactive: $u$ keeps its value of the
+start of the step. In the Krylov solve its row is the identity (times the largest diagonal), and
+so is the row of a coarse cell whose children are all inactive. The inactive set is found again
+in every solve, so it follows a changing coefficient. It is an error if
+
+- a cell has a zero diagonal and a nonzero right-hand side (the equations there have no
+  solution),
+- a cell has a zero diagonal and nonzero off-diagonal entries (the operator is indefinite), or
+- the operator has inactive cells and no time derivative: the nullspace of such a steady
+  operator is the constants on each connected active region, which is not supported.
 
 On the coarse multigrid levels, a stencil entry that reaches a ghost cell is folded onto the
 mirrored interior cell, times the ghost factor $-(a/2 - b/s)/(a/2 + b/s)$ of the homogeneous
