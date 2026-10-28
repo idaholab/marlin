@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <limits>
 #include <map>
 
 namespace PetscFD
@@ -516,16 +517,19 @@ addIdentityOnZeroRows(Mat B)
   Vec diag;
   PetscCallAbort(comm, MatCreateVecs(B, nullptr, &diag));
   PetscCallAbort(comm, MatGetDiagonal(B, diag));
-  PetscReal largest;
-  PetscCallAbort(comm, VecMax(diag, nullptr, &largest));
   PetscInt local, zero_rows = 0;
   PetscCallAbort(comm, VecGetLocalSize(diag, &local));
   PetscScalar * array;
   PetscCallAbort(comm, VecGetArray(diag, &array));
+  PetscReal smallest = std::numeric_limits<PetscReal>::max();
+  for (const auto i : make_range(local))
+    if (array[i] != 0.0)
+      smallest = std::min(smallest, PetscReal(array[i]));
+  PetscCallMPIAbort(comm, MPI_Allreduce(MPI_IN_PLACE, &smallest, 1, MPIU_REAL, MPI_MIN, comm));
   for (const auto i : make_range(local))
     if (array[i] == 0.0)
     {
-      array[i] = largest;
+      array[i] = smallest;
       ++zero_rows;
     }
     else

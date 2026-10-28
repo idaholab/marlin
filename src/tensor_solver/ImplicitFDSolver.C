@@ -744,10 +744,12 @@ ImplicitFDSolver::findInactiveCells(Field & field, const torch::Tensor & b)
                "' has a zero diagonal but nonzero off-diagonal entries in some cells, which "
                "makes it indefinite there.");
 
-  // the identity rows get the largest diagonal, so they do not widen the spectrum downward
+  // the identity rows get the smallest active diagonal: a coarse correction interpolated into
+  // an inactive cell then leaves a residual no larger than in its active neighbours
   field._inactive = inactive;
-  field._inactive_scale = diag.max().cpu().item<double>();
-  MPI_Allreduce(MPI_IN_PLACE, &field._inactive_scale, 1, MPI_DOUBLE, MPI_MAX, _domain.getMPIComm());
+  field._inactive_scale =
+      torch::where(inactive, std::numeric_limits<double>::max(), diag).min().cpu().item<double>();
+  MPI_Allreduce(MPI_IN_PLACE, &field._inactive_scale, 1, MPI_DOUBLE, MPI_MIN, _domain.getMPIComm());
 }
 
 torch::Tensor
