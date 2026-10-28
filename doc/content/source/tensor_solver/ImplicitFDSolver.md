@@ -172,7 +172,8 @@ A cell whose diagonal is zero is decoupled from the rest, e.g. in the smoothed b
 cell with $\psi = 0$ on the cell and on all its faces, under
 $\psi \, \partial u / \partial t - \nabla \cdot (\psi D \nabla u)$ with the arithmetic face
 mean. If its right-hand side is zero as well, the cell is inactive: $u$ keeps its value of the
-start of the step. In the Krylov solve its row is the identity (times the largest diagonal), and
+start of the step. In the Krylov solve its row is the identity (times the smallest positive
+diagonal), and
 so is the row of a coarse cell whose children are all inactive. The inactive set is found again
 in every solve, so it follows a changing coefficient. It is an error if
 

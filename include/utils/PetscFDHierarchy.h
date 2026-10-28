@@ -124,8 +124,8 @@ void assembleStencilOperator(DM da,
                              Mat B);
 
 /**
- * Add an identity row, times the largest diagonal entry, to every row of the assembled B whose
- * diagonal is zero (an inactive cell, whose row is zero).
+ * Add an identity row, times the smallest nonzero diagonal entry, to every row of the assembled
+ * B whose diagonal is zero (an inactive cell, whose row is zero).
  */
 void addIdentityOnZeroRows(Mat B);
 

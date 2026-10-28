@@ -140,7 +140,8 @@ protected:
    */
   void findInactiveCells(Field & field, const torch::Tensor & b);
 
-  /// the linear operator with identity rows (times the field's inactive scale) on inactive cells
+  /// the linear operator with identity rows (times the smallest active diagonal) on inactive
+  /// cells
   torch::Tensor krylovOperator(Field & field, const torch::Tensor & x);
 
   /// the Jacobi diagonal of krylovOperator
