@@ -1767,6 +1767,13 @@ PR4a).
 whose \texttt{stencilAt()} is one constant stencil (PR5).
 \item Non-SPD operators (advection, central differencing at high Pe):
 deferred until a target physics needs implicit advection (PR2c).
+\item The ghost exchange of each field after its linear solve
+(\texttt{ImplicitFDSolver::substep}) is likely redundant: every compute that reads a
+field's ghosts exchanges them itself (\texttt{runComputeWithGhosts}), and removing the
+matching exchange from the nonlinear iteration left every \texttt{implicit\_fd} output
+byte-identical on 1--4 ranks (PR7 review). Remove it once the same check (serial, MPI, the
+face and \texttt{c\_buffer} tests) passes without it; add communication back only where a
+reader needs it.
 \end{enumerate}
 
 \textbf{Resolved:} input syntax for several fields (one

@@ -1335,13 +1335,10 @@ std::vector<torch::Tensor>
 ImplicitFDSolver::nonlinearRhs(const std::vector<torch::Tensor> & U)
 {
   // every field holds its iterate before any explicit compute runs (Jacobi, D11), so b(U) does
-  // not depend on the field order
+  // not depend on the field order. No ghost exchange here: every compute reading a field's ghosts
+  // exchanges them itself (runComputeWithGhosts)
   for (const auto i : index_range(_fields))
-  {
     applyOperator(_fields[i], U[i]);
-    _tensor_problem.exchangeGhostLayers(_fields[i]._name,
-                                        _tensor_problem.getBufferGhostLayers(_fields[i]._name));
-  }
   for (auto * cmp : _explicit_computes)
     cmp->realSpaceComputeBuffer();
   forwardBuffers();
