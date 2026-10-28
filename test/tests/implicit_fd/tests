@@ -1,5 +1,5 @@
 [Tests]
-  design = 'ImplicitFDSolver.md TimeDerivativeOperator.md FiniteDifferenceBiharmonic.md'
+  design = 'ImplicitFDSolver.md TimeDerivativeOperator.md FiniteDifferenceBiharmonic.md CoefficientTimeDerivativeOperator.md'
   issues = '#184'
 
   [backward_euler]
@@ -1890,6 +1890,73 @@
       max_parallel = 4
       compute_devices = 'cpu'
       detail = 'the PETSc multigrid solver on 4 ranks.'
+    []
+  []
+
+  [coefficient_time_derivative]
+    design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
+    requirement = 'The system shall integrate implicit finite-difference time steps of a u_t with a cell-centred coefficient a, backward Euler on the first step and variable-step BDF2 after it,'
+    # a = 1 is bdf2_mode.i (the gold of its exact mode recurrence). coefficient_dt.py: scipy
+    # sparse direct solves of the same steps with a = 1 + 0.5 sin(2 pi x) sin(2 pi y); the solves
+    # match it to 2e-8 relative at l_tol = 1e-8, and the integral of a u stays at 0.125.
+    [unit_coefficient]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=PETSC Postprocessors/inactive='min_u mass mass_a' "
+                 "Outputs/file_base=bdf2_mode_3pt"
+      csvdiff = bdf2_mode_3pt.csv
+      rel_err = 1e-6
+      prereq = 'bdf2/mode_petsc'
+      compute_devices = 'cpu'
+      detail = 'reproducing the time derivative without a coefficient for a = 1,'
+    []
+    [varying_petsc]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=PETSC a_expression='1+0.5*sin(2*pi*x)*sin(2*pi*y)' "
+                 "Outputs/file_base=coefficient_dt_varying"
+      csvdiff = coefficient_dt_varying.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu'
+      detail = 'matching a sparse direct reference for a spatially varying a with the PETSc multigrid solver,'
+    []
+    [varying_petsc_4_ranks]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=PETSC a_expression='1+0.5*sin(2*pi*x)*sin(2*pi*y)' "
+                 "Outputs/file_base=coefficient_dt_varying"
+      csvdiff = coefficient_dt_varying.csv
+      rel_err = 1e-6
+      prereq = 'coefficient_time_derivative/varying_petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the same on 4 ranks,'
+    []
+    [varying_torch]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=TORCH_PCG a_expression='1+0.5*sin(2*pi*x)*sin(2*pi*y)' "
+                 "Outputs/file_base=coefficient_dt_varying"
+      csvdiff = coefficient_dt_varying.csv
+      rel_err = 1e-6
+      prereq = 'coefficient_time_derivative/varying_petsc_4_ranks'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'and the same with the torch solver.'
+    []
+  []
+
+  [coefficient_time_derivative_errors]
+    design = 'CoefficientTimeDerivativeOperator.md'
+    requirement = 'The system shall report an error when the coefficient of a time derivative'
+    [negative_coefficient]
+      type = RunException
+      input = coefficient_dt.i
+      cli_args = "a_expression='sin(2*pi*x)'"
+      expect_err = "The coefficient 'a' of CoefficientTimeDerivativeOperator 'dudt' is negative in "
+                   "some cells; it must be nonnegative."
+      detail = 'is negative somewhere.'
     []
   []
 []

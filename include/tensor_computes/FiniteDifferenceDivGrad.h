@@ -38,15 +38,16 @@ public:
   virtual const std::string & inputBufferName() const override { return _input_name; }
 
   /// D on this rank's owned block
-  torch::Tensor ownedCoefficient() const;
+  virtual torch::Tensor ownedCoefficient() const override;
 
   /**
    * The stencil on a grid with the given spacing from D on that grid's owned block with one
    * halo layer (Marlin axis order), the face rule of the fine level: an implicit solver's
    * coarse levels pass the coarse D.
    */
-  std::vector<FDStencilEntry> stencilFromCoefficient(const torch::Tensor & D,
-                                                     const std::vector<Real> & grid_spacing) const;
+  virtual std::vector<FDStencilEntry>
+  stencilFromCoefficient(const torch::Tensor & D,
+                         const std::vector<Real> & grid_spacing) const override;
 
   /// the stencil from D with one halo layer, with the given prefactor and face mean
   static std::vector<FDStencilEntry> buildStencil(const torch::Tensor & D,

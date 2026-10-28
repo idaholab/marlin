@@ -1026,18 +1026,16 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
   PetscCallAbort(comm, PetscObjectTypeCompare((PetscObject)pc, PCMG, &is_mg));
   const bool set_weights = is_mg && _damped_jacobi;
 
-  // a FiniteDifferenceDivGrad's coefficient on hierarchy level k > 0 is the mean of D over
-  // the 2^dim children on level k - 1, and its coarse operator is rediscretised from it
+  // a variable coefficient (e.g. FiniteDifferenceDivGrad's D) on hierarchy level k > 0 is its
+  // mean over the 2^dim children on level k - 1, and the coarse operator is rediscretised from it
   std::vector<std::vector<Vec>> coefficients(field._fd_operators.size());
   for (const auto i : index_range(field._fd_operators))
-    if (const auto * div_grad =
-            dynamic_cast<const FiniteDifferenceDivGrad *>(field._fd_operators[i]))
+    if (const auto owned = field._fd_operators[i]->ownedCoefficient(); owned.defined())
     {
       auto & D = coefficients[i];
       D.resize(levels);
       // the owned block of a Marlin tensor is this rank's part of the fine DMDA vector
-      const auto fine_D =
-          div_grad->ownedCoefficient().to(torch::kCPU, torch::kFloat64).contiguous();
+      const auto fine_D = owned.to(torch::kCPU, torch::kFloat64).contiguous();
       PetscCallAbort(comm, DMCreateGlobalVector(ps.hierarchy->dms[0], &D[0]));
       PetscScalar * array;
       PetscCallAbort(comm, VecGetArrayWrite(D[0], &array));
@@ -1060,10 +1058,11 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
     for (const auto i : index_range(field._fd_operators))
     {
       const auto * fd_op = field._fd_operators[i];
-      // the coarse D with one halo layer: D_0 outside a domain face, as on the fine level
+      // the coarse coefficient with one halo layer: D_0 outside a domain face, as on the fine
+      // level
       const auto entries =
           k > 0 && !coefficients[i].empty()
-              ? dynamic_cast<const FiniteDifferenceDivGrad *>(fd_op)->stencilFromCoefficient(
+              ? fd_op->stencilFromCoefficient(
                     PetscFD::ownedWithHalo(ps.hierarchy->dms[k], coefficients[i][k]), spacing)
               : fd_op->stencilAt(spacing);
       level_stencil.insert(level_stencil.end(), entries.begin(), entries.end());
