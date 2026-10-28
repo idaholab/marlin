@@ -1765,6 +1765,81 @@ Euler on its first step. Recover does not restore the tensor buffers either (a k
 
 \status{done (2026-10-28), tag pr7b-bdf2, commits ``(PR7b)'' in \#192.}
 
+\pr{9}{Smoothed Boundary Method on the Implicit FD Path}
+\textbf{Scope:} the smoothed boundary method (Yu, Chen and Thornton, arXiv:1107.5341) on
+\texttt{ImplicitFDSolver}, with the KKS case of \texttt{test/tests/kks/KKS\_no\_flux\_bc.i}
+(no flux, $90^\circ$ contact angle) as the target. Branch \texttt{implicit\_fd\_sbm}, on top of
+\#192; commits ``(PR9)''.
+
+\textbf{Equations.} For no flux (paper Eq.~4--6 with $B_N = 0$, Eq.~22 at $\theta = 90^\circ$),
+multiplied through by the domain parameter $\psi$:
+\begin{align*}
+\psi\,\partial_t c &= \nabla\cdot(\psi M\nabla\mu), &
+\psi\,\partial_t \eta &= \nabla\cdot(\psi L\kappa\nabla\eta) - \psi L\,\partial F/\partial\eta.
+\end{align*}
+With $\mu = 4c + g(\eta)$ (PR7): implicit $\psi\partial_t c - \nabla\cdot(4\psi M\nabla c)$, source
+$\nabla\cdot(\psi M\nabla g)$; implicit $\psi\partial_t\eta - \nabla\cdot(\psi L\kappa\nabla\eta)$,
+source $-\psi L\,\partial F/\partial\eta$. The operators are symmetric and need no division by
+$\psi$. $\sum\psi c$ is conserved to round-off. A nonzero boundary flux, a contact angle
+other than $90^\circ$ (both $|\nabla\psi|$ sources), Dirichlet boundaries (Eq.~7) and the
+Cahn-Hilliard form with gradient energy (Eq.~23, whose fourth-order operator is not a
+symmetric product of $\psi$-weighted operators) are out of scope.
+
+\textbf{Decisions (user, 2026-10-28).}
+\begin{itemize}[leftmargin=*]
+\item The $\psi$-multiplied form, with $c$ (not $\psi c$) as the unknown.
+\item A new operator \texttt{CoefficientTimeDerivativeOperator}, $a(\mathbf{x})\,\partial_t u$
+with a \texttt{coefficient} buffer and the backward Euler and BDF2 weights of
+\texttt{TimeDerivativeOperator}; its stencil centre is the per-cell field $a w_0/dt$, restricted
+to the coarse levels as the \texttt{FiniteDifferenceDivGrad} coefficient is. It is reused for
+grand-potential models ($\chi\,\partial_t\mu$).
+\item $\psi$-weighted sources are ordinary sources formed in the input.
+\item The $\psi$-weighted diffusion uses \texttt{FiniteDifferenceDivGrad} with
+\texttt{face\_mean = arithmetic}: a $\psi = 0$ cell next to the domain has a positive face
+coefficient and no time-derivative weight, so it acts as a ghost cell carrying the no-flux
+condition.
+\item \textbf{Inactive cells.} A cell with a zero diagonal and a zero right-hand side (so
+$\psi = 0$ on the cell and on all its faces) is inactive: $u$ is held at $u^n$, an identity row
+in the operator action, the Jacobi diagonal, the PETSc levels and the residual. A zero diagonal
+with a nonzero right-hand side stays an error, and so does a zero-diagonal cell whose row is not
+zero ($A$ applied to the inactive indicator must vanish). A coarse cell is inactive only if all
+its children are.
+\item The threshold for small $\psi$ stays in the input, as in the spectral input: a $\psi$
+profile that reaches 0 (the cosine ramp \texttt{psi\_func}), or a \texttt{ParsedCompute} that
+sets $\psi = 0$ below a cutoff.
+\item From the spectral \texttt{ReciprocalMatDiffusion} and \texttt{ReciprocalAllenCahn}: the
+profile, the active set $\psi > 0$, and the held state outside the domain are kept. The FFT
+derivatives, the separate $\nabla\psi/\psi$ term (contained in the multiplied form) and
+\texttt{always\_update\_psi} (the coefficient version check covers it) are not.
+\end{itemize}
+
+\textbf{Constraint: $\psi$ will change in time} (user, 2026-10-28; e.g.\ a KKS-like model
+recast as SBM, with thermodynamics coupled at the interfaces only, and Gibbs energy minimisers).
+Nothing about $\psi$ is fixed at setup: the inactive set, the stencils and the coarse
+coefficients follow every change of the coefficient buffers, and a cell that becomes active
+starts from its held value. Open for then (a physics decision): with $\partial_t\psi \ne 0$,
+$\psi\,\partial_t c$ does not conserve $\int\psi c$; the conservative form is $\partial_t(\psi c)$.
+
+\textbf{Steady singular fields} (e.g.\ Poisson with SBM no-flux faces): the nullspace is the
+constants on each connected active region, not the whole grid. Detected and an error until
+needed.
+
+\textbf{Verification:}
+\begin{itemize}[leftmargin=*]
+\item \texttt{CoefficientTimeDerivativeOperator} with $a = 1$ equals
+\texttt{TimeDerivativeOperator} (backward Euler and BDF2); a spatially varying $a > 0$ against
+an independent sparse solve of the same discretisation.
+\item Inactive cells: held at $u^n$ exactly, the active cells' solution unchanged by the
+inactive block, both backends, 1--4 ranks; the error paths.
+\item A 1D slab with $\psi$ walls against the sharp zero-flux solution, converging as the wall
+width $l \to 0$.
+\item The KKS case against the spectral SBM input (same $\psi$, same $l$): $\sum\psi c$
+conserved to round-off, the free energy non-increasing, and $\eta$, $c$ close to the spectral
+run, limited by the spatial discretisation.
+\end{itemize}
+
+\status{planned (2026-10-28).}
+
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact
 (non-Picard) multi-field coupling; it would use field-split / block
@@ -1804,6 +1879,7 @@ PR6 & Picard, two-field coupling & done (tag pr6-picard), in PR \#192 & coupled 
 PR7 & SBM/KKS no-flux port & done (tag pr7-kks-no-flux), in PR \#192 & mirror gold, conservation, energy decrease, $dt$/$dx$ orders, spectral limit; CPU 1--4 ranks \\
 PR7b & Substeps removed, output interval, BDF2 time integration & done (tag pr7b-bdf2), in PR \#192 & exact variable-step recurrence, order 2, Newton BDF2 reference, cutback history, 6a \\
 PR8 & Monolithic groundwork & deferred & --- \\
+PR9 & Smoothed boundary method, \texttt{CoefficientTimeDerivativeOperator}, inactive cells & planned & see PR9 \\
 --- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
 \bottomrule
 \end{longtable}
