@@ -29,7 +29,8 @@ second order in time when the whole step is implicit: with the
 [!param](/TensorSolver/ImplicitFDSolver/nonlinear_solve) iteration, or when every term is one of
 the field's operators. With explicit terms taken from the start of the step (the lagged scheme
 without `nonlinear_solve`), the step is first order overall. BDF2 is zero-stable for step ratios
-$\Delta t / \Delta t_\text{old} < 1 + \sqrt{2}$.
+$\Delta t / \Delta t_\text{old} < 1 + \sqrt{2}$. The history is not restartable data: a
+recovered run takes backward Euler on its first step.
 
 The operator is positive definite, and its stencil is the single centre entry
 $w_0/\Delta t$ at every grid spacing ($w_0 = 1$ for backward Euler). With BDF2, $w_0$ changes

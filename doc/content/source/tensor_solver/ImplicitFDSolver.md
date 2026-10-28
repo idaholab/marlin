@@ -89,7 +89,8 @@ on every device, in single precision on devices without double precision support
 ## Nonlinear iteration
 
 With `nonlinear_solve = true` each step is iterated to the fully implicit step of all fields
-(backward Euler, or BDF2 with the time derivatives' `order = 2`). `nonlinear_solver` picks the driver independently of `linear_solver`: `TORCH` is a
+(backward Euler, or BDF2 with the time derivatives' `order = 2`). `nonlinear_solver` picks
+the driver independently of `linear_solver`: `TORCH` is a
 plain Picard iteration in torch, `PETSC` a PETSc SNES (options prefix `nonlinear_`), and `AUTO`
 selects `PETSC` with `linear_solver = PETSC` or when nonlinear options are given, `TORCH`
 otherwise. Options starting with `-snes` or `-npc_` in `petsc_options` go to the SNES; the other
@@ -120,7 +121,7 @@ converge. Their iterates also need not keep the zero-mean right-hand side of a f
 singular operator: the residual evaluation then stops with the error on the mean of that field.
 
 During the iteration the explicit computes run at every iterate and at the new time
-$t^{n+1}$, so the converged step is $A U = u^n/\Delta t + f(U, t^{n+1})$, and boundary values
+$t^{n+1}$, so the converged step is $A U = \sum_i r_i + f(U, t^{n+1})$, and boundary values
 taken from buffers are refilled from the iterate. The iteration stops when
 $\|F(U)\|_2 <$ [!param](/TensorSolver/ImplicitFDSolver/nl_abs_tol) or
 $\|F(U)\|_2 \le$ [!param](/TensorSolver/ImplicitFDSolver/nl_rel_tol) $\|F(U^0)\|_2$, and fails

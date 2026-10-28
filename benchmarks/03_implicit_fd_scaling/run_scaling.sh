@@ -15,7 +15,7 @@
 #   DEVICE=cpu ./run_scaling.sh    # PETSc and torch on a Mac CPU
 #
 # Results: results/<backend>_<n>.{log,csv} and results/summary.csv. The time per
-# step excludes the first step, which carries the startup and solver setup.
+# output step excludes the first output step, which carries the startup and solver setup.
 
 set -euo pipefail
 
@@ -31,10 +31,10 @@ if [ -z "${DEVICE:-}" ]; then
     DEVICE=cpu
   fi
 fi
-# output steps per run (each is `output_interval` = 1000 time steps of one linear solve, as in
-# the input); at least 2, since the first output step is excluded from the time per step
+# output steps per run, each of SOLVES_PER_OUTPUT time steps of one linear solve (passed to the
+# input as output_interval); at least 2, since the first output step is excluded from the time per step
 STEPS=${STEPS:-3}
-SOLVES_PER_STEP=1000
+SOLVES_PER_OUTPUT=1000
 MARLIN=${MARLIN:-../../marlin-opt}
 INPUT=../01_spinodal_decomposition/1a_implicit_fd.i
 OUT=results
@@ -52,7 +52,7 @@ fi
 
 mkdir -p "$OUT"
 summary="$OUT/summary.csv"
-echo "backend,n,dofs,steps,status,wall_time_s,time_per_step_s" > "$summary"
+echo "backend,n,dofs,output_steps,status,wall_time_s,time_per_output_step_s" > "$summary"
 
 # provenance
 {
@@ -74,7 +74,8 @@ for n in $SIZES; do
     # ${a[@]+"${a[@]}"}: an empty array expands to nothing under set -u in bash 3.2 (macOS)
     "$MARLIN" -i "$INPUT" \
       Domain/nx=$n Domain/ny=$n \
-      Executioner/num_steps=$((STEPS * SOLVES_PER_STEP)) \
+      output_interval=$SOLVES_PER_OUTPUT \
+      Executioner/num_steps=$((STEPS * SOLVES_PER_OUTPUT)) \
       TensorSolver/linear_solver=$backend \
       "TensorOutputs/active=''" \
       Outputs/file_base="$base" \
@@ -82,7 +83,7 @@ for n in $SIZES; do
       --compute-device="$DEVICE" > "$base.log" 2>&1 || status="FAILED($?)"
 
     # wall_time column of the postprocessor CSV (one row per output step): the last value and
-    # the time per step after the first step
+    # the time per output step after the first
     read -r rows wall per_step < <(
       awk -F, 'NR == 1 { for (i = 1; i <= NF; i++) if ($i == "wall_time") c = i; next }
                c { w[++r] = $c }
@@ -90,7 +91,7 @@ for n in $SIZES; do
                             (r > 1 ? (w[r] - w[1]) / (r - 1) : "-") }' \
         "$base.csv" 2> /dev/null || echo "0 - -")
     echo "$backend,$n,$((n * n)),$rows,$status,$wall,$per_step" >> "$summary"
-    echo "   $status, wall_time=$wall s over $rows steps, $per_step s per step"
+    echo "   $status, wall_time=$wall s over $rows output steps, $per_step s per output step"
   done
 done
 

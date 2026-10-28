@@ -86,19 +86,19 @@ PFHUB = [
 # memory from the "Finished Executing" line of the console output.
 OURS = [
     {
-        "name": "Marlin, 100^2, dt 0.5",
+        "name": "Marlin, 100^2, dtmax 0.5",
         "file_base": "n100",
         "wall_time": 24.5,
         "memory": 227,
     },
     {
-        "name": "Marlin, 200^2, dt 0.5",
+        "name": "Marlin, 200^2, dtmax 0.5",
         "file_base": "n200",
         "wall_time": 77.3,
         "memory": 270,
     },
     {
-        "name": "Marlin, 100^2, dt 0.05",
+        "name": "Marlin, 100^2, dtmax 0.05",
         "file_base": "n100_dt05",
         "wall_time": 71.8,
         "memory": 242,

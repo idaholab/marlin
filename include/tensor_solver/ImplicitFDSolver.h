@@ -87,7 +87,7 @@ protected:
     std::unique_ptr<PetscSolve> _petsc;
     /// boundary condition of u on each face (face 2d + upper; null on periodic faces)
     std::vector<const TensorRobinBC *> _face_bcs;
-    /// u^n and sum_i r_i (the time derivatives' u^n/dt) of the current substep
+    /// u^n and sum_i r_i (the time derivatives' contributions) of the current time step
     torch::Tensor _u_old;
     torch::Tensor _rhs_old;
   };

@@ -54,7 +54,7 @@ protected:
   /// weight of u in the current step (1 for backward Euler and the first BDF2 step)
   mutable Real _w0;
 
-  /// BDF2 history: u^n and u^{n-1} on the owned cells, the start time of the step u^n starts,
+  /// BDF2 history: u^n and u^{n-1} on the owned cells, the start time of the step that starts from u^n,
   /// and the dt of the last solve attempt and of the accepted step ending at u^n
   mutable torch::Tensor _u_n;
   mutable torch::Tensor _u_n_minus_1;

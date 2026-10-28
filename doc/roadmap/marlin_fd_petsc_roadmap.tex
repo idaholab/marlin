@@ -441,7 +441,7 @@ iterations with boundary faces 7, 6, 6 at $n = 64, 128, 256$
 \item \textbf{Boundary value timing} (user, 2026-10-22). In
 \texttt{ImplicitFDSolver}, \texttt{Function}-valued boundary values are
 evaluated at $t^{n+1}$; buffer-valued ones hold what their compute wrote at
-the start of the substep ($t^n$), a one-step lag. This is documented, not
+the start of the time step ($t^n$), a one-step lag. This is documented, not
 changed: only an explicit function of time can be evaluated at $t^{n+1}$;
 removing the other lags is what a Picard iteration does (input to PR6).
 Reaffirmed in the PR4 milestone review (user, 2026-10-25), with the test
@@ -1274,7 +1274,7 @@ The planned \texttt{applyGhostContribution()} was dropped, and the unused
 \item The Robin value $c$ (Dirichlet \texttt{value}, Neumann \texttt{flux}) varies along the
 face, from a MOOSE \texttt{Function} at the face position and the solve time, or from a
 buffer whose first owned layer holds the face value (tangential halo exchanged). $a$ and
-$b$ stay scalar. The implicit solve evaluates functions at $t^{n+1}$; a buffer holds what its compute wrote at the start of the substep, $t^n$.
+$b$ stay scalar. The implicit solve evaluates functions at $t^{n+1}$; a buffer holds what its compute wrote at the start of the time step, $t^n$.
 \item Fine level: the operator action is affine; each solve takes $b \leftarrow b - A(0)$
 and applies $A(x) - A(0)$, so the discretisation is unchanged. The torch PCG Jacobi
 diagonal includes the ghost coefficient in the cells next to a face.
@@ -1502,7 +1502,7 @@ not built; whether it wraps \texttt{ImplicitFDSolver} or is an option of it
 is open), with \texttt{IterativeTensorSolverInterface}-style knobs (min/max
 iterations, tolerances or a Postprocessor, relaxation). Inputs from what is
 built: the explicit computes, and so the sources and buffer-valued boundary
-values, are evaluated once per substep at $t^n$ (decision~11); a Picard
+values, are evaluated once per time step at $t^n$ (decision~11); a Picard
 iteration re-evaluates them, which also removes the boundary-value lag. The
 preconditioner rebuild threshold of decision~3 and rebuilds on
 solution-dependent coefficients belong here.
@@ -1724,8 +1724,9 @@ count $s$, the growth factor $1.1^{1/s}$ per step (the same growth over $s$ step
 output every $s$ steps through a new \texttt{time\_step\_interval} of the tensor outputs
 (with \texttt{FINAL} for the last step). The Crank results are unchanged to $2\times10^{-7}$
 relative (the same steps). The 1b and 6a regression golds were regenerated (the solve steps
-differ: $F$ by up to $2\times10^{-4}$ relative for 1b, $2\times10^{-2}$ for 6a at
-matching times). PFHub 6a on the smooth schedule: $F(400) = 104.10$ ($100^2$), 104.11
+differ. 1b shares no output times with its old gold: $F$ interpolated to the old times differs
+by up to $2\times10^{-4}$ relative. 6a shares $t = 1$, where $F$ differs by $6\times10^{-7}$
+relative, and about $2\times10^{-6}$ interpolated to the old times after the first step). PFHub 6a on the smooth schedule: $F(400) = 104.10$ ($100^2$), 104.11
 ($200^2$), 103.82 (cap 0.05); against the cap of 0.05, caps 0.5, 0.25, 0.1 differ by
 0.280, 0.083, 0.019.
 
@@ -1742,7 +1743,9 @@ rebuild covers it (decision~3). Verification:
 \item A periodic mode over 8 steps with ratios 0.5 to 2, against the exact BDF2 recurrence
 (\texttt{bdf2\_mode.py}): $3\times10^{-8}$ (PETSc), $4\times10^{-10}$ (torch) relative. At
 fixed steps to $t = 0.1$ the error against the exact decay falls at order 2.24, 2.13, 2.06
-(backward Euler 1.06, 1.04, 1.02).
+(backward Euler 1.06, 1.04, 1.02); manual runs of \texttt{bdf2\_mode.i} with
+\texttt{Executioner/TimeStepper/type=ConstantDT}, $dt = 0.1/m$ for $m = 10, 20, 40, 80$,
+\texttt{TensorSolver/l\_tol=1e-13}.
 \item The bicrystal with the nonlinear iteration on varying steps, against a Newton BDF2
 reference: $4\times10^{-14}$.
 \item A step cut with the history in place equals a run on the accepted times from the start.
@@ -1752,10 +1755,14 @@ solution).
 \item PFHub 6a, fully implicit, $100^2$. $F$ against BDF2 at $dtmax = 0.005$, for dtmax 0.1, 0.05
 and 0.02: backward Euler $-0.130$, $-0.067$, $-0.027$ at $t = 5$; BDF2 $-3.8\times10^{-4}$,
 $-1.1\times10^{-4}$, $-1.9\times10^{-5}$ (at $t = 1$: $-2.1\times10^{-4}$, $-6.0\times10^{-5}$,
-$-8.1\times10^{-6}$, order 1.8--2.2). Same steps, no cuts, and wall time within 10\%.
+$-8.1\times10^{-6}$, order 1.8--2.2). Same steps, no cuts, and wall time within 10\%. Manual
+runs of \texttt{6a\_implicit\_fd\_nonlinear.i} with \texttt{n=100 end\_time=5},
+\texttt{Executioner/dtmax} and \texttt{TensorComputes/Solve/dcdt/order}.
+\item Restart: the history is not restartable data, so a recovered run would take backward
+Euler on its first step. Recover does not restore the tensor buffers either (a known issue).
 \end{itemize}
 
-\status{implemented (2026-10-28), commits ``(PR7b)'' in \#192; milestone review pending.}
+\status{implemented (2026-10-28), commits ``(PR7b)'' for \#192; milestone review done.}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact

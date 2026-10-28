@@ -19,8 +19,8 @@ DEVICE=cpu ./run_scaling.sh     # PETSc and torch on a Mac CPU
 The device defaults to `cuda` when `nvidia-smi` is present, `mps` on macOS and
 `cpu` otherwise. On MPS (single precision, no PETSc) only `TORCH_PCG` runs, with
 `l_tol = 1e-5`, so those timings are not like-for-like with the double precision
-runs. The time per step excludes the first step, which carries the startup and
-solver setup.
+runs. The time per output step (1000 time steps) excludes the first output step,
+which carries the startup and solver setup.
 
 Results go to `results/` (`summary.csv`, one log and postprocessor CSV per
 run, `provenance.txt`).

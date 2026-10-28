@@ -17,9 +17,9 @@ grows smoothly by 1.1 every 20 steps from 1e-4 to the cap):
 | FiPy, 100^2                       | 171.29 |  138.93 |  126.07 |  114.28 |
 | MMSP, dx = 1                      | 173.98 |  134.48 |  117.34 |  102.89 |
 | MEMPHIS, 100^2 (a)                | 171.50 |  137.50 |  120.00 |  103.00 |
-| this input, 100^2, dt 0.5         | 172.89 |  138.43 |  121.83 |  104.10 |
-| this input, 200^2, dt 0.5         | 172.84 |  138.52 |  121.88 |  104.11 |
-| this input, 100^2, dt 0.05        | 172.89 |  138.35 |  121.70 |  103.82 |
+| this input, 100^2, dtmax 0.5      | 172.89 |  138.43 |  121.83 |  104.10 |
+| this input, 200^2, dtmax 0.5      | 172.84 |  138.52 |  121.88 |  104.11 |
+| this input, 100^2, dtmax 0.05     | 172.89 |  138.35 |  121.70 |  103.82 |
 
 The 100^2 and 200^2 grids agree to 0.01 at t = 400. Against a step cap of 0.05, F at t = 400
 differs by 0.280, 0.083 and 0.019 at caps of 0.5, 0.25 and 0.1 (backward Euler with the explicit
