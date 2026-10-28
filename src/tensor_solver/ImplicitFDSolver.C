@@ -1576,7 +1576,7 @@ ImplicitFDSolver::setupNonlinearPetsc()
   PetscCallAbort(comm, SNESSetType(nl.snes, SNESNEWTONLS));
   SNESLineSearch linesearch;
   PetscCallAbort(comm, SNESGetLineSearch(nl.snes, &linesearch));
-  PetscCallAbort(comm, SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC));
+  PetscCallAbort(comm, SNESLineSearchSetType(linesearch, SNESLINESEARCHNONE));
   setFieldSolvePreconditioner(nl.snes);
 
   insertPetscOptions("nonlinear_", true);
@@ -1611,7 +1611,7 @@ ImplicitFDSolver::setupNonlinearPetsc()
     SNES npc;
     PetscCallAbort(comm, SNESGetNPC(nl.snes, &npc));
     PetscCallAbort(comm, SNESGetLineSearch(npc, &linesearch));
-    PetscCallAbort(comm, SNESLineSearchSetType(linesearch, SNESLINESEARCHBASIC));
+    PetscCallAbort(comm, SNESLineSearchSetType(linesearch, SNESLINESEARCHNONE));
     setFieldSolvePreconditioner(npc);
   }
 }
