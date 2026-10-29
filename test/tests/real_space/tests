@@ -76,6 +76,30 @@
     []
   []
 
+  [varying_bc]
+    issues = '#122'
+    design = 'TensorRobinBC.md TensorDirichletBC.md TensorNeumannBC.md'
+    requirement = 'The system shall apply real-space boundary condition values that vary along the face, given by a function or by a buffer, and reproduce the zero discrete Laplacian of a harmonic field that is linear normal to every face '
+    [double]
+      type = CSVDiff
+      input = bc_varying_laplacian.i
+      csvdiff = bc_varying_laplacian_out.csv
+      # the Laplacian is zero up to round-off of u / dx^2 (u <= 2, 1/dx^2 = 400)
+      abs_zero = 1e-9
+      compute_devices = 'cpu cuda xpu'
+      detail = 'in double precision, and'
+    []
+    [mps]
+      type = CSVDiff
+      input = bc_varying_laplacian.i
+      csvdiff = bc_varying_laplacian_out.csv
+      # single precision: round-off of u / dx^2 is ~ 2 * 6e-8 * 400 * a few terms
+      abs_zero = 1e-3
+      compute_devices = 'mps'
+      detail = 'in single precision on MPS.'
+    []
+  []
+
   [analytic_verification]
     issues = '#122'
     design = TensorDirichletBC.md
@@ -192,6 +216,21 @@
       expect_err = "in \[TensorComputes/BCs\] is not a boundary condition"
       detail = 'when the object is not a boundary condition,'
     []
+    [two_values]
+      type = RunException
+      input = bc_varying_laplacian.i
+      cli_args = 'TensorComputes/BCs/left/value=1'
+      expect_err = 'Give only one of value, value_function and value_buffer'
+      detail = 'when more than one value is given for it,'
+    []
+    [unwritten_value_buffer]
+      type = RunException
+      input = bc_varying_laplacian.i
+      cli_args = 'TensorComputes/BCs/right/value_buffer=nobody'
+      expect_err = "Buffer 'nobody', read by boundary condition 'right', is not written by any "
+                   "compute"
+      detail = 'when its value buffer is not written by any compute,'
+    []
     [robin_zero_denominator]
       type = RunException
       input = robin_steady_state.i
@@ -204,7 +243,7 @@
       input = robin_steady_state.i
       # a/2 + b/(3dx) = -20/3 + 1/0.15
       cli_args = 'TensorComputes/BCs/right/a=-13.333333333333334 TensorComputes/Solve/dt/stencil_width=5'
-      expect_err = 'requires a/2 \+ b/\(3\*dx\) to be nonzero'
+      expect_err = 'ghost layer 2 divides by a/2 \+ b/\(3\*dx\), which is zero'
       detail = 'or, with two ghost layers, when a/2 + b/(3dx) is zero.'
     []
   []
@@ -246,6 +285,77 @@
       override_abs_zero = '1e-7'
       compute_devices = 'mps'
       detail = 'in single precision on MPS.'
+    []
+  []
+
+  [deep_ghost_layers]
+    issues = '#191'
+    design = 'syntax/TensorComputes/BCs/index.md'
+    requirement = 'The system shall fill any number of ghost layers next to a non-periodic face, layer l from the face condition on it and owned cell l, so that a stencil reaching four cells across the face (the 5-point biharmonic) gives the result of the mirrored field on the doubled periodic domain (the gold, from deep_ghost_periodic.i), '
+    # the gold is the periodic run; the face runs agree with it in every printed digit
+    [neumann]
+      type = CSVDiff
+      input = deep_ghost_faces.i
+      cli_args = 'Outputs/file_base=deep_ghost_even'
+      csvdiff = deep_ghost_even.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'with Neumann faces (the even mirror),'
+    []
+    [neumann_4_ranks]
+      type = CSVDiff
+      input = deep_ghost_faces.i
+      cli_args = 'Outputs/file_base=deep_ghost_even'
+      csvdiff = deep_ghost_even.csv
+      rel_err = 1e-10
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'on 4 ranks, and'
+    []
+    [dirichlet]
+      type = CSVDiff
+      input = deep_ghost_faces.i
+      cli_args = "u_ic='sin(pi*x/16)*exp(cos(2*pi*y/8))' "
+                 "TensorComputes/BCs/left/type=TensorDirichletBC "
+                 "TensorComputes/BCs/right/type=TensorDirichletBC Outputs/file_base=deep_ghost_odd"
+      csvdiff = deep_ghost_odd.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'with zero Dirichlet faces (the odd mirror).'
+    []
+  []
+
+  [deep_ghost_layer_errors]
+    issues = '#191'
+    design = 'syntax/TensorComputes/BCs/index.md'
+    requirement = 'The system shall report an error at setup when a buffer read with ghost layers '
+    [too_few_owned_cells]
+      type = RunException
+      input = deep_ghost_faces.i
+      cli_args = 'Domain/nx=3 Domain/xmax=3'
+      expect_err = "is read with 4 ghost layers, but this rank owns only 3 cells normal to the left "
+                   "face"
+      compute_devices = 'cpu'
+      detail = 'has fewer owned cells normal to a non-periodic face than ghost layers,'
+    []
+    [zero_layer_denominator]
+      type = RunException
+      input = deep_ghost_faces.i
+      # b = 1, dx = 1: a/2 + b/(5 dx) = 0 for a = -0.4, while a/2 + b/dx and a/2 + b/(3 dx) are not
+      cli_args = 'TensorComputes/BCs/left/type=TensorRobinBC TensorComputes/BCs/left/a=-0.4 TensorComputes/BCs/left/b=1'
+      expect_err = 'ghost layer 3 divides by a/2 \+ b/\(5\*dx\), which is zero'
+      compute_devices = 'cpu'
+      detail = 'has a Robin condition on such a face whose ghost relation for one of the layers divides by zero, or'
+    []
+    [too_few_periodic_cells]
+      type = RunException
+      input = deep_ghost_faces.i
+      cli_args = 'Domain/ny=3 Domain/ymax=3'
+      expect_err = "is read with 4 ghost layers, but this rank owns only 3 cells along the periodic "
+                   "y axis"
+      compute_devices = 'cpu'
+      detail = 'is read with more ghost layers than this rank owns cells along a periodic axis.'
     []
   []
 []

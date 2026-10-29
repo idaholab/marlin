@@ -100,7 +100,18 @@ TensorProblem::init()
     cmp->init();
 
   if (_domain.isRealSpaceMode())
+  {
     checkBoundaryConditions();
+
+    // a compute reading a buffer with ghosts also reads what that buffer's boundary conditions
+    // read (e.g. a c_buffer), so the dependency sort runs their writers first
+    for (auto & cmp : _computes)
+      for (const auto & [buffer_name, ghost_layers] : cmp->getInputGhostLayers())
+        for (const auto face : make_range(2 * _dim))
+          if (const auto it = _bcs.find({buffer_name, face}); ghost_layers > 0 && it != _bcs.end())
+            cmp->_requested_buffers.insert(it->second->getRequestedItems().begin(),
+                                           it->second->getRequestedItems().end());
+  }
 
   // update dependencies
   if (_solver)
@@ -632,6 +643,20 @@ TensorProblem::checkBoundaryConditions() const
                      TensorBoundaryCondition::faceName(face),
                      " face. Add one under [TensorComputes/BCs].");
 
+  // buffers a boundary condition reads (e.g. c_buffer) must be written by some compute
+  std::set<std::string> supplied;
+  for (const auto & list : {&_ics, &_computes})
+    for (const auto & cmp : *list)
+      supplied.insert(cmp->getSuppliedItems().begin(), cmp->getSuppliedItems().end());
+  for (const auto & [_, bc] : _bcs)
+    for (const auto & name : bc->getRequestedItems())
+      if (!supplied.count(name))
+        mooseError("Buffer '",
+                   name,
+                   "', read by boundary condition '",
+                   bc->name(),
+                   "', is not written by any compute or initial condition.");
+
   for (const auto & [key, bc] : _bcs)
     if (!_buffer_ghost_layers.count(key.first) || _buffer_ghost_layers.at(key.first) == 0)
       bc->paramError("variable",
@@ -639,6 +664,42 @@ TensorProblem::checkBoundaryConditions() const
                      key.first,
                      "' is not read with ghost layers by any compute, so this boundary "
                      "condition has no effect.");
+
+  // the deepest ghost layer a compute reads must have a mirror among the owned cells, and the
+  // boundary condition must be able to fill it
+  const auto owned = _domain.getLocalGridSize();
+  for (const auto & [key, bc] : _bcs)
+  {
+    const auto ghost_layers = _buffer_ghost_layers.at(key.first);
+    const auto d = bc->faceDim();
+    if (int64_t(ghost_layers) > int64_t(owned[d]))
+      bc->paramError("variable",
+                     "Buffer '",
+                     key.first,
+                     "' is read with ",
+                     ghost_layers,
+                     " ghost layers, but this rank owns only ",
+                     owned[d],
+                     " cells normal to the ",
+                     TensorBoundaryCondition::faceName(key.second),
+                     " face. Use a finer grid or fewer ranks along that axis.");
+    bc->checkGhostLayers(ghost_layers, _domain.getGridSpacing()(d));
+  }
+
+  // along a periodic axis the ghost layers come from the neighbouring rank's owned cells (or this
+  // rank's own, without a split), which must be at least as many
+  for (const auto & [buffer_name, ghost_layers] : _buffer_ghost_layers)
+    for (const auto d : make_range(_dim))
+      if (periodic[d] && int64_t(ghost_layers) > int64_t(owned[d]))
+        mooseError("Buffer '",
+                   buffer_name,
+                   "' is read with ",
+                   ghost_layers,
+                   " ghost layers, but this rank owns only ",
+                   owned[d],
+                   " cells along the periodic ",
+                   "xyz"[d],
+                   " axis. Use a finer grid or fewer ranks along that axis.");
 }
 
 void
@@ -657,7 +718,26 @@ TensorProblem::fillBoundaryGhosts(const std::string & buffer_name,
 }
 
 void
-TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int ghost_layers)
+TensorProblem::beginFixedBoundaryData(Real time_offset)
+{
+  _boundary_time_offset = time_offset;
+  // collective: every rank prepares every boundary condition, in the same order
+  for (const auto & [key, bc] : _bcs)
+    bc->prepareFaceData();
+  _boundary_data_fixed = true;
+}
+
+void
+TensorProblem::endFixedBoundaryData()
+{
+  _boundary_time_offset = 0.0;
+  _boundary_data_fixed = false;
+}
+
+void
+TensorProblem::exchangeGhostLayers(const std::string & buffer_name,
+                                   unsigned int ghost_layers,
+                                   int face_axis)
 {
   if (ghost_layers == 0)
     return;
@@ -671,6 +751,13 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
                ") exceed allocated halo width (",
                _max_ghost_layers,
                ").");
+
+  // the boundary conditions' face data first, on every rank (the exchange is collective, and
+  // only the ranks on a face fill its ghost cells below)
+  if (face_axis < 0 && !_boundary_data_fixed)
+    for (const auto & [key, bc] : _bcs)
+      if (key.first == buffer_name)
+        bc->prepareFaceData();
 
   auto & base = getBufferBase(buffer_name);
   auto * tensor_buffer = dynamic_cast<TensorBuffer<torch::Tensor> *>(&base);
@@ -703,8 +790,22 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
 
   const int64_t halo = static_cast<int64_t>(_max_ghost_layers);
 
+  // ghost cells on a non-periodic boundary: from the boundary condition, or, for face data (a
+  // boundary condition's c_buffer), the nearest owned layer
+  const auto fill_boundary = [&](unsigned int d, bool lower)
+  {
+    if (face_axis < 0)
+      fillBoundaryGhosts(buffer_name, tensor, d, lower, ghost_layers, halo, owned[d]);
+    else
+      tensor.narrow(d, lower ? halo - ghost_layers : halo + owned[d], ghost_layers)
+          .copy_(tensor.narrow(d, lower ? halo : halo + owned[d] - 1, 1));
+  };
+
   for (unsigned int d = 0; d < _dim; ++d)
   {
+    // face data is only read on the face, so its halo is needed along the other axes only
+    if (int(d) == face_axis)
+      continue;
     const unsigned int part = partitions[d];
     if (part == 1)
     {
@@ -721,8 +822,8 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
       }
       else
       {
-        fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/true, ghost_layers, halo, owned[d]);
-        fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/false, ghost_layers, halo, owned[d]);
+        fill_boundary(d, /*lower=*/true);
+        fill_boundary(d, /*lower=*/false);
       }
       continue;
     }
@@ -755,7 +856,7 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
           neighbor[d] = part - 1;
         else
         {
-          fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/true, ghost_layers, halo, owned[d]);
+          fill_boundary(d, /*lower=*/true);
           return;
         }
       }
@@ -767,7 +868,7 @@ TensorProblem::exchangeGhostLayers(const std::string & buffer_name, unsigned int
           neighbor[d] = 0;
         else
         {
-          fillBoundaryGhosts(buffer_name, tensor, d, /*lower=*/false, ghost_layers, halo, owned[d]);
+          fill_boundary(d, /*lower=*/false);
           return;
         }
       }
@@ -880,6 +981,13 @@ TensorProblem::getBufferBase(const std::string & buffer_name)
   if (it == _tensor_buffer.end())
     mooseError("TensorBuffer '", buffer_name, " does not exist in the system.");
   return *it->second.get();
+}
+
+unsigned int
+TensorProblem::getBufferGhostLayers(const std::string & buffer_name) const
+{
+  const auto it = _buffer_ghost_layers.find(buffer_name);
+  return it == _buffer_ghost_layers.end() ? 0 : it->second;
 }
 
 void

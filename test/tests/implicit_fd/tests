@@ -356,6 +356,49 @@
     []
   []
 
+  [grid_independence_bcs]
+    requirement = 'The system shall solve the steady Poisson problem on a domain with Dirichlet, Neumann and Robin faces with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size'
+    [n64]
+      type = RunApp
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=64 Outputs/csv=false -u_ksp_converged_reason'
+      # 7 iterations measured; fail above 12
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 64 x 64 grid,'
+    []
+    [n128]
+      type = RunApp
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=128 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 128 x 128 grid, and'
+    []
+    [n256]
+      type = RunApp
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=256 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 256 x 256 grid.'
+    []
+  []
+
+  [jacobi_diagonal_bcs]
+    requirement = 'The system shall converge a Jacobi-preconditioned conjugate gradient solve with boundary faces in the iteration count that the diagonal including the boundary face terms gives'
+    # Jacobi-preconditioned CG takes 164 iterations; with the interior diagonal also in the
+    # cells next to a face it takes 95, so the count tells the two apart
+    type = RunApp
+    input = bc_mms.i
+    cli_args = 'TensorSolver/linear_solver=PETSC n=64 Outputs/csv=false -u_pc_type jacobi -u_ksp_converged_reason'
+    expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations 164\b'
+    compute_devices = 'cpu'
+  []
+
   [petsc_options]
     requirement = 'The system shall pass PETSc options to the implicit finite-difference solve under the prefix of the solved field'
     [default]
@@ -452,6 +495,160 @@
     []
   []
 
+  [bcs]
+    requirement = 'The system shall solve implicit finite-difference problems on a non-periodic domain, with Dirichlet, Neumann and Robin conditions whose values vary along the face, from functions at the time of the unknown and from buffers as written at the start of the step, matching an independent sparse direct solve of the same discretisation, using the torch preconditioned conjugate gradient solver, for'
+    # golds from an independent SciPy assembly of the same discretisation (spsolve); the
+    # error is the O(h^2) discretisation error, observed orders 1.98-1.99 (3-point) and
+    # 1.97-1.99 (5-point) from n = 32 to 128. With the boundary values at t instead of
+    # t + dt, the backward Euler error is 0.044 rather than 0.0026.
+    [poisson_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'Outputs/file_base=bc_poisson_3pt'
+      csvdiff = bc_poisson_3pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the steady Poisson problem with the 3-point stencil and a Robin face,'
+    []
+    [poisson_3pt_robin_buffer]
+      type = CSVDiff
+      input = bc_mms.i
+      # the Robin c from a buffer, whose halo along the face is exchanged across ranks
+      cli_args = 'TensorComputes/BCs/active="left right_buffer bottom top" Outputs/file_base=bc_poisson_3pt_robin_buffer'
+      # same gold as poisson_3pt: the buffer holds right_c, and the problem is steady
+      csvdiff = bc_poisson_3pt_robin_buffer.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the same with the Robin value from a buffer,'
+    []
+    [poisson_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'stencil=5 rb=0 Outputs/file_base=bc_poisson_5pt'
+      csvdiff = bc_poisson_5pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the steady Poisson problem with the 5-point stencil,'
+    []
+    [be_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 Outputs/file_base=bc_be_3pt'
+      csvdiff = bc_be_3pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler with time-dependent boundary values and the 3-point stencil,'
+    []
+    [be_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 stencil=5 rb=0 Outputs/file_base=bc_be_5pt'
+      csvdiff = bc_be_5pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler with time-dependent boundary values and the 5-point stencil,'
+    []
+    [be_3pt_buffer]
+      type = CSVDiff
+      input = bc_mms.i
+      # the top flux x - 2t from a buffer, which holds its value at t: the gold is the SciPy
+      # solve with that flux at t, an O(dt) time error (0.0225 against 0.0026 from a function)
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 TensorComputes/BCs/active="left right bottom top_buffer" Outputs/file_base=bc_be_3pt_buffer'
+      csvdiff = bc_be_3pt_buffer.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler with a time-dependent boundary value from a buffer, and'
+    []
+    [be_3pt_mps]
+      type = CSVDiff
+      input = bc_mms.i
+      # single precision: the solve stops at l_tol = 1e-5, which leaves a solve error of
+      # ~1e-5 |u| on top of the 2.6e-3 discretisation error
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 TensorSolver/l_tol=1e-5 Outputs/file_base=bc_be_3pt'
+      csvdiff = bc_be_3pt.csv
+      rel_err = 1e-2
+      compute_devices = 'mps'
+      detail = 'backward Euler with the 3-point stencil in single precision on MPS.'
+    []
+  []
+
+  [crank]
+    requirement = 'The system shall reproduce analytic diffusion solutions from Crank, "The Mathematics of Diffusion" (2nd ed.), with implicit backward Euler finite differences and Dirichlet faces, matching an independent dense solve of the same discretisation, for'
+    # golds from a dense SciPy backward Euler solve (the cell-centred 3-point
+    # Laplacian with ghost 2c - u0). The error against the analytic solution is first order in
+    # the substep down to the spatial floor of the semi-discrete solution, 3.2e-4: 5.8e-3, 1.7e-3,
+    # 6.7e-4 at 25, 100, 400 substeps. The explicit real_space tests of the same problems give
+    # 2.3e-4 with 250 forward Euler substeps.
+    [semi_infinite]
+      type = CSVDiff
+      input = crank_semi_infinite.i
+      csvdiff = crank_semi_infinite_out.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'a semi-infinite medium with a constant surface concentration (Sec. 3.3(i), eq. 3.13), and'
+    []
+    [thin_slab]
+      type = CSVDiff
+      input = crank_thin_slab.i
+      csvdiff = crank_thin_slab_out.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'an instantaneous planar source in a thin slab diffusing into an infinite medium (Sec. 2.5, eq. 2.15).'
+    []
+  []
+
+  [bcs_petsc]
+    requirement = 'The system shall solve implicit finite-difference problems on a non-periodic domain, with Dirichlet, Neumann and Robin conditions whose values vary along the face, matching an independent sparse direct solve of the same discretisation, using the PETSc conjugate gradient solver with geometric multigrid, for'
+    [poisson_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=bc_poisson_3pt'
+      csvdiff = bc_poisson_3pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/poisson_3pt'
+      compute_devices = 'cpu'
+      detail = 'the steady Poisson problem with the 3-point stencil and a Robin face,'
+    []
+    [poisson_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC stencil=5 rb=0 Outputs/file_base=bc_poisson_5pt'
+      csvdiff = bc_poisson_5pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/poisson_5pt'
+      compute_devices = 'cpu'
+      detail = 'the steady Poisson problem with the 5-point stencil,'
+    []
+    [be_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt lap" num_steps=2 Outputs/file_base=bc_be_3pt'
+      csvdiff = bc_be_3pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/be_3pt'
+      compute_devices = 'cpu'
+      detail = 'backward Euler with time-dependent boundary values and the 3-point stencil, and'
+    []
+    [be_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt lap" num_steps=2 stencil=5 rb=0 Outputs/file_base=bc_be_5pt'
+      csvdiff = bc_be_5pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/be_5pt'
+      compute_devices = 'cpu'
+      detail = 'backward Euler with time-dependent boundary values and the 5-point stencil.'
+    []
+  []
+
   [errors]
     requirement = 'The system shall report an error if an implicit finite-difference solve is set up '
     [not_spd]
@@ -530,6 +727,35 @@
       expect_err = '-u_pc_mg_levels is not supported'
       compute_devices = 'cpu'
       detail = 'with a multigrid level count from the PETSc options,'
+    []
+    [bc_robin_5pt]
+      type = RunException
+      input = bc_mms.i
+      cli_args = 'stencil=5'
+      expect_err = 'supports with the 3-point stencil only'
+      detail = 'with a Robin face and the 5-point stencil,'
+    []
+    [bc_robin_indefinite]
+      type = RunException
+      input = bc_mms.i
+      cli_args = 'ra=-1'
+      expect_err = 'has a\*b < 0, for which the ghost term a/\(a/2 \+ b/dx\) is negative on fine enough grids'
+      detail = 'with a Robin face with a b < 0,'
+    []
+    [bc_robin_ab_negative_coarse]
+      type = RunException
+      input = bc_mms.i
+      # definite at this n (a/(a/2 + b/dx) = 5.6), indefinite from n = 51 (dx < 2|b/a| = 0.02)
+      cli_args = 'rb=-0.01 n=32'
+      expect_err = 'has a\*b < 0, for which the ghost term a/\(a/2 \+ b/dx\) is negative on fine enough grids'
+      detail = 'with a Robin face with a b < 0 on a grid where its operator is still definite,'
+    []
+    [biharmonic_bc]
+      type = RunException
+      input = biharmonic_mode.i
+      cli_args = 'Domain/periodic_directions=Y TensorComputes/BCs/left/type=TensorNeumannBC TensorComputes/BCs/left/variable=u TensorComputes/BCs/left/boundary=left'
+      expect_err = 'is a FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on periodic domains only'
+      detail = 'with a biharmonic operator on a non-periodic domain,'
     []
     [not_fd_operator]
       type = RunException

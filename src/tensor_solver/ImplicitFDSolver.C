@@ -14,6 +14,8 @@
 #include "ComputeGroup.h"
 #include "TransientBase.h"
 #include "TensorSolveIterationAdaptiveDT.h"
+#include "TensorRobinBC.h"
+#include "FiniteDifferenceBiharmonic.h"
 
 #include "PetscSupport.h"
 
@@ -42,6 +44,26 @@
 #endif
 
 registerMooseObject("MarlinApp", ImplicitFDSolver);
+
+namespace
+{
+/// holds the boundary data fixed (TensorProblem::beginFixedBoundaryData) for its lifetime,
+/// so that every exit from the solve, an exception included, releases it
+class FixedBoundaryDataGuard
+{
+public:
+  FixedBoundaryDataGuard(TensorProblem & problem, Real time_offset) : _problem(problem)
+  {
+    _problem.beginFixedBoundaryData(time_offset);
+  }
+  ~FixedBoundaryDataGuard() { _problem.endFixedBoundaryData(); }
+  FixedBoundaryDataGuard(const FixedBoundaryDataGuard &) = delete;
+  FixedBoundaryDataGuard & operator=(const FixedBoundaryDataGuard &) = delete;
+
+private:
+  TensorProblem & _problem;
+};
+}
 
 InputParameters
 ImplicitFDSolver::validParams()
@@ -130,11 +152,8 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
   if (!_domain.isRealSpaceMode())
     mooseError("ImplicitFDSolver requires Domain/parallel_mode = REAL_SPACE.");
   const auto & periodic = _domain.getPeriodicDirections();
-  for (const auto d : make_range(_dim))
-    if (!periodic[d])
-      mooseError("ImplicitFDSolver currently supports periodic directions only, but direction ",
-                 d,
-                 " is not periodic.");
+  const bool has_boundaries = std::any_of(
+      periodic.begin(), periodic.begin() + _dim, [](bool is_periodic) { return !is_periodic; });
 
   const auto & buffers = getParam<std::vector<TensorOutputBufferName>>("buffer");
   const auto & operators = getParam<std::vector<std::vector<TensorComputeName>>>("operators");
@@ -166,7 +185,9 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                 {},
                 sources.empty() ? nullptr : &getBufferBase(sources[i]),
                 false,
-                nullptr};
+                nullptr,
+                {},
+                {}};
 
     if (operators[i].empty())
       paramError("operators", "No operators given for field '", buffers[i], "'.");
@@ -206,10 +227,71 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                      "factor = -D.");
       }
 
+      if (has_boundaries && dynamic_cast<const FiniteDifferenceBiharmonic *>(fd_op))
+        paramError("operators",
+                   "Operator '",
+                   op_name,
+                   "' is a FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on "
+                   "periodic domains only.");
+
       field._operators.push_back(&op);
       field._fd_operators.push_back(fd_op);
       field._operator_outputs.push_back(
           &_tensor_problem.getBufferBase(op.getParam<TensorOutputBufferName>("buffer")));
+    }
+
+    // A boundary face's a*u + b*du/dn = c sets the ghost next to the face cell u0 to coeff*u0 +
+    // const, which changes only the diagonal of the 3-point operator, so it stays symmetric. With
+    // a/(a/2 + b/dx) > 0 (coeff < 1, e.g. Dirichlet) it becomes definite, with a = 0
+    // (Neumann, coeff = 1) it keeps the constants as nullspace, and otherwise it can be
+    // indefinite. The 5-point stencil's second ghost uses spacing 3dx, so its operator is
+    // symmetric only where both ghost coefficients agree: for Dirichlet and Neumann.
+    field._face_bcs.assign(2 * _dim, nullptr);
+    for (const auto face : make_range(2 * _dim))
+    {
+      const auto d = face / 2;
+      if (periodic[d])
+        continue;
+      // without a boundary condition no operator reads ghosts of u (checkBoundaryConditions)
+      const auto * bc = _tensor_problem.getBoundaryCondition(buffers[i], face);
+      if (!bc)
+        continue;
+      const auto * face_bc = dynamic_cast<const TensorRobinBC *>(bc);
+      if (!face_bc)
+        paramError("buffer",
+                   "Boundary condition '",
+                   bc->name(),
+                   "' of field '",
+                   buffers[i],
+                   "' is not a TensorRobinBC, which ImplicitFDSolver requires.");
+      field._face_bcs[face] = face_bc;
+
+      // with a*b >= 0 the ghost term a/(a/2 + b/dx) is positive for every dx; with a*b < 0 its
+      // sign, and so the definiteness of the operator, would depend on the grid
+      const auto a = face_bc->a(), b = face_bc->b();
+      if (a * b < 0.0)
+        paramError("buffer",
+                   "Boundary condition '",
+                   bc->name(),
+                   "' of field '",
+                   buffers[i],
+                   "' has a*b < 0, for which the ghost term a/(a/2 + b/dx) is negative on fine "
+                   "enough grids and the operator may be indefinite.");
+      if (a != 0.0)
+        definite = true;
+
+      if (a != 0.0 && b != 0.0)
+        for (const auto * fd_op : field._fd_operators)
+          for (const auto & entry : fd_op->stencilAt())
+            if (std::abs(entry.offset[d]) > 1)
+              paramError("buffer",
+                         "Boundary condition '",
+                         bc->name(),
+                         "' of field '",
+                         buffers[i],
+                         "' is a Robin condition (a and b nonzero), which ImplicitFDSolver "
+                         "supports with the 3-point stencil only: the 5-point operator with it "
+                         "is not symmetric.");
     }
     field._singular = !definite;
 
@@ -251,6 +333,9 @@ ImplicitFDSolver::substep()
 
   _iterations = 0;
   _is_converged = true;
+  // boundary functions are evaluated at the time level of the unknown, t + dt; buffer values
+  // are those the explicit computes above wrote, at t
+  const FixedBoundaryDataGuard fixed_boundary_data(_tensor_problem, _sub_dt);
   std::vector<torch::Tensor> u_old;
   for (auto & field : _fields)
   {
@@ -266,6 +351,19 @@ ImplicitFDSolver::substep()
         b += r;
     if (field._source)
       b += field._source->ownedView();
+
+    // warm start from u_old
+    torch::Tensor x = field._u_base.ownedView().clone(torch::MemoryFormat::Contiguous);
+
+    // with boundary faces the operator action is affine, sum_i A_i x + g with g from the boundary
+    // values: solve the linear part with b - g (g = sum_i A_i 0, for the current values)
+    if (std::any_of(field._face_bcs.begin(),
+                    field._face_bcs.end(),
+                    [](const auto * face_bc) { return face_bc; }))
+    {
+      field._affine = applyOperator(field, torch::zeros_like(b));
+      b -= field._affine;
+    }
 
     if (field._singular)
     {
@@ -285,9 +383,6 @@ ImplicitFDSolver::substep()
                    ".");
       b -= b_sum / n_cells;
     }
-
-    // warm start from u_old
-    torch::Tensor x = field._u_base.ownedView().clone(torch::MemoryFormat::Contiguous);
 
     SolveResult result;
     const Real b_norm = std::sqrt(_domain.allreduceSum((b * b).sum()).cpu().item<double>());
@@ -323,9 +418,10 @@ ImplicitFDSolver::substep()
       x -= _domain.allreduceSum(x.sum()) / static_cast<Real>(_domain.getNumberOfCells());
 
     // write x into u and apply the operators to it once more, so that their output buffers
-    // hold A_i u rather than A_i of the last Krylov vector
+    // hold A_i u (with the boundary values) rather than A_i of the last Krylov vector
     applyOperator(field, x);
-    _tensor_problem.exchangeGhostLayers(field._name, _tensor_problem.getMaxGhostLayer());
+    _tensor_problem.exchangeGhostLayers(field._name,
+                                        _tensor_problem.getBufferGhostLayers(field._name));
   }
 }
 
@@ -344,6 +440,13 @@ ImplicitFDSolver::applyOperator(Field & field, const torch::Tensor & x)
   return y;
 }
 
+torch::Tensor
+ImplicitFDSolver::applyLinearOperator(Field & field, const torch::Tensor & x)
+{
+  const auto y = applyOperator(field, x);
+  return field._affine.defined() ? y - field._affine : y;
+}
+
 namespace
 {
 /// the stencil entries of all operators at the given spacing (empty: the domain's)
@@ -359,27 +462,55 @@ fieldStencil(const std::vector<const LinearFDOperator *> & fd_operators,
   }
   return stencil;
 }
-
-/// summed centre coefficient and sum of |a_o| over the other entries of a stencil; the
-/// centre of a positive (semi)definite nonzero operator is positive
-std::pair<Real, Real>
-centreAndOffDiagonal(const std::vector<FDStencilEntry> & stencil)
-{
-  Real centre = 0.0, off_diagonal = 0.0;
-  for (const auto & entry : stencil)
-    if (std::all_of(entry.offset.begin(), entry.offset.end(), [](int o) { return o == 0; }))
-      centre += entry.coefficient;
-    else
-      off_diagonal += std::abs(entry.coefficient);
-  mooseAssert(centre > 0.0, "The centre stencil coefficient must be positive");
-  return {centre, off_diagonal};
-}
 }
 
 Real
 ImplicitFDSolver::diagonal(const Field & field) const
 {
-  return centreAndOffDiagonal(fieldStencil(field._fd_operators)).first;
+  // the centre of a positive (semi)definite nonzero operator is positive
+  Real centre = 0.0;
+  for (const auto & entry : fieldStencil(field._fd_operators))
+    if (std::all_of(entry.offset.begin(), entry.offset.end(), [](int o) { return o == 0; }))
+      centre += entry.coefficient;
+  mooseAssert(centre > 0.0, "The centre stencil coefficient must be positive");
+  return centre;
+}
+
+torch::Tensor
+ImplicitFDSolver::jacobiDiagonal(const Field & field) const
+{
+  auto diag = torch::full(
+      field._u_base.ownedView().sizes(), diagonal(field), MooseTensor::floatTensorOptions());
+
+  // In the cell u0 next to a boundary face, the entry reaching across the face (offset -1 or +1
+  // along the normal) multiplies the ghost coeff*u0 + const, adding coefficient*coeff to
+  // the diagonal. Deeper ghosts mirror other cells, so they are off-diagonal.
+  const auto & index = _domain.getRealSpaceIndex();
+  const auto & partitions = _domain.getRealSpacePartitions();
+  for (const auto face : index_range(field._face_bcs))
+  {
+    const auto * face_bc = field._face_bcs[face];
+    const auto d = face / 2;
+    const bool upper = face % 2;
+    if (!face_bc || index[d] != (upper ? partitions[d] - 1 : 0))
+      continue;
+
+    const auto coeff =
+        RobinGhost::coefficientOnU0(face_bc->a(), face_bc->b(), _domain.getGridSpacing()(d));
+    Real across = 0.0;
+    for (const auto * fd_op : field._fd_operators)
+      for (const auto & entry : fd_op->stencilAt())
+      {
+        auto offset = entry.offset;
+        if (offset[d] != (upper ? 1 : -1))
+          continue;
+        offset[d] = 0;
+        if (std::all_of(offset.begin(), offset.end(), [](int o) { return o == 0; }))
+          across += entry.coefficient;
+      }
+    diag.narrow(d, upper ? diag.size(d) - 1 : 0, 1).add_(across * coeff);
+  }
+  return diag;
 }
 
 ImplicitFDSolver::SolveResult
@@ -388,10 +519,11 @@ ImplicitFDSolver::solveTorchPCG(Field & field,
                                 Real b_norm,
                                 torch::Tensor & x)
 {
-  // Jacobi preconditioner; with constant coefficients the diagonal is a scalar
-  const Real inv_diag = 1.0 / diagonal(field);
-  const auto A = [&](const torch::Tensor & v) { return applyOperator(field, v); };
-  const auto M = [inv_diag](const torch::Tensor & r) { return r * inv_diag; };
+  // Jacobi preconditioner; with constant coefficients the diagonal is constant away from boundary
+  // faces
+  const auto inv_diag = jacobiDiagonal(field).reciprocal();
+  const auto A = [&](const torch::Tensor & v) { return applyLinearOperator(field, v); };
+  const auto M = [&inv_diag](const torch::Tensor & r) { return r * inv_diag; };
   const auto reduce_sum = [this](const torch::Tensor & t) { return _domain.allreduceSum(t); };
 
   const auto [x_new, iterations, res_norm] =
@@ -438,14 +570,15 @@ sameStencil(const std::vector<FDStencilEntry> & a, const std::vector<FDStencilEn
   return true;
 }
 
-/// Gershgorin bound on the spectrum of D^-1 A for the periodic constant-coefficient
-/// operator with this stencil (D the summed centre coefficient): 1 + sum_{o != 0} |a_o| / D.
-/// Entries are not merged by offset; the triangle inequality keeps it an upper bound.
-Real
-jacobiSpectrumBound(const std::vector<FDStencilEntry> & stencil)
+/// the homogeneous ghost relations of a field's boundary faces
+PetscFD::FaceGhosts
+faceGhosts(const std::vector<const TensorRobinBC *> & face_bcs)
 {
-  const auto [centre, off_diagonal] = centreAndOffDiagonal(stencil);
-  return 1.0 + off_diagonal / centre;
+  PetscFD::FaceGhosts faces;
+  for (const auto face : index_range(face_bcs))
+    if (face_bcs[face])
+      faces.ab[face] = {face_bcs[face]->a(), face_bcs[face]->b()};
+  return faces;
 }
 
 #if MARLIN_PETSC_CUDA
@@ -520,8 +653,13 @@ ImplicitFDSolver::setupPetsc(Field & field)
   const auto width = PetscFD::stencilWidth(stencil);
   const auto levels = PetscFD::countLevels(partition, width);
   ps.hierarchy = std::make_unique<PetscFD::Hierarchy>();
-  PetscFD::buildHierarchy(
-      partition, comm, levels, width, PetscFD::needsBoxStencil(stencil), *ps.hierarchy);
+  PetscFD::buildHierarchy(partition,
+                          comm,
+                          levels,
+                          width,
+                          PetscFD::needsBoxStencil(stencil),
+                          faceGhosts(field._face_bcs),
+                          *ps.hierarchy);
   auto & hierarchy = *ps.hierarchy;
 
   const bool cuda = onCuda();
@@ -674,6 +812,9 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
   const auto comm = ps.comm;
   const auto & grid_spacing = _domain.getGridSpacing();
   const auto levels = ps.coarse.size() + 1;
+  // the coarse rows next to a boundary face fold the ghosts with the homogeneous
+  // condition at the level's spacing (the boundary values enter the fine residual only)
+  const auto faces = faceGhosts(field._face_bcs);
   PC pc;
   PetscCallAbort(comm, KSPGetPC(ps.ksp, &pc));
   // the smoother weights are set only for PCMG (not e.g. for -<buffer>_pc_type jacobi)
@@ -696,7 +837,8 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
       // This scales only the preconditioner.
       const PetscReal scale = std::pow(2.0, Real(_dim * k));
       auto & B = ps.coarse[k - 1];
-      PetscFD::assembleStencilOperator(ps.hierarchy->dms[k], level_stencil, scale, B);
+      PetscFD::assembleStencilOperator(
+          ps.hierarchy->dms[k], level_stencil, scale, faces, spacing, B);
       // assembly clears MAT_SPD
       if (!field._singular)
       {
@@ -714,9 +856,10 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
     }
 
     // damped Jacobi weight of the level smoother (PCMG level 0 is the coarse LU when
-    // levels > 1). The spectrum of D^-1 A lies in [0, rho], rho the Gershgorin bound (the
-    // 2^(dim k) scaling cancels); omega = 4 / (3 rho) damps the upper half [rho/2, rho]
-    // by at least 1/3 per sweep and keeps |1 - omega lambda| < 1 on (0, rho].
+    // levels > 1). The spectrum of D^-1 A lies in [0, rho], rho the Gershgorin bound, the
+    // maximum over rows including those next to a boundary face (the 2^(dim k) scaling
+    // cancels); omega = 4 / (3 rho) damps the upper half [rho/2, rho] by at least 1/3 per
+    // sweep and keeps |1 - omega lambda| < 1 on (0, rho].
     const auto pcmg_level = levels - 1 - k;
     if (!set_weights || (levels > 1 && pcmg_level == 0))
       continue;
@@ -730,8 +873,11 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
                    PetscOptionsHasName(nullptr, prefix, "-ksp_richardson_scale", &user_scale));
     // KSPRichardsonSetScale is a no-op if the user changed the smoother type
     if (!user_scale)
-      PetscCallAbort(
-          comm, KSPRichardsonSetScale(smoother, 4.0 / (3.0 * jacobiSpectrumBound(level_stencil))));
+      PetscCallAbort(comm,
+                     KSPRichardsonSetScale(
+                         smoother,
+                         4.0 / (3.0 * PetscFD::jacobiSpectrumBound(
+                                          ps.hierarchy->dms[k], level_stencil, faces, spacing))));
   }
 
   // the shell's action changed too; bump its state and reset the KSP operators so
@@ -842,7 +988,8 @@ ImplicitFDSolver::shellMult(Mat A, Vec x, Vec y)
   {
     const auto shape = ps->field->_u_base.ownedView().sizes().vec();
     const auto in = torch::from_blob(const_cast<PetscScalar *>(x_array), shape, options);
-    torch::from_blob(y_array, shape, options).copy_(ps->solver->applyOperator(*ps->field, in));
+    torch::from_blob(y_array, shape, options)
+        .copy_(ps->solver->applyLinearOperator(*ps->field, in));
   }
   catch (...)
   {
@@ -863,6 +1010,34 @@ ImplicitFDSolver::shellDiagonal(Mat A, Vec d)
   PetscSolve * ps;
   PetscFunctionBeginUser;
   PetscCall(MatShellGetContext(A, &ps));
-  PetscCall(VecSet(d, ps->solver->diagonal(*ps->field)));
+  // with boundary faces the diagonal varies next to them: copy the owned tensor into d,
+  // which lives on the host or (VECCUDA) on the device
+  PetscScalar * array;
+  PetscMemType memtype;
+  PetscCall(VecGetArrayWriteAndMemType(d, &array, &memtype));
+  auto options = MooseTensor::floatTensorOptions().device(torch::kCPU);
+#if MARLIN_PETSC_CUDA
+  std::unique_ptr<PetscStreamGuard> guard;
+  if (PetscMemTypeDevice(memtype))
+  {
+    options = options.device(torch::kCUDA, c10::cuda::current_device());
+    guard = std::make_unique<PetscStreamGuard>();
+  }
+#endif
+  // C++ exceptions must not unwind through PETSc's C frames: keep it for solvePetsc
+  PetscErrorCode ierr = PETSC_SUCCESS;
+  try
+  {
+    const auto diag = ps->solver->jacobiDiagonal(*ps->field);
+    torch::from_blob(array, diag.sizes(), options).copy_(diag);
+  }
+  catch (...)
+  {
+    ps->exception = std::current_exception();
+    ierr = PETSC_ERR_LIB;
+  }
+  PetscCall(VecRestoreArrayWriteAndMemType(d, &array));
+  PetscCheck(
+      ierr == PETSC_SUCCESS, PETSC_COMM_SELF, ierr, "The Jacobi diagonal threw an exception");
   PetscFunctionReturn(PETSC_SUCCESS);
 }

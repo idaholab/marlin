@@ -18,6 +18,7 @@
 #include <memory>
 
 class TensorBufferBase;
+class TensorRobinBC;
 
 /**
  * Implicit solver for fields whose linear terms are LinearFDOperator computes.
@@ -81,6 +82,11 @@ protected:
     bool _singular;
     /// PETSc backend state (set up on the first solve)
     std::unique_ptr<PetscSolve> _petsc;
+    /// boundary condition of u on each face (face 2d + upper; null on periodic faces)
+    std::vector<const TensorRobinBC *> _face_bcs;
+    /// sum_i A_i 0, the boundary data's part of the affine operator action (undefined
+    /// without boundary faces); the linear operator is sum_i A_i x - _affine
+    torch::Tensor _affine;
   };
 
   virtual void substep() override;
@@ -95,11 +101,19 @@ protected:
   /// collect the computes of the root compute other than the field operators
   void findExplicitComputes();
 
-  /// y = sum_i A_i x on the owned cells (x is copied into u's owned cells first)
+  /// y = sum_i A_i x on the owned cells (x is copied into u's owned cells first), with the
+  /// boundary conditions' ghost values, so affine on a domain with boundary faces
   torch::Tensor applyOperator(Field & field, const torch::Tensor & x);
 
-  /// sum of the operators' centre stencil coefficients (the Jacobi diagonal)
+  /// the linear part of applyOperator: sum_i A_i x - sum_i A_i 0
+  torch::Tensor applyLinearOperator(Field & field, const torch::Tensor & x);
+
+  /// sum of the operators' centre stencil coefficients (the Jacobi diagonal away from boundary faces)
   Real diagonal(const Field & field) const;
+
+  /// the Jacobi diagonal on the owned cells, including the ghost dependence on the cells
+  /// next to a boundary face
+  torch::Tensor jacobiDiagonal(const Field & field) const;
 
   /// solve sum_i A_i x = b (with ||b||_2 = b_norm) by torch preconditioned CG, warm started from x
   SolveResult solveTorchPCG(Field & field, const torch::Tensor & b, Real b_norm, torch::Tensor & x);

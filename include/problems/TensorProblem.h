@@ -137,6 +137,8 @@ public:
   /// get the domain shape (to build tensors from scratch) TODO: make sure this is local
   const torch::IntArrayRef & getShape() { return _shape; }
   unsigned int getMaxGhostLayer() const { return _max_ghost_layers; }
+  /// the deepest ghost layer any compute reads of buffer_name (0 if none reads its ghosts)
+  unsigned int getBufferGhostLayers(const std::string & buffer_name) const;
   std::vector<int64_t> getLocalTensorShape(const std::vector<int64_t> & extra_dims) const;
 
   typedef std::vector<std::shared_ptr<TensorOperatorBase>> TensorComputeList;
@@ -166,7 +168,32 @@ public:
 
   void runComputeWithGhosts(TensorOperatorBase & compute);
 
-  void exchangeGhostLayers(const std::string & buffer_name, unsigned int ghost_layers);
+  /// the boundary condition of buffer_name on a face (null if none)
+  const TensorBoundaryCondition * getBoundaryCondition(const std::string & buffer_name,
+                                                       unsigned int face) const
+  {
+    const auto it = _bcs.find({buffer_name, face});
+    return it == _bcs.end() ? nullptr : it->second.get();
+  }
+
+  /// fill the ghost layers of buffer_name from the neighbouring ranks, periodic images and the
+  /// boundary conditions. With face_axis >= 0, buffer_name is face data (a boundary condition's
+  /// c along a face normal to face_axis) and only its halo along the other axes is filled: from
+  /// the neighbouring ranks and periodic images, and with the nearest owned value on a
+  /// non-periodic boundary
+  void exchangeGhostLayers(const std::string & buffer_name,
+                           unsigned int ghost_layers,
+                           int face_axis = -1);
+
+  /// time at which boundary condition values are evaluated: the substep time, plus the offset
+  /// an implicit solver sets for the duration of its solve (the time level of the unknown)
+  Real boundaryTime() const { return _sub_time + _boundary_time_offset; }
+
+  /// for the duration of an implicit solve, evaluate boundary values at the substep time plus
+  /// time_offset and hold the boundary conditions' face data (e.g. a c_buffer's halo) fixed,
+  /// so it is exchanged once here rather than on every operator application
+  void beginFixedBoundaryData(Real time_offset);
+  void endFixedBoundaryData();
 
 protected:
   void updateDOFMap();
@@ -220,6 +247,11 @@ protected:
   Real _sub_dt;
   /// current substep time (the solver updates this). Computes should use this trather than the MOOSE _time!
   Real _sub_time;
+
+  /// see boundaryTime()
+  Real _boundary_time_offset = 0.0;
+  /// see beginFixedBoundaryData()
+  bool _boundary_data_fixed = false;
 
   /// simulation time for the currently running output thread
   Real _output_time;

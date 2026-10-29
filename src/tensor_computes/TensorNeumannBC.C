@@ -19,6 +19,15 @@ TensorNeumannBC::validParams()
   params.suppressParameter<Real>("a");
   params.suppressParameter<Real>("b");
   params.renameParam("c", "flux", "Prescribed outward normal flux on this face (du/dn = flux).");
+  params.renameParam("c_function",
+                     "flux_function",
+                     "Function giving the outward normal flux along the face, evaluated at the "
+                     "face position at the solve time.");
+  params.renameParam("c_buffer",
+                     "flux_buffer",
+                     "Buffer whose first owned cell layer next to the face holds the outward "
+                     "normal flux along the face. The compute that writes it must evaluate it at "
+                     "the face position, not at the cell centres.");
   params.addClassDescription(
       "Neumann boundary condition (du/dn = flux) on a non-periodic domain face.");
   return params;
