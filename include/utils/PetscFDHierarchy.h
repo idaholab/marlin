@@ -8,6 +8,7 @@
 #pragma once
 
 #include "LinearFDOperator.h"
+#include "MooseTypes.h"
 
 #include <petscdmda.h>
 
@@ -40,8 +41,26 @@ struct Partition
   std::array<unsigned int, 3> parts, index;
   /// owned cells of every slab, per axis
   std::array<std::vector<PetscInt>, 3> counts;
+  /// periodic axes (the others end in boundary faces) and the fine grid spacing
+  std::array<bool, 3> periodic{{true, true, true}};
+  std::array<Real, 3> h{{1.0, 1.0, 1.0}};
   /// the domain's communicator
   MPI_Comm comm;
+};
+
+/**
+ * Homogeneous ghost relation of a boundary face, per ghost layer: the ghost in layer
+ * l (0 next to the face) is factor[l] times its mirror, the owned cell l from the face.
+ * Dirichlet: -1, Neumann: +1, Robin a*u + b*du/dn: -(a/2 - b/s)/(a/2 + b/s) with s the
+ * spacing between the ghost and its mirror, (2l + 1) h. Faces are numbered 2 d + upper
+ * in Marlin axis order (unused on periodic axes).
+ */
+struct FaceGhosts
+{
+  /// Robin coefficients of each face
+  std::array<std::array<Real, 2>, 6> ab{};
+  /// ghost factor of face f, layer l, at spacing h normal to it
+  Real factor(unsigned int face, unsigned int layer, Real h) const;
 };
 
 /// gather the partition from the domain (collective)
@@ -76,24 +95,33 @@ struct Hierarchy
 };
 
 /**
- * Build the hierarchy on comm (from dmdaComm). The fine DMDA is periodic on
- * every axis and must own exactly this rank's Marlin block, which is checked.
+ * Build the hierarchy on comm (from dmdaComm). The fine DMDA is periodic on the
+ * partition's periodic axes and must own exactly this rank's Marlin block, which is
+ * checked. The coarse levels are cell-centred (n -> n/2) on every axis. The interpolations
+ * use the faces' homogeneous ghost factors at the coarse spacing.
  */
 void buildHierarchy(const Partition & partition,
                     MPI_Comm comm,
                     unsigned int levels,
                     PetscInt stencil_width,
                     bool box,
+                    const FaceGhosts & faces,
                     Hierarchy & hierarchy);
 
 /**
- * Assemble scale * (the stencil) on the periodic DMDA da into B (from
- * createStencilMatrix), replacing its values. Stencil offsets are in Marlin axis order,
- * and entries that land on the same column (same offset, or offsets that wrap
- * onto each other on a small periodic grid) are summed.
+ * Assemble scale * (the stencil) on the DMDA da into B (from createStencilMatrix),
+ * replacing its values. Stencil offsets are in Marlin axis order, and entries that land
+ * on the same column (same offset, or offsets that wrap onto each other on a small
+ * periodic grid) are summed. On a non-periodic axis, an offset into ghost layer l is
+ * folded onto the mirrored owned cell with faces.factor (the homogeneous boundary
+ * condition, at the level's spacing h per Marlin axis).
  */
-void
-assembleStencilOperator(DM da, const std::vector<FDStencilEntry> & stencil, PetscReal scale, Mat B);
+void assembleStencilOperator(DM da,
+                             const std::vector<FDStencilEntry> & stencil,
+                             PetscReal scale,
+                             const FaceGhosts & faces,
+                             const std::vector<Real> & h,
+                             Mat B);
 
 /**
  * An AIJ matrix on the DMDA da (of the DM's matrix type) preallocated for exactly the
@@ -103,11 +131,60 @@ assembleStencilOperator(DM da, const std::vector<FDStencilEntry> & stencil, Pets
 Mat createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil);
 
 /**
+ * Gershgorin bound on the spectrum of D^-1 A for the operator assembleStencilOperator
+ * builds on da: the maximum over rows of 1 + sum_{off-diagonal} |a| / D. Rows next to a
+ * boundary face differ from the interior ones; on a periodic grid every row is the same.
+ * Entries on the same column are added first, as in the assembled matrix.
+ */
+Real jacobiSpectrumBound(DM da,
+                         const std::vector<FDStencilEntry> & stencil,
+                         const FaceGhosts & faces,
+                         const std::vector<Real> & h);
+
+/**
+ * The diagonal of the operator assembleStencilOperator builds, on a block of size cells
+ * starting at global cell begin (Marlin axis order, dim axes; options for the tensor). An
+ * entry reaches its own row when its offset is zero, wraps onto it on a periodic axis, or
+ * folds onto it: on a non-periodic axis, offset -(2i + 1) from cell i is ghost layer i of
+ * the lower face, mirrored onto cell i (likewise at the upper face). Box stencils fold on
+ * several axes at once, so corner rows get the product of the faces' factors.
+ */
+torch::Tensor foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
+                             unsigned int dim,
+                             const std::array<int64_t, 3> & n,
+                             const std::array<bool, 3> & periodic,
+                             const FaceGhosts & faces,
+                             const std::vector<Real> & h,
+                             const std::array<int64_t, 3> & begin,
+                             const std::array<int64_t, 3> & size,
+                             const torch::TensorOptions & options);
+
+/**
+ * The mean of fine_values over the 2^dim fine cells of each coarse cell, into coarse_values
+ * (on coarse, from DMCoarsen of fine): the transpose of the DMDA's piecewise-constant (Q0)
+ * interpolation, divided by 2^dim.
+ */
+void restrictCellMean(DM coarse, DM fine, Vec fine_values, Vec coarse_values);
+
+/**
+ * The owned block of the global vector v on da with one halo layer, as a host float64
+ * tensor in Marlin axis order: the halo holds the neighbouring ranks' cells and the periodic
+ * images, and outside a domain face the nearest owned cell (as for face data). The halo
+ * corners are not set.
+ */
+torch::Tensor ownedWithHalo(DM da, Vec v);
+
+/**
  * Cell-centred multilinear interpolation from the coarse to the fine DMDA (each
  * axis: 3/4 the coarse parent, 1/4 the coarse neighbour on the fine cell's side),
- * assembled as AIJ. Columns are global coarse indices from the coarse ownership
- * ranges, since DMCoarsen chooses the coarse partition.
+ * assembled as AIJ. Next to a boundary face the neighbour is the coarse ghost,
+ * factor * parent (factor of the first ghost layer at the coarse spacing h_coarse per
+ * Marlin axis), so the parent gets 3/4 + factor/4. Columns are global coarse indices
+ * from the coarse ownership ranges, since DMCoarsen chooses the coarse partition.
  */
-Mat cellCentredInterpolation(DM coarse, DM fine);
+Mat cellCentredInterpolation(DM coarse,
+                             DM fine,
+                             const FaceGhosts & faces,
+                             const std::vector<Real> & h_coarse);
 
 } // namespace PetscFD

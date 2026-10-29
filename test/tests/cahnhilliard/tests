@@ -43,6 +43,18 @@
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
   []
+  [xdmf_output_interval]
+    type = XMLDiff
+    input = cahnhilliard.i
+    # 10 steps every 4: steps 0, 4, 8 and, from FINAL, the last step 10
+    cli_args = 'TensorOutputs/active="xdmf" TensorOutputs/xdmf/time_step_interval=4 TensorOutputs/xdmf/execute_on="INITIAL TIMESTEP_END FINAL" Outputs/file_base=xdmf_interval'
+    xmldiff = xdmf_interval.xmf
+    issues = '#184'
+    requirement = 'The system shall output a tensor in XDMF format every given number of time steps and at the final time'
+    design = 'XDMFTensorOutput.md'
+    compute_devices = 'cpu'
+    max_parallel = 1
+  []
   [xdmf_output_hdf5]
     type = HDF5Diff
     input = cahnhilliard.i
@@ -94,7 +106,6 @@
     min_parallel = 2
   []
 
-
   [xdmf_output_hdf5_threading_error]
     type = RunException
     input = cahnhilliard.i
@@ -107,7 +118,7 @@
     # this should have a corresponding capability check '!hdf5_thread_safe'
     compute_devices = 'cpu'
     max_parallel = 1
- []
+  []
 
   # Explicit solve tests
   [explicit_euler_exodiff]
@@ -142,7 +153,7 @@
       requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly with Hou-Li de-aliasing.'
       design = 'DeAliasingTensor.md'
       compute_devices = 'cpu cuda mps xpu'
-     max_parallel = 1
+      max_parallel = 1
     []
   []
 []

@@ -8,6 +8,8 @@
 #include "PetscFDHierarchy.h"
 #include "FiniteDifferenceLaplacian.h"
 #include "FiniteDifferenceBiharmonic.h"
+#include "FiniteDifferenceDivGrad.h"
+#include "TensorRobinBC.h"
 #include "gtest/gtest.h"
 
 #include "libmesh/int_range.h"
@@ -54,6 +56,26 @@ uniformPartition(unsigned int dim, int64_t n)
     }
   }
   return p;
+}
+
+/// the same partition with boundary faces (spacing 1/n) on the Marlin axes not in periodic
+PetscFD::Partition
+boundedPartition(unsigned int dim, int64_t n, std::array<bool, 3> periodic)
+{
+  auto p = uniformPartition(dim, n);
+  p.periodic = periodic;
+  p.h = {1.0 / n, 1.0 / n, 1.0 / n};
+  return p;
+}
+
+/// every face Dirichlet (a = 1, b = 0) or every face Neumann (a = 0, b = 1)
+PetscFD::FaceGhosts
+uniformFaces(Real a, Real b)
+{
+  PetscFD::FaceGhosts faces;
+  for (auto & ab : faces.ab)
+    ab = {a, b};
+  return faces;
 }
 
 /// fill v (on da) with f(x) at the cell centres, x in Marlin axis order on [0, 1)^dim
@@ -118,7 +140,7 @@ TEST(PetscFDHierarchyTest, CellCentredInterpolation)
     MPI_Comm comm = PetscFD::dmdaComm(partition);
     {
       PetscFD::Hierarchy h;
-      PetscFD::buildHierarchy(partition, comm, 2, 1, false, h);
+      PetscFD::buildHierarchy(partition, comm, 2, 1, false, {}, h);
       ASSERT_EQ(h.dms.size(), 2u);
       ASSERT_EQ(h.interpolations.size(), 1u);
       Mat P = h.interpolations[0];
@@ -177,7 +199,7 @@ TEST(PetscFDHierarchyTest, FineDMDAMatchesMarlinBlock)
     {
       // buildHierarchy aborts if the DMDA ownership differs from the partition
       PetscFD::Hierarchy h;
-      PetscFD::buildHierarchy(partition, comm, 1, 1, false, h);
+      PetscFD::buildHierarchy(partition, comm, 1, 1, false, {}, h);
 
       // global cell index i_0 n^2 + i_1 n + i_2 (Marlin order), via the DMDA coordinates
       Vec v;
@@ -241,7 +263,7 @@ TEST(PetscFDHierarchyTest, AssembledOperatorIsRediscretisation)
       MPI_Comm comm = PetscFD::dmdaComm(partition);
       {
         PetscFD::Hierarchy h;
-        PetscFD::buildHierarchy(partition, comm, 2, wide ? 2 : 1, false, h);
+        PetscFD::buildHierarchy(partition, comm, 2, wide ? 2 : 1, false, {}, h);
 
         // coarse level: n / 2 cells per axis
         const int64_t nc = n / 2;
@@ -251,7 +273,7 @@ TEST(PetscFDHierarchyTest, AssembledOperatorIsRediscretisation)
         const auto stencil = FiniteDifferenceLaplacian::buildStencil(dim, wide, dx, -1.0);
 
         Mat B = PetscFD::createStencilMatrix(h.dms[1], stencil);
-        PetscFD::assembleStencilOperator(h.dms[1], stencil, 1.0, B);
+        PetscFD::assembleStencilOperator(h.dms[1], stencil, 1.0, {}, {}, B);
 
         // symbol of -Laplacian on axis d for the mode cos(2 pi k x / L), theta = 2 pi k / nc
         const auto symbol = [&](unsigned int d)
@@ -308,14 +330,14 @@ TEST(PetscFDHierarchyTest, AssembledOperatorAddsWrappedOffsets)
   MPI_Comm comm = PetscFD::dmdaComm(partition);
   {
     PetscFD::Hierarchy h;
-    PetscFD::buildHierarchy(partition, comm, 2, 4, false, h);
+    PetscFD::buildHierarchy(partition, comm, 2, 4, false, {}, h);
 
     const int64_t nc = n / 2;
     const std::vector<Real> dx{1.0 / nc};
     const auto stencil = FiniteDifferenceBiharmonic::buildStencil(1, true, dx, 1.0);
 
     Mat B = PetscFD::createStencilMatrix(h.dms[1], stencil);
-    PetscFD::assembleStencilOperator(h.dms[1], stencil, 1.0, B);
+    PetscFD::assembleStencilOperator(h.dms[1], stencil, 1.0, {}, {}, B);
 
     for (const int k : {1, 2, 3, 4})
     {
@@ -355,12 +377,12 @@ TEST(PetscFDHierarchyTest, StencilMatrixStoresOnlyTheStencil)
   MPI_Comm comm = PetscFD::dmdaComm(partition);
   {
     PetscFD::Hierarchy h;
-    PetscFD::buildHierarchy(partition, comm, 1, 4, true, h);
+    PetscFD::buildHierarchy(partition, comm, 1, 4, true, {}, h);
 
     const std::vector<Real> dx(3, 1.0 / n);
     const auto stencil = FiniteDifferenceBiharmonic::buildStencil(3, true, dx, 1.0);
     Mat B = PetscFD::createStencilMatrix(h.dms[0], stencil);
-    PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, B);
+    PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, {}, {}, B);
 
     MatInfo info;
     PetscInt rows;
@@ -391,4 +413,518 @@ TEST(PetscFDHierarchyTest, StencilMatrixStoresOnlyTheStencil)
     PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
   }
   MPI_Comm_free(&comm);
+}
+
+// With boundary faces, the coarse level is still cell-centred (n -> n/2) and the
+// interpolation folds the neighbour outside a face onto the parent: with Neumann faces
+// P reproduces constants (rows sum to 1), with Dirichlet faces it is exact next to the
+// lower faces for multilinear fields that are odd about them.
+TEST(PetscFDHierarchyTest, CellCentredInterpolationWithFaces)
+{
+  for (const unsigned int dim : {1u, 2u, 3u})
+  {
+    const int64_t n = dim == 3 ? 16 : 32;
+    // Marlin axis 0 has faces; axis 1 periodic in 2D and 3D, axis 2 faces in 3D
+    const auto partition = boundedPartition(dim, n, {false, true, false});
+    MPI_Comm comm = PetscFD::dmdaComm(partition);
+    for (const bool dirichlet : {false, true})
+    {
+      const auto faces = dirichlet ? uniformFaces(1.0, 0.0) : uniformFaces(0.0, 1.0);
+      PetscFD::Hierarchy h;
+      PetscFD::buildHierarchy(partition, comm, 2, 1, false, faces, h);
+      PetscInt M;
+      PetscCallAbort(PETSC_COMM_WORLD,
+                     DMDAGetInfo(h.dms[1], nullptr, &M, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0));
+      EXPECT_EQ(M, n / 2) << "dim " << dim;
+
+      Vec coarse, fine, expected;
+      PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[1], &coarse));
+      PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &fine));
+      PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &expected));
+      if (!dirichlet)
+      {
+        PetscCallAbort(PETSC_COMM_WORLD, VecSet(coarse, 1.0));
+        PetscCallAbort(PETSC_COMM_WORLD, VecSet(expected, 1.0));
+      }
+      else
+      {
+        // odd about the lower face of every axis with faces (x_0 and, in 3D, x_2), so the
+        // coarse ghost -parent is its exact extension there; only the lower fine cells
+        // are compared, since it is not odd about the upper faces
+        const auto odd = [&](const std::array<double, 3> & x)
+        { return 2.0 * x[0] * (dim == 3 ? 3.0 * x[2] : 1.0); };
+        fillVec(h.dms[1], coarse, odd);
+        fillVec(h.dms[0], expected, odd);
+      }
+      PetscCallAbort(PETSC_COMM_WORLD, MatMult(h.interpolations[0], coarse, fine));
+      if (dirichlet)
+      {
+        // fine cells in the lower half of axis 0 (and of axis 2 in 3D): there the
+        // interpolation is exact for a field linear in x_0 (bilinear with x_2)
+        Vec mask;
+        PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &mask));
+        fillVec(h.dms[0],
+                mask,
+                [&](const std::array<double, 3> & x)
+                { return x[0] < 0.5 && (dim < 3 || x[2] < 0.5) ? 1.0 : 0.0; });
+        PetscCallAbort(PETSC_COMM_WORLD, VecPointwiseMult(fine, fine, mask));
+        PetscCallAbort(PETSC_COMM_WORLD, VecPointwiseMult(expected, expected, mask));
+        PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&mask));
+      }
+      EXPECT_LT(maxDiff(fine, expected), 1e-13) << "dim " << dim << " dirichlet " << dirichlet;
+
+      PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&coarse));
+      PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&fine));
+      PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&expected));
+    }
+    MPI_Comm_free(&comm);
+  }
+}
+
+// The coarse operator with Dirichlet (Neumann) faces maps sin (cos) modes of the
+// cell-centred grid to the periodic symbol: their odd (even) mirror is exactly the
+// homogeneous ghost of every layer, for the 3- and the 5-point stencil.
+TEST(PetscFDHierarchyTest, AssembledOperatorWithFaces)
+{
+  const double pi = M_PI;
+  for (const unsigned int dim : {1u, 2u})
+    for (const bool wide : {false, true})
+      for (const bool dirichlet : {false, true})
+      {
+        const int64_t n = 32;
+        // faces on Marlin axis 0, axis 1 periodic
+        const auto partition = boundedPartition(dim, n, {false, true, true});
+        MPI_Comm comm = PetscFD::dmdaComm(partition);
+        {
+          const auto faces = dirichlet ? uniformFaces(1.0, 0.0) : uniformFaces(0.0, 1.0);
+          PetscFD::Hierarchy h;
+          PetscFD::buildHierarchy(partition, comm, 2, wide ? 2 : 1, false, faces, h);
+
+          const int64_t nc = n / 2;
+          const std::vector<Real> dx(dim, 1.0 / nc);
+          const auto stencil = FiniteDifferenceLaplacian::buildStencil(dim, wide, dx, -1.0);
+          Mat B = PetscFD::createStencilMatrix(h.dms[1], stencil);
+          PetscFD::assembleStencilOperator(h.dms[1], stencil, 1.0, faces, dx, B);
+
+          // mode 3 on the face axis (sin for Dirichlet, cos for Neumann), mode 1 periodic
+          const auto symbol = [&](double theta)
+          {
+            return (wide ? 2.5 - 8.0 / 3.0 * std::cos(theta) + 1.0 / 6.0 * std::cos(2.0 * theta)
+                         : 2.0 - 2.0 * std::cos(theta)) *
+                   nc * nc;
+          };
+          const double lambda = symbol(3.0 * pi / nc) + (dim > 1 ? symbol(2.0 * pi / nc) : 0.0);
+          const auto mode = [&](const std::array<double, 3> & x)
+          {
+            const double face_mode =
+                dirichlet ? std::sin(3.0 * pi * x[0]) : std::cos(3.0 * pi * x[0]);
+            return face_mode * (dim > 1 ? std::cos(2.0 * pi * x[1] + 0.3) : 1.0);
+          };
+          Vec u, Bu, expected;
+          PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[1], &u));
+          PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[1], &Bu));
+          PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[1], &expected));
+          fillVec(h.dms[1], u, mode);
+          fillVec(h.dms[1],
+                  expected,
+                  [&](const std::array<double, 3> & x) { return lambda * mode(x); });
+          PetscCallAbort(PETSC_COMM_WORLD, MatMult(B, u, Bu));
+          EXPECT_LT(maxDiff(Bu, expected), 1e-11 * lambda)
+              << "dim " << dim << " wide " << wide << " dirichlet " << dirichlet;
+
+          PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&u));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&Bu));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&expected));
+        }
+        MPI_Comm_free(&comm);
+      }
+}
+
+// A Robin face changes only the diagonal of the 3-point operator next to it, by the
+// ghost coefficient of the explicit ghost fill (TensorRobinBC::ghostCoefficientOnU0), and
+// keeps it symmetric.
+TEST(PetscFDHierarchyTest, AssembledOperatorWithRobinFace)
+{
+  const int64_t n = 16;
+  const auto partition = boundedPartition(1, n, {false, true, true});
+  MPI_Comm comm = PetscFD::dmdaComm(partition);
+  {
+    // lower face Robin a = 2, b = 0.3; upper face Dirichlet
+    PetscFD::FaceGhosts faces;
+    faces.ab[0] = {2.0, 0.3};
+    faces.ab[1] = {1.0, 0.0};
+    PetscFD::Hierarchy h;
+    PetscFD::buildHierarchy(partition, comm, 1, 1, false, faces, h);
+    const std::vector<Real> dx{1.0 / n};
+    const auto stencil = FiniteDifferenceLaplacian::buildStencil(1, false, dx, -1.0);
+    Mat B = PetscFD::createStencilMatrix(h.dms[0], stencil);
+    PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, faces, dx, B);
+
+    PetscBool symmetric;
+    PetscCallAbort(PETSC_COMM_WORLD, MatIsSymmetric(B, 0.0, &symmetric));
+    EXPECT_TRUE(symmetric);
+
+    // diagonal entries of the first and last row (each owned by one rank)
+    PetscInt begin, end;
+    PetscCallAbort(PETSC_COMM_WORLD, MatGetOwnershipRange(B, &begin, &end));
+    const double h2 = dx[0] * dx[0];
+    for (const PetscInt row : {PetscInt(0), PetscInt(n - 1)})
+      if (row >= begin && row < end)
+      {
+        PetscScalar value;
+        PetscCallAbort(PETSC_COMM_WORLD, MatGetValues(B, 1, &row, 1, &row, &value));
+        const double coeff = row == 0 ? TensorRobinBC::ghostCoefficientOnU0(2.0, 0.3, dx[0])
+                                      : TensorRobinBC::ghostCoefficientOnU0(1.0, 0.0, dx[0]);
+        EXPECT_NEAR(value, (2.0 - coeff) / h2, 1e-12 / h2) << "row " << row;
+      }
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+  }
+  MPI_Comm_free(&comm);
+}
+
+// The Gershgorin bound of the smoother is the maximum over rows: on a periodic grid
+// every row of the 5-point -Laplacian gives 1 + (2 (4/3 + 1/12)) / (5/2) = 32/15, the
+// first row next to a Neumann face 1 + (5/4 + 1/12) / (5/2 - 4/3) = 15/7.
+TEST(PetscFDHierarchyTest, JacobiSpectrumBoundWithFaces)
+{
+  const int64_t n = 16;
+  const std::vector<Real> dx{1.0 / n};
+  const auto stencil = FiniteDifferenceLaplacian::buildStencil(1, true, dx, -1.0);
+  for (const bool faces_present : {false, true})
+  {
+    const auto partition = boundedPartition(1, n, {!faces_present, true, true});
+    MPI_Comm comm = PetscFD::dmdaComm(partition);
+    {
+      const auto faces = uniformFaces(0.0, 1.0);
+      PetscFD::Hierarchy h;
+      PetscFD::buildHierarchy(partition, comm, 1, 2, false, faces, h);
+      EXPECT_NEAR(PetscFD::jacobiSpectrumBound(h.dms[0], stencil, faces, dx),
+                  faces_present ? 15.0 / 7.0 : 32.0 / 15.0,
+                  1e-13);
+    }
+    MPI_Comm_free(&comm);
+  }
+}
+
+// With Dirichlet and Neumann faces the ghosts are reflections (factor -1 or +1 in both layers),
+// which commute with the Laplacian, so the folded composed biharmonic stencil is exactly the
+// square of the folded Laplacian, corner rows included: the coarse rows of the no-flux
+// biharmonic need no folding of their own. A Robin face's layers have different factors.
+TEST(PetscFDHierarchyTest, FoldedBiharmonicIsSquaredLaplacian)
+{
+  const int64_t n = 16;
+  const std::vector<Real> dx{1.0 / n, 1.0 / n};
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = {1.0, 0.0};
+  faces.ab[1] = {0.0, 1.0};
+  faces.ab[2] = {0.0, 1.0};
+  faces.ab[3] = {1.0, 0.0};
+  const auto partition = boundedPartition(2, n, {false, false, true});
+  MPI_Comm comm = PetscFD::dmdaComm(partition);
+  {
+    const auto laplacian = FiniteDifferenceLaplacian::buildStencil(2, false, dx, 1.0);
+    const auto biharmonic = FiniteDifferenceBiharmonic::buildStencil(2, false, dx, 1.0);
+    PetscFD::Hierarchy h;
+    PetscFD::buildHierarchy(partition, comm, 1, 2, true, faces, h);
+    Mat L = PetscFD::createStencilMatrix(h.dms[0], laplacian);
+    PetscFD::assembleStencilOperator(h.dms[0], laplacian, 1.0, faces, dx, L);
+    Mat B = PetscFD::createStencilMatrix(h.dms[0], biharmonic);
+    PetscFD::assembleStencilOperator(h.dms[0], biharmonic, 1.0, faces, dx, B);
+    Mat LL;
+    PetscCallAbort(PETSC_COMM_WORLD, MatMatMult(L, L, MAT_INITIAL_MATRIX, PETSC_DETERMINE, &LL));
+
+    PetscReal scale, diff;
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(LL, NORM_INFINITY, &scale));
+    PetscCallAbort(PETSC_COMM_WORLD, MatAXPY(LL, -1.0, B, DIFFERENT_NONZERO_PATTERN));
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(LL, NORM_INFINITY, &diff));
+    EXPECT_LT(diff, 1e-13 * scale);
+
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&L));
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&LL));
+  }
+  MPI_Comm_free(&comm);
+}
+
+// The Jacobi diagonal of the torch solver is the diagonal of the assembled folded operator,
+// with faces of every type: corner rows of the box stencil (the biharmonic) fold on two axes
+// at once.
+TEST(PetscFDHierarchyTest, FoldedDiagonalMatchesAssembled)
+{
+  const int64_t n = 16;
+  const std::vector<Real> dx{1.0 / n, 1.0 / n};
+  // Dirichlet and Neumann faces on Marlin axis 0, Robin and Dirichlet on axis 1
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = {1.0, 0.0};
+  faces.ab[1] = {0.0, 1.0};
+  faces.ab[2] = {2.0, 0.3};
+  faces.ab[3] = {1.0, 0.0};
+  for (const bool biharmonic : {false, true})
+    for (const bool periodic_y : {false, true})
+    {
+      const auto partition = boundedPartition(2, n, {false, periodic_y, true});
+      MPI_Comm comm = PetscFD::dmdaComm(partition);
+      {
+        const auto stencil = biharmonic
+                                 ? FiniteDifferenceBiharmonic::buildStencil(2, false, dx, 1.0)
+                                 : FiniteDifferenceLaplacian::buildStencil(2, false, dx, -1.0);
+        PetscFD::Hierarchy h;
+        PetscFD::buildHierarchy(partition,
+                                comm,
+                                1,
+                                PetscFD::stencilWidth(stencil),
+                                PetscFD::needsBoxStencil(stencil),
+                                faces,
+                                h);
+        Mat B = PetscFD::createStencilMatrix(h.dms[0], stencil);
+        PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, faces, dx, B);
+        Vec assembled;
+        PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &assembled));
+        PetscCallAbort(PETSC_COMM_WORLD, MatGetDiagonal(B, assembled));
+
+        // this rank's Marlin block
+        std::array<int64_t, 3> begin{{0, 0, 0}}, size{{1, 1, 1}};
+        for (const auto d : make_range(2))
+        {
+          for (const auto r : make_range(partition.index[d]))
+            begin[d] += partition.counts[d][r];
+          size[d] = partition.counts[d][partition.index[d]];
+        }
+        const auto diag = PetscFD::foldedDiagonal(stencil,
+                                                  2,
+                                                  partition.n,
+                                                  partition.periodic,
+                                                  faces,
+                                                  dx,
+                                                  begin,
+                                                  size,
+                                                  torch::TensorOptions().dtype(torch::kFloat64))
+                              .contiguous();
+
+        // the owned block of a Marlin tensor is this rank's part of the DMDA vector
+        const PetscScalar * a;
+        PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(assembled, &a));
+        const auto * t = diag.data_ptr<double>();
+        double max_diff = 0.0, max_value = 0.0;
+        for (const auto q : make_range(diag.numel()))
+        {
+          max_diff = std::max(max_diff, std::abs(t[q] - a[q]));
+          max_value = std::max(max_value, std::abs(a[q]));
+        }
+        PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(assembled, &a));
+        EXPECT_LT(max_diff, 1e-13 * max_value)
+            << "biharmonic " << biharmonic << " periodic_y " << periodic_y;
+
+        PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+        PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&assembled));
+      }
+      MPI_Comm_free(&comm);
+    }
+}
+
+// A stencil entry with a per-cell field multiplies its row's coefficient by the field at the
+// row's cell: assembled, the stencil whose every entry carries f is diag(f) A, faces folded
+// as before, and the folded diagonal reads the same field.
+TEST(PetscFDHierarchyTest, StencilFieldScalesRows)
+{
+  const int64_t n = 16;
+  const std::vector<Real> dx{1.0 / n, 1.0 / n};
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = {1.0, 0.0};
+  faces.ab[1] = {0.0, 1.0};
+  faces.ab[2] = {2.0, 0.3};
+  faces.ab[3] = {1.0, 0.0};
+  const auto partition = boundedPartition(2, n, {false, false, true});
+  MPI_Comm comm = PetscFD::dmdaComm(partition);
+  {
+    const auto stencil = FiniteDifferenceLaplacian::buildStencil(2, false, dx, -1.0);
+    PetscFD::Hierarchy h;
+    PetscFD::buildHierarchy(partition, comm, 1, 1, false, faces, h);
+    Vec f;
+    PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &f));
+    fillVec(h.dms[0],
+            f,
+            [](const std::array<double, 3> & x) { return 1.0 + x[0] + 2.0 * x[1] * x[1]; });
+
+    // the owned block of the DMDA vector is the Marlin tensor's, in order
+    std::array<int64_t, 3> begin{{0, 0, 0}}, size{{1, 1, 1}};
+    for (const auto d : make_range(2))
+    {
+      for (const auto r : make_range(partition.index[d]))
+        begin[d] += partition.counts[d][r];
+      size[d] = partition.counts[d][partition.index[d]];
+    }
+    const PetscScalar * fa;
+    PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(f, &fa));
+    const auto field = torch::from_blob(const_cast<PetscScalar *>(fa),
+                                        {size[0], size[1]},
+                                        torch::TensorOptions().dtype(torch::kFloat64))
+                           .clone();
+    PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(f, &fa));
+    auto weighted = stencil;
+    for (auto & entry : weighted)
+      entry.field = field;
+
+    Mat A = PetscFD::createStencilMatrix(h.dms[0], stencil);
+    PetscFD::assembleStencilOperator(h.dms[0], stencil, 1.0, faces, dx, A);
+    Mat B = PetscFD::createStencilMatrix(h.dms[0], weighted);
+    PetscFD::assembleStencilOperator(h.dms[0], weighted, 1.0, faces, dx, B);
+    PetscCallAbort(PETSC_COMM_WORLD, MatDiagonalScale(A, f, nullptr));
+    PetscReal scale, diff;
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(A, NORM_INFINITY, &scale));
+    PetscCallAbort(PETSC_COMM_WORLD, MatAXPY(A, -1.0, B, SAME_NONZERO_PATTERN));
+    PetscCallAbort(PETSC_COMM_WORLD, MatNorm(A, NORM_INFINITY, &diff));
+    EXPECT_LT(diff, 1e-13 * scale);
+
+    Vec assembled;
+    PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(h.dms[0], &assembled));
+    PetscCallAbort(PETSC_COMM_WORLD, MatGetDiagonal(B, assembled));
+    const auto diag = PetscFD::foldedDiagonal(weighted,
+                                              2,
+                                              partition.n,
+                                              partition.periodic,
+                                              faces,
+                                              dx,
+                                              begin,
+                                              size,
+                                              torch::TensorOptions().dtype(torch::kFloat64))
+                          .contiguous();
+    const PetscScalar * a;
+    PetscCallAbort(PETSC_COMM_WORLD, VecGetArrayRead(assembled, &a));
+    const auto * t = diag.data_ptr<double>();
+    double max_diff = 0.0, max_value = 0.0;
+    for (const auto q : make_range(diag.numel()))
+    {
+      max_diff = std::max(max_diff, std::abs(t[q] - a[q]));
+      max_value = std::max(max_value, std::abs(a[q]));
+    }
+    PetscCallAbort(PETSC_COMM_WORLD, VecRestoreArrayRead(assembled, &a));
+    EXPECT_LT(max_diff, 1e-13 * max_value);
+
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&A));
+    PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+    PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&f));
+    PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&assembled));
+  }
+  MPI_Comm_free(&comm);
+}
+
+// The coarse FiniteDifferenceDivGrad levels as the solver builds them: D restricted level by
+// level as the mean over the 2^dim children (restrictCellMean), read with one halo layer
+// (ownedWithHalo, D_0 outside a domain face) and rediscretised with the fine face rule. On
+// the level two below the fine one, B v must equal sum_faces D_f (v_i - v_j) / h^2 for D_f the
+// face mean of the mean of D over each coarse cell's 16 fine cells, the ghost v_j folded with
+// the face's factor, and B must be symmetric.
+TEST(PetscFDHierarchyTest, DivGradCoarseLevelIsRediscretisation)
+{
+  const int64_t n = 32;
+  const unsigned int k = 2;
+  const int64_t nc = n >> k;
+  const double h = (1 << k) / double(n);
+  const std::vector<Real> spacing{h, h};
+  const std::vector<std::function<double(double, double)>> coefficients{
+      [](double x, double y) { return 1.0 + x / 2.0 + 0.3 * std::cos(3.0 * y); },
+      [](double x, double) { return x > 0.5 ? 100.0 : 1.0; }};
+  const auto v_func = [](double x, double y)
+  { return std::sin(2.0 * x + 1.0) * std::cos(3.0 * y) + y; };
+  // Dirichlet faces on Marlin axis 0, Neumann on axis 1 (or periodic)
+  PetscFD::FaceGhosts faces;
+  faces.ab[0] = faces.ab[1] = {1.0, 0.0};
+  faces.ab[2] = faces.ab[3] = {0.0, 1.0};
+  for (const bool periodic_y : {false, true})
+    for (const auto c : index_range(coefficients))
+      for (const bool harmonic : {true, false})
+      {
+        const auto partition = boundedPartition(2, n, {false, periodic_y, true});
+        MPI_Comm comm = PetscFD::dmdaComm(partition);
+        {
+          PetscFD::Hierarchy hier;
+          PetscFD::buildHierarchy(partition, comm, k + 1, 1, false, faces, hier);
+          std::vector<Vec> D(k + 1);
+          PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(hier.dms[0], &D[0]));
+          fillVec(hier.dms[0],
+                  D[0],
+                  [&](const std::array<double, 3> & x) { return coefficients[c](x[0], x[1]); });
+          for (const auto l : make_range(1u, k + 1))
+          {
+            PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(hier.dms[l], &D[l]));
+            PetscFD::restrictCellMean(hier.dms[l], hier.dms[l - 1], D[l - 1], D[l]);
+          }
+          const auto stencil = FiniteDifferenceDivGrad::buildStencil(
+              PetscFD::ownedWithHalo(hier.dms[k], D[k]), spacing, -1.0, harmonic);
+          Mat B = PetscFD::createStencilMatrix(hier.dms[k], stencil);
+          PetscFD::assembleStencilOperator(hier.dms[k], stencil, 1.0, faces, spacing, B);
+
+          PetscBool symmetric;
+          PetscCallAbort(PETSC_COMM_WORLD, MatIsSymmetric(B, 1e-12, &symmetric));
+          EXPECT_TRUE(symmetric) << "periodic_y " << periodic_y << " D " << c;
+
+          // the coarse cell (i0, i1) in Marlin axes: the mean of D at its fine cell centres
+          const int64_t r = int64_t(1) << k;
+          const auto coarse_D = [&](int64_t i0, int64_t i1)
+          {
+            double sum = 0.0;
+            for (const auto a : make_range(r))
+              for (const auto b : make_range(r))
+                sum += coefficients[c]((i0 * r + a + 0.5) / n, (i1 * r + b + 0.5) / n);
+            return sum / double(r * r);
+          };
+          const auto v_at = [&](int64_t i0, int64_t i1)
+          { return v_func((i0 + 0.5) / nc, (i1 + 0.5) / nc); };
+          const auto expected_Bv = [&](const std::array<double, 3> & x)
+          {
+            const auto i0 = int64_t(std::floor(x[0] * nc)), i1 = int64_t(std::floor(x[1] * nc));
+            const double D0 = coarse_D(i0, i1), v0 = v_at(i0, i1);
+            double result = 0.0;
+            for (const auto axis : make_range(2))
+              for (const int o : {-1, 1})
+              {
+                int64_t j0 = i0 + (axis == 0 ? o : 0), j1 = i1 + (axis == 1 ? o : 0);
+                double vj, Dj;
+                if (axis == 1 && periodic_y)
+                {
+                  j1 = (j1 + nc) % nc;
+                  vj = v_at(j0, j1);
+                  Dj = coarse_D(j0, j1);
+                }
+                else if (j0 < 0 || j0 >= nc || j1 < 0 || j1 >= nc)
+                {
+                  // the ghost: -v0 at a Dirichlet face, v0 at a Neumann face; D_0 there
+                  vj = (axis == 0 ? -1.0 : 1.0) * v0;
+                  Dj = D0;
+                }
+                else
+                {
+                  vj = v_at(j0, j1);
+                  Dj = coarse_D(j0, j1);
+                }
+                const double D_face = harmonic ? 2.0 * D0 * Dj / (D0 + Dj) : 0.5 * (D0 + Dj);
+                result += D_face * (v0 - vj) / (h * h);
+              }
+            return result;
+          };
+
+          Vec v, Bv, expected;
+          PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(hier.dms[k], &v));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDuplicate(v, &Bv));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDuplicate(v, &expected));
+          fillVec(
+              hier.dms[k], v, [&](const std::array<double, 3> & x) { return v_func(x[0], x[1]); });
+          fillVec(hier.dms[k], expected, expected_Bv);
+          PetscCallAbort(PETSC_COMM_WORLD, MatMult(B, v, Bv));
+          PetscReal scale;
+          PetscCallAbort(PETSC_COMM_WORLD, VecNorm(expected, NORM_INFINITY, &scale));
+          EXPECT_LT(maxDiff(Bv, expected), 1e-12 * scale)
+              << "periodic_y " << periodic_y << " D " << c << " harmonic " << harmonic;
+
+          PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&B));
+          for (auto & vec : D)
+            PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&vec));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&v));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&Bv));
+          PetscCallAbort(PETSC_COMM_WORLD, VecDestroy(&expected));
+        }
+        MPI_Comm_free(&comm);
+      }
 }

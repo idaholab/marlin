@@ -19,6 +19,17 @@ TensorDirichletBC::validParams()
   params.suppressParameter<Real>("a");
   params.suppressParameter<Real>("b");
   params.renameParam("c", "value", "Prescribed value of the field on this face (u = value).");
+  params.renameParam(
+      "c_function",
+      "value_function",
+      "Function giving the field value along the face, evaluated at the face position at the "
+      "solve time.");
+  params.renameParam(
+      "c_buffer",
+      "value_buffer",
+      "Buffer whose first owned cell layer next to the face holds the field value along the "
+      "face. The compute that writes it must evaluate it at the face position, "
+      "not at the cell centres.");
   params.addClassDescription("Dirichlet boundary condition (u = value) on a non-periodic domain "
                              "face.");
   return params;

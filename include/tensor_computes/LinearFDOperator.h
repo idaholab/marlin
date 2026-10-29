@@ -18,12 +18,16 @@
  * per spatial dimension) and the coefficient it multiplies. Coefficients
  * already include any 1/dx^2-style grid-spacing scaling and operator
  * prefactor, matching exactly what the operator's matrix-free action
- * applies.
+ * applies. A variable-coefficient operator also gives a per-cell field, which
+ * multiplies the coefficient in each row (the row's cell, not the column's).
  */
 struct FDStencilEntry
 {
   std::vector<int> offset;
   Real coefficient;
+  /// per-cell factor on this rank's owned block of the grid the stencil is for (Marlin
+  /// axis order); undefined for a constant coefficient
+  torch::Tensor field;
 };
 
 /**
@@ -50,6 +54,18 @@ public:
    * per dimension). Implicit solvers use it to build coarse multigrid levels.
    */
   virtual std::vector<FDStencilEntry> stencilAt(const std::vector<Real> & grid_spacing) const = 0;
+
+  /**
+   * The stencil's offsets. Unlike stencilAt() they are available before the buffers are
+   * allocated (a variable coefficient is read from a buffer), e.g. in a solver's constructor.
+   */
+  virtual std::vector<std::vector<int>> stencilOffsets() const
+  {
+    std::vector<std::vector<int>> offsets;
+    for (const auto & entry : stencilAt())
+      offsets.push_back(entry.offset);
+    return offsets;
+  }
 
   /// Definiteness of the operator's action A (as written, before any sign change)
   enum class Definiteness

@@ -12,8 +12,9 @@
 # M = 5, kappa = 2, rho_s = 5, c_alpha = 0.3, c_beta = 0.7.
 #
 
-# substeps per time step, as in 1a_solver.i (each substep is one linear solve)
-substeps = 1000
+# time steps (each one linear solve) per output; the step grows by 1.1 over each output
+# interval, as with the 1000 substeps per step of 1a_solver.i
+output_interval = 1000
 
 [Domain]
   dim = 2
@@ -115,7 +116,6 @@ substeps = 1000
   operators = 'dcdt bih'
   source = rhs
   root_compute = explicit
-  substeps = ${substeps}
 []
 
 [UserObjects]
@@ -160,13 +160,13 @@ substeps = 1000
 
 [Executioner]
   type = Transient
-  num_steps = 1000
+  num_steps = '${fparse 1000 * output_interval}'
   [TimeStepper]
     type = IterationAdaptiveDT
-    growth_factor = 1.1
-    dt = 1
+    growth_factor = '${fparse 1.1^(1 / output_interval)}'
+    dt = '${fparse 1 / output_interval}'
   []
-  dtmax = 300
+  dtmax = '${fparse 300 / output_interval}'
 []
 
 [TensorOutputs]
@@ -174,11 +174,15 @@ substeps = 1000
     type = XDMFTensorOutput
     buffer = 'c mu'
     enable_hdf5 = true
+    # FINAL: the last step, e.g. when the terminator stops the run inside an output interval
+    execute_on = 'INITIAL TIMESTEP_END FINAL'
+    time_step_interval = ${output_interval}
   []
 []
 
 [Outputs]
   csv = true
   perf_graph = true
-  execute_on = 'TIMESTEP_END'
+  execute_on = 'TIMESTEP_END FINAL'
+  time_step_interval = ${output_interval}
 []
