@@ -1861,9 +1861,17 @@ inactive identity rows, PCMG took about 100 iterations per solve on \texttt{kks\
 smallest active diagonal it takes 12--13, as with $\psi = 1$ (12) or a $\psi$ floor without
 inactive cells. The inactive rows and columns are decoupled from the active block, so the
 solution is unchanged (all golds pass unchanged).
+\item \textbf{Review (2026-10-29).} Aspect review, mutation testing (17 mutations, 9 killed, two of them by
+tests added in the review: a PCMG iteration cap of 15 on \texttt{kks\_sbm.i}, serial (14--16 on 4
+ranks), and the within-step coefficient change error. Of the 8 survivors, 7 change only the
+PCMG preconditioner or the speed of the torch PCG solve; the eighth disables the error for a
+zero-diagonal cell with nonzero off-diagonal entries, which no test reaches)
+and a fix verification. Fixed: the single-precision identity scale (DBL\_MAX in float32), the
+quoted figures.
 \end{itemize}
 
-\status{implemented (2026-10-28); review panel and tag pending.}
+\status{done (2026-10-29, tag \texttt{pr9-sbm}); new PR from branch \texttt{implicit\_fd\_sbm},
+on top of \#192.}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
 \textbf{Scope:} not scheduled. Revisit only if a model needs exact
@@ -1904,7 +1912,7 @@ PR6 & Picard, two-field coupling & done (tag pr6-picard), in PR \#192 & coupled 
 PR7 & SBM/KKS no-flux port & done (tag pr7-kks-no-flux), in PR \#192 & mirror gold, conservation, energy decrease, $dt$/$dx$ orders, spectral limit; CPU 1--4 ranks \\
 PR7b & Substeps removed, output interval, BDF2 time integration & done (tag pr7b-bdf2), in PR \#192 & exact variable-step recurrence, order 2, Newton BDF2 reference, cutback history, 6a \\
 PR8 & Monolithic groundwork & deferred & --- \\
-PR9 & Smoothed boundary method, \texttt{CoefficientTimeDerivativeOperator}, inactive cells & implemented, review pending & coefficient $dt$ and inactive block vs.\ scipy, slab order 2 in $l$, KKS vs.\ spectral SBM; CPU 1--4 ranks \\
+PR9 & Smoothed boundary method, \texttt{CoefficientTimeDerivativeOperator}, inactive cells & done (tag pr9-sbm), new PR on top of \#192 & coefficient $dt$ and inactive block vs.\ scipy, slab order 2 in $l$, KKS vs.\ spectral SBM; CPU 1--4 ranks \\
 --- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
 \bottomrule
 \end{longtable}
