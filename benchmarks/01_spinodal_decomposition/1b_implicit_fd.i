@@ -1,0 +1,242 @@
+#
+# PFHub benchmark 1b (spinodal decomposition, square domain with no-flux faces) with the
+# implicit finite-difference solver. The 1a problem (1a_implicit_fd.i) on a bounded square:
+#
+#   dc/dt = div(M grad(f'(c) - kappa Laplacian(c))),  f = rho_s (c - c_alpha)^2 (c_beta - c)^2
+#
+# Backward Euler, with the biharmonic implicit and the double-well flux
+# divergence explicit:
+#
+#   (c - c^n)/dt + M kappa Laplacian(Laplacian(c)) = M Laplacian(f'(c^n))
+#
+# M = 5, kappa = 2, rho_s = 5, c_alpha = 0.3, c_beta = 0.7.
+#
+# No flux, n . grad(c) = 0 and n . grad(mu) = 0 with mu = f'(c) - kappa Laplacian(c), on every
+# face: the Neumann faces of c give the biharmonic dc/dn = 0 and dLaplacian(c)/dn = 0, and a
+# Neumann face of f'(c^n) gives the explicit term's df'/dn = 0 (which dc/dn = 0 implies). Each
+# flux then vanishes on the faces and the total of c is conserved up to the linear solver
+# tolerance (to 1e-12 relative at l_tol = 1e-13).
+#
+
+# time steps (each one linear solve) per output; the step grows by 1.1 over each output
+# interval, as with the 1000 substeps per step of 1a_solver.i
+output_interval = 1000
+
+[Domain]
+  dim = 2
+  nx = 200
+  ny = 200
+  xmax = 200
+  ymax = 200
+  parallel_mode = REAL_SPACE
+[]
+
+[TensorBuffers]
+  [c]
+  []
+  [dcdt]
+  []
+  [bih_c]
+  []
+  [mu]
+  []
+  [rhs]
+  []
+  # postprocessing
+  [lap_c]
+  []
+  [F]
+  []
+[]
+
+[TensorComputes]
+  [Initialize]
+    [c]
+      type = ParsedCompute
+      buffer = c
+      extra_symbols = true
+      expression = 'c0+epsilon*(cos(0.105*x)*cos(0.11*y)+(cos(0.13*x)*cos(0.087*y))^2+cos(0.025*x-0.15*y)*cos(0.07*x-0.02*y))'
+      constant_names = 'c0 epsilon'
+      constant_expressions = '0.5 0.01'
+    []
+  []
+
+  [BCs]
+    [c_left]
+      type = TensorNeumannBC
+      variable = c
+      boundary = left
+    []
+    [c_right]
+      type = TensorNeumannBC
+      variable = c
+      boundary = right
+    []
+    [c_bottom]
+      type = TensorNeumannBC
+      variable = c
+      boundary = bottom
+    []
+    [c_top]
+      type = TensorNeumannBC
+      variable = c
+      boundary = top
+    []
+    [mu_left]
+      type = TensorNeumannBC
+      variable = mu
+      boundary = left
+    []
+    [mu_right]
+      type = TensorNeumannBC
+      variable = mu
+      boundary = right
+    []
+    [mu_bottom]
+      type = TensorNeumannBC
+      variable = mu
+      boundary = bottom
+    []
+    [mu_top]
+      type = TensorNeumannBC
+      variable = mu
+      boundary = top
+    []
+  []
+
+  [Solve]
+    # implicit operators
+    [dcdt]
+      type = TimeDerivativeOperator
+      buffer = dcdt
+      input = c
+    []
+    [bih]
+      type = FiniteDifferenceBiharmonic
+      buffer = bih_c
+      input = c
+      factor = 10 # M * kappa
+    []
+
+    # explicit source M Laplacian(f'(c^n))
+    [explicit]
+      [mu]
+        type = ParsedCompute
+        buffer = mu
+        expression = 'rho_s*(c-c_alpha)^2*(c_beta-c)^2'
+        constant_names = 'rho_s c_alpha c_beta'
+        constant_expressions = '5     0.3     0.7'
+        derivatives = c
+        inputs = c
+      []
+      [rhs]
+        type = FiniteDifferenceLaplacian
+        buffer = rhs
+        input = mu
+        factor = 5 # M
+      []
+    []
+  []
+
+  [Postprocess]
+    # With zero-flux ghosts sum |grad c|^2 = -sum c Laplacian(c) for the 3-point Laplacian
+    # (summation by parts, the face differences on the boundary vanish), so the gradient
+    # energy (kappa/2)|grad c|^2 integrates to the same total as -(kappa/2) c Laplacian(c).
+    [lap_c]
+      type = FiniteDifferenceLaplacian
+      buffer = lap_c
+      input = c
+    []
+    [F]
+      type = ParsedCompute
+      buffer = F
+      expression = 'rho_s * (c-c_alpha)^2 * (c_beta-c)^2 - kappa / 2 * c * lap_c'
+      constant_names = 'rho_s c_alpha c_beta kappa'
+      constant_expressions = '5     0.3     0.7    2'
+      inputs = 'c lap_c'
+    []
+  []
+[]
+
+[TensorSolver]
+  type = ImplicitFDSolver
+  buffer = c
+  operators = 'dcdt bih'
+  source = rhs
+  root_compute = explicit
+[]
+
+[UserObjects]
+  [terminator]
+    type = Terminator
+    expression = change<1e-4
+  []
+[]
+
+[Postprocessors]
+  [min_c]
+    type = TensorExtremeValuePostprocessor
+    buffer = c
+    value_type = MIN
+    execute_on = 'TIMESTEP_END'
+  []
+  [max_c]
+    type = TensorExtremeValuePostprocessor
+    buffer = c
+    value_type = MAX
+    execute_on = 'TIMESTEP_END'
+  []
+  [F]
+    type = TensorIntegralPostprocessor
+    buffer = F
+  []
+  [change]
+    type = TensorIntegralChangePostprocessor
+    buffer = c
+  []
+  # conserved by the no-flux faces
+  [total_c]
+    type = TensorIntegralPostprocessor
+    buffer = c
+    execute_on = 'INITIAL TIMESTEP_END'
+  []
+  # cumulative wall time of the run (s)
+  [wall_time]
+    type = PerfGraphData
+    section_name = Root
+    data_type = TOTAL
+  []
+[]
+
+[Problem]
+  type = TensorProblem
+[]
+
+[Executioner]
+  type = Transient
+  num_steps = '${fparse 1000 * output_interval}'
+  [TimeStepper]
+    type = IterationAdaptiveDT
+    growth_factor = '${fparse 1.1^(1 / output_interval)}'
+    dt = '${fparse 1 / output_interval}'
+  []
+  dtmax = '${fparse 300 / output_interval}'
+[]
+
+[TensorOutputs]
+  [xdmf]
+    type = XDMFTensorOutput
+    buffer = 'c mu'
+    enable_hdf5 = true
+    # FINAL: the last step, e.g. when the terminator stops the run inside an output interval
+    execute_on = 'INITIAL TIMESTEP_END FINAL'
+    time_step_interval = ${output_interval}
+  []
+[]
+
+[Outputs]
+  csv = true
+  perf_graph = true
+  execute_on = 'TIMESTEP_END FINAL'
+  time_step_interval = ${output_interval}
+[]

@@ -70,10 +70,14 @@
 \maketitle
 
 \begin{tcolorbox}[colback=lightgray, colframe=marlinblue, boxrule=0.6pt, arc=1mm]
-\textbf{Status of this document: living reference.} Update it as each PR
-lands or as decisions change. Each PR section carries a status
-(\texttt{proposed} / \texttt{approved} / \texttt{implemented} / \texttt{verified}) ---
-keep that current rather than treating this document as a one-time plan.
+\textbf{Status of this document: record and remaining plan.} It records the
+decisions taken, what was built and where, and a short plan for the PRs that
+remain. The code is the source of truth: where this document and
+\texttt{src/}, \texttt{include/} or the tests disagree, the code wins and this
+document is corrected. Each PR carries a status (\texttt{proposed} /
+\texttt{approved} / \texttt{implemented} / \texttt{verified} / \texttt{merged}).
+Detailed design is kept only for PRs that remain; built PRs carry a short
+description of what was built.
 \end{tcolorbox}
 
 \tableofcontents
@@ -82,338 +86,233 @@ keep that current rather than treating this document as a one-time plan.
 \section{Context and Goal}
 
 Marlin composes PDE physics as \texttt{TensorCompute} objects
-(\texttt{include/tensor\_computes/TensorOperatorBase.h}), today either
-FFT-spectral (\texttt{ReciprocalMatDiffusion}, \texttt{ReciprocalAllenCahn}, \ldots)
-or one real-space FD operator (\texttt{FiniteDifferenceLaplacian}) stepped
-purely explicitly (\texttt{RealSpaceForwardEuler}). There is no PETSc usage in
-Marlin's own tensor solve path, and no true boundary-condition mechanism for
-the real-space path --- smooth boundary method (SBM) no-flux today is faked
-via a multiplicative \texttt{psi} mask on the RHS, not a real boundary
-stencil.
+(\texttt{include/tensor\_computes/TensorOperatorBase.h}). Before this work the
+real-space path had one FD operator (\texttt{FiniteDifferenceLaplacian})
+stepped explicitly (\texttt{RealSpaceForwardEuler}), no PETSc in the tensor
+solve path, and no boundary-condition mechanism: smooth boundary method (SBM)
+no-flux is imposed by a multiplicative \texttt{psi} mask on the right-hand
+side (\texttt{test/tests/kks/KKS\_no\_flux\_bc.i}).
 
-\textbf{Goal:} compose PDE terms as TensorComputes (plus a new BC sub-block of
-TensorComputes), recognize which terms are linear-with-known-stencil, and
-solve the implied $Ax=b$ for those via PETSc Krylov solvers applied
-\textit{matrix-free} (operator action computed on the fly from the same
-stencil coefficients already used for explicit evaluation --- see
-Section~\ref{sec:partial-assembly} --- not via an assembled sparse matrix),
-with options configured MOOSE-style in the solve block; lag everything else
-into $b$; optionally Picard-iterate; allow non-time-dependent fields (e.g.\ a
-Poisson equation) to be solved alongside transient ones
-(Section~\ref{sec:steady-mixing}). Target ``basic'' functionality: spinodal
-decomposition (Cahn-Hilliard), KKS/grand-potential, and the smooth boundary
-method --- all currently periodic-only and spectral.
+\textbf{Goal:} compose PDE terms as TensorComputes, recognise the terms that
+are linear with a known stencil, and solve the implied $Ax=b$ implicitly with
+a Krylov method whose operator action reuses the explicit kernels
+(matrix-free, Section~\ref{sec:partial-assembly}); lag the other terms into
+$b$; Picard-iterate where coupling needs it; allow steady fields (e.g.\ a
+Poisson equation) alongside transient ones (Section~\ref{sec:steady-mixing}).
+Target functionality: Cahn-Hilliard spinodal decomposition, KKS /
+grand-potential, and the smooth boundary method with real no-flux boundary
+conditions.
 
-This plan was produced by: (a) exploring the existing TensorCompute /
-TensorSolver / TensorProblem / DomainAction architecture, MOOSE's
-\texttt{PetscSupport} options-DB mechanism, and MOOSE's \texttt{FixedPointSolve}
-Picard knobs; (b) surveying existing example input files for the target
-physics (\texttt{test/tests/kks/KKS\_no\_flux\_bc.i},
-\texttt{test/tests/cahnhilliard/*.i}, \texttt{examples/cahn\_hilliard/*.i}
-including the FEM comparison variant \texttt{cahnhilliard\_fem.i},
-\texttt{examples/libtorch\_kks/KKS\_libtorch.i}); (c) a design pass; (d)
-decisions with the stakeholder on four consequential questions
-(Section~\ref{sec:decisions}); (e) a critical review surfacing residual
-risks (Section~\ref{sec:risks}) that this roadmap is structured to retire
-early and cheaply, rather than discovering them deep into a large PR.
+\textbf{Built so far} (Section~\ref{sec:roadmap}, Status Tracking): the
+\texttt{LinearFDOperator} interface, real-space Dirichlet / Neumann / Robin
+boundary conditions, \texttt{TimeDerivativeOperator},
+\texttt{FiniteDifferenceBiharmonic}, and \texttt{ImplicitFDSolver}
+(\texttt{src/tensor\_solver/ImplicitFDSolver.C}) with a PETSc KSPCG + PCMG
+backend (CPU, CUDA) and a torch PCG backend (any device, default on MPS), on
+periodic and non-periodic domains. Remaining: variable-coefficient diffusion,
+coupled steady + transient fields, Picard coupling, no-flux biharmonic, and
+the KKS/SBM port.
 
-\section{Target Architecture}
+The original plan came from a survey of the TensorCompute / TensorSolver /
+TensorProblem / DomainAction architecture, MOOSE's \texttt{PetscSupport}
+options mechanism and \texttt{FixedPointSolve} Picard knobs, the target
+example inputs (\texttt{test/tests/kks/KKS\_no\_flux\_bc.i},
+\texttt{examples/cahn\_hilliard/*.i} including \texttt{cahnhilliard\_fem.i},
+\texttt{examples/libtorch\_kks/KKS\_libtorch.i}), decisions with the user
+(Section~\ref{sec:decisions}), and a risk review (Section~\ref{sec:risks}).
+
+\section{Architecture as Built}
 \label{sec:architecture}
 
-This section is a reference for what we are building toward across the PR
-sequence in Section~\ref{sec:roadmap} --- no single PR implements all of it
-at once.
+This section describes the code on branch \texttt{implicit\_fd\_bcs}
+(PR0--PR4). Parts that are planned are labelled as such.
 
 \subsection{Hybrid Design: PETSc Owns the Algorithms, Torch Owns the Kernels}
 \label{sec:hybrid}
 
 \begin{tcolorbox}[colback=lightgray, colframe=marlinblue, boxrule=0.6pt, arc=1mm]
 \textbf{Decided 2026-10-18} after the PR1a/PR1b evidence chain
-(Section~\ref{sec:pr1b}). The deciding factor was generality and long-term
+(Section~\ref{sec:pr1b}); hierarchy ownership revised after PR2b (user
+decision, same day). The deciding factor was generality and long-term
 maintenance (PETSc's solver stack is maintained by full-time scientists),
 not speed: the measured gap was not large in either direction.
 \end{tcolorbox}
 
-\begin{longtable}{p{0.36\textwidth} p{0.1\textwidth} p{0.44\textwidth}}
+As built in \texttt{ImplicitFDSolver} (\texttt{src/tensor\_solver/ImplicitFDSolver.C})
+and \texttt{PetscFD} (\texttt{src/utils/PetscFDHierarchy.C}), PETSc backend:
+
+\begin{longtable}{p{0.3\textwidth} p{0.1\textwidth} p{0.5\textwidth}}
 \toprule
 Layer & Owner & Mechanism \\
 \midrule
 \endhead
-Krylov method, convergence tests & PETSc & \texttt{KSPCG} (SPD), \texttt{KSPGMRES}/\texttt{KSPFGMRES} otherwise \\
-Multigrid cycle and coarse solve & PETSc & \texttt{PCMG}; coarse level is a small assembled \texttt{Mat} \\
-Default smoother & PETSc & PCMG's Chebyshev (SOR on CPU coarse levels, Jacobi on the fine level and on CUDA); \texttt{smoother = DAMPED\_JACOBI} gives Gershgorin-weighted \texttt{KSPRICHARDSON} + \texttt{PCJACOBI}, for when Chebyshev's estimated bounds go indefinite (PR3b) \\
-Later: SNES, TS, AMG & PETSc & AMG on an assembled \texttt{Pmat} (PR4a) \\
-Level operator action and diagonal & torch & \texttt{MATSHELL} \texttt{MatMult}/\texttt{GetDiagonal} running the \texttt{LinearFDOperator} stencil \\
-Restriction / prolongation & torch & \texttt{MATSHELL}s via \texttt{PCMGSetRestriction}/\texttt{PCMGSetInterpolation} \\
-Optional custom smoother & torch & \texttt{PCSHELL} per level (e.g.\ symmetric red-black Gauss-Seidel for non-SPD), optionally fused via \texttt{TracedComputeSequence} \\
+Krylov method, convergence test & PETSc & \texttt{KSPCG}, unpreconditioned residual norm, \texttt{l\_tol}, nonzero initial guess (warm start from $u^n$); no divergence test, since $\|r_0\|/\|b\|$ grows with $dt$ (PR3b) \\
+Level hierarchy and partitions & PETSc & Fine \texttt{DMDA} on Marlin's partition (ownership checked), coarse DMDAs by \texttt{DMCoarsenHierarchy}; \texttt{DMDA\_Q0} keeps non-periodic axes cell-centred ($n \to n/2$). Depth from \texttt{PetscFD::countLevels}; \texttt{-pc\_mg\_levels} is an error \\
+Fine-level operator and diagonal & torch & \texttt{MATSHELL}: \texttt{MatMult} = \texttt{applyLinearOperator} (each operator's own \texttt{computeBuffer()}, ghosts by Marlin's \texttt{exchangeGhostLayers}); \texttt{GetDiagonal} = \texttt{jacobiDiagonal} \\
+Coarse-level operators & PETSc & Rediscretised from \texttt{stencilAt(spacing)}, assembled by \texttt{MatSetValuesStencil}, scaled by $2^{\dim k}$ (restriction is $P^T$), preallocated from the stencil's columns; reassembled only when the stencil changes (e.g.\ a new $dt$) \\
+Transfers & PETSc (our matrix) & Cell-centred multilinear interpolation, assembled AIJ with global coarse columns (\texttt{PetscFD::cellCentredInterpolation}); restriction $P^T$ \\
+Smoothers & PETSc & Default \texttt{smoother = CHEBYSHEV}: PCMG's Chebyshev, SOR on the CPU coarse levels, Jacobi on the fine level and on CUDA, bounds re-estimated on every level when the operators change. \texttt{smoother = DAMPED\_JACOBI}: \texttt{KSPRICHARDSON} + \texttt{PCJACOBI}, weight $\omega = 4/(3\rho)$, $\rho$ the Gershgorin bound of $D^{-1}A$ over all rows (PR3b, PR4) \\
+Coarse solve & PETSc & PCMG's default LU; shifted (\texttt{MAT\_SHIFT\_NONZERO}) for a singular field \\
+Boundary ghost values & Marlin & \texttt{TensorRobinBC} ghost fill on the fine level; homogeneous ghost factor folded into coarse rows and the interpolation (PR4) \\
+Solution / RHS \texttt{Vec}s & PETSc on torch memory & \texttt{VecCreateMPIWithArray} / \texttt{VecCreateMPICUDAWithArray} + \texttt{VecPlaceArray} on the solver's tensors (zero-copy) \\
 \bottomrule
 \end{longtable}
 
-\textbf{Revised 2026-10-18 after PR2b (user decision): PETSc owns the
-hierarchy.} The fine level's DMDA is built on Marlin's partition;
-\texttt{DMCoarsen} builds the coarse DMDAs and their partitions, so the depth
-does not depend on the rank grid. Coarse levels are rediscretised and
-assembled; torch keeps the fine-level operator and the optional smoothers.
-Transfers are our cell-centred bilinear interpolation, assembled as an AIJ
-\texttt{Mat} from the DMDA numbering. It is the exact mapping for our
-cell-centred grid; PETSc's \texttt{DMDA\_Q1} is node-centred and would treat
-cell centres as vertices, an approximation from the geometry mismatch. In
-PR2b it gave 9 iterations against Q1's 9--10. The transfer depends only on the
-grid (cell-centred, factor-2 coarsening, dimension, per-axis boundary type),
-not on the operator: one shared routine (2D and 3D) serves every field and
-every \texttt{LinearFDOperator} term, and it is not part of the residual or
-the diagonal. Where the table above differs, this supersedes it:
-
-\begin{longtable}{p{0.36\textwidth} p{0.1\textwidth} p{0.44\textwidth}}
-\toprule
-Layer & Owner & Mechanism \\
-\midrule
-\endhead
-Level hierarchy and partitions & PETSc & Fine \texttt{DMDA} on Marlin's partition, \texttt{DMCoarsen} via \texttt{KSPSetDM} \\
-Fine-level operator and diagonal & torch & \texttt{MATSHELL}, ghosts by \texttt{DMGlobalToLocal} \\
-Coarse-level operators & PETSc & Rediscretised, \texttt{MatSetValuesStencil} via \texttt{KSPSetComputeOperators} \\
-Restriction / prolongation & PETSc & Our cell-centred bilinear AIJ via \texttt{PCMGSetInterpolation}; restriction $=P^T$ \\
-Boundary ghost values & Marlin & \texttt{TensorBoundaryCondition} (DMDA leaves ghosted boundary entries untouched) \\
-\bottomrule
-\end{longtable}
-
-Configuration rules from the evidence:
+Configuration rules from the evidence, as applied in the code:
 \begin{itemize}[leftmargin=*]
-\item \textbf{Mark SPD operators.} Set \texttt{MAT\_SPD} on every level
-whose operator is SPD. This halved PCMG setup on the H200 (724$\to$408~ms
-at $n=8192$) with the same iterations and solution. (The $n=256$ pair,
-69$\to$9~ms, is confounded: the unmarked run there was the process's first
-PETSc CUDA work.) The flag must be set with \texttt{MAT\_SPD\_ETERNAL}, or
-set again after every re-assembly: \texttt{MatAssemblyEnd} clears
-\texttt{MAT\_SPD} otherwise (matrix.c), which would silently undo it under
-the reuse policy below.
-\item \textbf{Leave a hook for analytic Chebyshev bounds.} Gershgorin bounds
-from the stencil coefficients would be passed through
-\texttt{KSPChebyshevSetEigenvalues} and would remove the remaining per-level
-eigenvalue estimate. Not built in v1.
-\item \textbf{Reuse the preconditioner across Picard iterations}
-(Section~\ref{sec:decisions}, item~3).
+\item \textbf{SPD marking.} Fine and coarse levels of a definite field get
+\texttt{MAT\_SPD} and \texttt{MAT\_SPD\_ETERNAL} (\texttt{MatAssemblyEnd}
+clears \texttt{MAT\_SPD} otherwise; the coarse flag is set again after every
+assembly). A singular field (constants as nullspace) gets
+\texttt{MAT\_SYMMETRIC} and a \texttt{MatNullSpace} on every level instead.
+In PR1b, marking SPD halved PCMG setup on the H200 (724$\to$408~ms at
+$n=8192$) with the same iterations and solution.
+\item \textbf{Smoother.} PCMG's Chebyshev is the default
+(\texttt{smoother = CHEBYSHEV}), with SOR on the CPU coarse levels and Jacobi on
+the fine level and on CUDA, where PETSc's SOR runs on the host. The
+\texttt{KSP\_DIVERGED\_INDEFINITE\_PC} seen on CUDA for 1a came from stale bounds:
+without a DM, PCMG sets up only the fine smoother again on a new matrix, so the
+coarse levels kept the bounds of the first $dt$. Each coarse smoother's operators
+are reset after reassembly. \texttt{smoother = DAMPED\_JACOBI} is
+Richardson + Jacobi with the Gershgorin weight; a user-set
+\texttt{-<field>\_mg\_levels\_ksp\_richardson\_scale} wins. The analytic-bounds
+hook (\texttt{KSPChebyshevSetEigenvalues}) was not built.
+\item \textbf{Options.} \texttt{petsc\_options*} of the solver block go into
+the global options database under the prefix \texttt{<field>\_}; command-line
+options win. Fields whose names differ only in case are an error.
 \end{itemize}
 
-The torch-native solvers remain. \texttt{conjugateGradientSolve} is the MPS
-path, and the PR1b torch multigrid spike is the reference for a fused,
-torch-only cycle.
+Torch backend (\texttt{linear\_solver = TORCH\_PCG}, default on MPS):
+\texttt{MooseTensor::conjugateGradientSolve} with the same
+\texttt{applyLinearOperator} and a Jacobi preconditioner
+(\texttt{jacobiDiagonal}). It also runs in single precision; the PETSc
+backend requires double precision. The torch smoothers of the PR1b/PR2c spikes are
+not in the production path.
 
-\subsection{Operator Application: Matrix-Free (Partial Assembly)}
+\subsection{Operator Application: Matrix-Free on the Fine Level}
 \label{sec:partial-assembly}
 
 \begin{tcolorbox}[colback=lightgray, colframe=marlinblue, boxrule=0.6pt, arc=1mm]
-\textbf{This design uses matrix-free operator application by default} ---
-the MFEM-style ``partial assembly'' model, as opposed to MOOSE's
-full-Jacobian-assembly model where PDE terms are assembled into a sparse
-\texttt{Mat}.
+\textbf{Decision:} the Krylov operator $A$ is applied matrix-free (MFEM-style
+partial assembly), not assembled as in MOOSE. Only the small coarse
+multigrid levels are assembled.
 \end{tcolorbox}
 
-Concretely: $A$'s action on a vector is computed on the fly from the same
-stencil coefficients \texttt{FiniteDifferenceLaplacian} and
-\texttt{FiniteDifferenceDiffusion} already use for their matrix-free
-\texttt{computeBuffer()} (a \texttt{torch::nn::functional::convNd} call);
-no sparse PETSc \texttt{Mat} is written out. PETSc's KSP is handed
-this operator via \texttt{MatCreateShell} (its \texttt{MatMult} callback
-invokes the existing conv-kernel code), so Krylov methods (CG, GMRES) work
-unmodified, with no sparse matrix ever stored or assembled.
-Preconditioning uses matrix-free options (Jacobi/Chebyshev, or geometric
-multigrid built from the same stencil action at coarser grid levels) rather
-than algebraic multigrid, since AMG (\texttt{-pc\_type gamg}/\texttt{hypre})
-needs the assembled matrix it is designed to precondition.
+The fine-level action is exactly the explicit kernel: \texttt{applyOperator}
+writes $x$ into the field's owned cells, runs each operator's
+\texttt{computeBuffer()} with ghosts (a \texttt{convNd} for the FD
+operators), and sums the outputs. Reasons, recorded at decision time: Marlin
+already had the matrix-free kernels on a structured grid; it avoids a
+round-trip through PETSc's \texttt{Mat} layout on GPU-resident tensors; PETSc
+has no Metal/MPS backend, so on MPS only a torch action is possible; the
+action works on the whole per-field tensor (Section~\ref{sec:soa}). An
+assembled preconditioning matrix for AMG is the contingent PR4a.
 
-This reverses the originally-proposed assembled-\texttt{Mat} default, now
-kept only as a documented fallback for cases this matrix-free approach
-can't handle well (see Section~\ref{sec:soa}, PR4a) because: (a) Marlin already
-has the matrix-free kernels and a structured grid, which is exactly the
-regime partial assembly is built for; (b) it avoids a round-trip through
-PETSc's own \texttt{Vec}/\texttt{Mat} memory layout on every solve, which
-matters doubly on Marlin's GPU-resident (CUDA/MPS) torch tensors; (c) PETSc
-has no Metal/MPS GPU backend at all (CUDA/HIP/Kokkos only), so on an
-MPS-only machine a torch-native matrix-free action (which \textit{can} run
-on MPS) is a structural win over anything routed through PETSc's own device
-vectors; (d) the matrix-free action operates directly on each field's whole
-dense grid tensor (structure-of-arrays, Section~\ref{sec:soa}), the layout
-that vectorizes under SIMD on CPU and coalesces on GPU --- the same property
-that motivates (a)--(c) independent of which device is in use. See the new
-PR1a benchmarking task (Section~\ref{sec:roadmap}) for actually measuring
-torch-vs-PETSc overhead before committing further.
-
-\subsection{Data Layout: Structure-of-Arrays, and the Zero-Copy Requirement at the PETSc Boundary}
+\subsection{Data Layout and Zero-Copy at the PETSc Boundary}
 \label{sec:soa}
 
 Every \texttt{TensorCompute} buffer is one dense grid-shaped
-\texttt{torch::Tensor} per field: structure-of-arrays (SoA). This is a
-different layout than MOOSE's per-DOF array-of-structures (AoS), where
-coupled variables are interleaved per node for sparse assembly.
-\texttt{computeBuffer()} and the
-matrix-free stencil action (Section~\ref{sec:partial-assembly}) operate
-elementwise/stencil-wise over a whole contiguous per-field array, which is
-the layout SIMD vectorization and GPU coalesced access both need. The
-segregated-per-field-solve decision (Section~\ref{sec:decisions}, item 1)
-and the per-field \texttt{TimeDerivativeOperator} contribution
-(Section~\ref{sec:steady-mixing}) both preserve this: each PETSc object the
-plan builds is single-DOF-per-grid-point for its field, with no
-interleaving. PR8 (deferred, Section~\ref{sec:roadmap}), if ever built,
-must use field-split/block \texttt{Vec}s rather than interleaved per-point
-DOFs, so a future monolithic solver does not reintroduce AoS layout by a
-different route.
+\texttt{torch::Tensor} per field (structure-of-arrays), unlike MOOSE's
+interleaved per-node DOFs. Each field is its own single-DOF PETSc system, so
+this layout is kept. A future monolithic solver (PR8) must use field-split /
+block \texttt{Vec}s rather than interleaved DOFs.
 
-\begin{tcolorbox}[colback=lightgray, colframe=marlinblue, boxrule=0.6pt, arc=1mm]
-\textbf{Zero-copy is a requirement at the point where a field's torch
-tensor becomes a PETSc \texttt{Vec}.}
-\end{tcolorbox}
-
-PETSc supports wrapping an existing buffer instead of allocating and copying
-into its own:
-\begin{itemize}
-\item \textbf{CPU}: \texttt{VecCreateSeqWithArray}/\texttt{VecCreateMPIWithArray}
-  wrap the host buffer directly --- no allocation, no copy, provided the
-  tensor is contiguous and the local chunk matches PETSc's partition.
-\item \textbf{CUDA}: \texttt{VecCreateSeqCUDAWithArrays}/
-  \texttt{VecCreateMPICUDAWithArrays} (and \texttt{VecCUDAPlaceArray} to
-  swap a device pointer into an existing \texttt{Vec}) wrap a raw CUDA
-  device pointer --- \texttt{tensor.data\_ptr<double>()} on a CUDA tensor is
-  such a pointer, so a torch-CUDA field can be handed to PETSc with no host
-  round-trip and no device-to-device copy, subject to the same
-  partition-matching requirement as R1, now at the pointer level rather
-  than logical indexing.
-\item \textbf{MPS}: no equivalent exists --- PETSc has no Metal/MPS
-  \texttt{Vec} type at all, so there is no pointer to wrap. The only options
-  on an MPS tensor are a host copy (pay the transfer every solve) or skip
-  PETSc on that device entirely. The torch-native fallback (PR1a) is
-  accordingly the only zero-copy-capable path on MPS.
-\end{itemize}
-
-Zero-copy memory sharing and zero-overhead compute are different claims.
-Wrapping avoids the copy, but PETSc's own \texttt{Vec} arithmetic inside
-\texttt{KSPSolve} (dot products, norms, AXPY) still runs through PETSc's
-device backend (cuBLAS/cuSPARSE for \texttt{VECCUDA}), a different kernel
-implementation than libTorch's own CUDA kernels; the matrix-free
-\texttt{MatMult} callback is the one point execution crosses back into
-torch's kernel per iteration. This plan claims zero-copy memory sharing; it
-makes no claim about matching compute kernels inside \texttt{KSPSolve}
-itself.
-
-The zero-copy requirement covers the operator matrix (\texttt{Amat},
-the \texttt{MatCreateShell} the Krylov method multiplies against every
-iteration) and the solution/RHS \texttt{Vec}s. \texttt{KSPSetOperators(ksp,
-Amat, Pmat)} accepts a separate \texttt{Pmat} used only to build the
-preconditioner, which can be
-a real assembled sparse \texttt{Mat} fed to \texttt{PCHYPRE}/BoomerAMG or
-\texttt{PCGAMG} without requiring \texttt{Amat} itself to be assembled
-(PR4a). \texttt{Pmat} need not be an exact Jacobian --- AMG preconditioners
-work from an approximate or frozen-coefficient matrix as long as it
-captures the right coarsening/anisotropy structure. This is a scoped,
-infrequent exception (one sparse assembly at the reassembly cadence of
-Section~\ref{sec:decisions}, item 3, not a per-iteration cost) to the
-zero-copy guarantee, not a hole in it.
+\textbf{Zero-copy is a requirement} where a field's tensor becomes a PETSc
+\texttt{Vec}. As built, the $b$ and $x$ \texttt{Vec}s are created without
+storage and \texttt{VecPlaceArray} puts the solver's contiguous tensors in
+before every solve (CPU: \texttt{VecCreateMPIWithArray}; CUDA:
+\texttt{VecCreateMPICUDAWithArray}). The shell callbacks wrap PETSc's arrays
+as tensors with \texttt{torch::from\_blob} on the array's memory type. On
+H200 at $n=256$, \texttt{KSPSolve} makes no host/device copies with Jacobi
+smoothing on every level (PR3). MPS has no PETSc \texttt{Vec} type, so it
+uses the torch backend. Zero-copy memory sharing is not a claim about
+matching compute kernels: PETSc's own vector work inside \texttt{KSPSolve}
+runs through cuBLAS.
 
 \subsection{Class Schematic}
 
 \begin{schematic}
 \begin{verbatim}
-                MooseObject, DependencyResolverInterface, MarlinConstantInterface
-                                      |
-                             TensorOperatorBase
-                        (computeBuffer, realSpaceComputeBuffer,
-                         getInputBuffer/getOutputBuffer, updateDependencies)
-                                      |
-                +---------------------+----------------------+
-                |                                            |
-         TensorOperator<T>                              TensorSolver
-      (adds "buffer" output param)                 (substep() loop driver)
-                |                                            |
- +--------------+---------------+          +------------------+------------------+
- |                               |          |                                     |
-FiniteDifferenceLaplacian  FiniteDifferenceDiffusion  PetscFDSolverBase    PicardTensorSolver
- (existing; + mixin)         (new; variable-coeff)   (new: ONE solver       (new: wraps a
-    |                               |                  object; owns DM,    PetscFDSolverBase
-    +---------------+---------------+                  loops one-by-one    as _compute,
-                     |                                  over tracked       Picard-iterates it)
-                     |                                  fields, each with
-                     |                                  a MatShell (matrix-
-                     |                                  free action) + KSP,
-                     |                                  no assembled sparse
-                     |                                  Mat by default
-             LinearFDOperator   <--- mixin interface, NOT a TensorOperatorBase
-         (applyAt / matrix-free action,              subclass -- multiply-inherited
-          rhsContributionAt,                          alongside TensorOperator<T>
-          coefficientsChanged,
-          optional stencilAt() ONLY for the
-          documented assembled-Mat fallback)
+TensorOperatorBase
+  |
+  +-- TensorOperator<T> + LinearFDOperator (mixin: stencilAt(),
+  |     |                  stencilAt(spacing), definiteness(),
+  |     |                  inputBufferName(), rhsContribution())
+  |     +-- FiniteDifferenceLaplacian      (PR0; 3/5-point, factor)
+  |     +-- TimeDerivativeOperator         (PR3; u/dt, rhs u^n/dt)
+  |     +-- FiniteDifferenceBiharmonic     (PR3b; non-periodic 3-point
+  |     |                                   in PR5)
+  |     +-- FiniteDifferenceDivGrad        (PR5; factor div(D grad u))
+  |
+  +-- TensorBoundaryCondition  (variable, boundary face;
+  |     |                       fillGhostCells(), prepareFaceData())
+  |     +-- TensorRobinBC      (a u + b du/dn = c; a, b scalar; c constant,
+  |           |                 c_function or c_buffer; ghostCoefficientOnU0,
+  |           |                 ghostConstantTerm)
+  |           +-- TensorDirichletBC, TensorNeumannBC (presets)
+  |
+  +-- TensorSolver
+        +-- ImplicitFDSolver   (PR3/PR4; fields 'buffer', per-field
+        |                       'operators' and 'source'; backends
+        |                       PETSC and TORCH_PCG)
+        +-- [planned] Picard iteration over ImplicitFDSolver (PR6)
 
-       TensorOperatorBase
-               |
-      TensorBoundaryCondition  (new; "variable", "boundary", a/b/c params)
-               |
-         TensorRobinBC  (new; general a*u + b*du/dn = c, both fillGhostCells
-               |         and stencilContribution derived from the same a/b/c)
-    +----------+----------+
-    |                     |
-TensorDirichletBC    TensorNeumannBC   (thin presets: a=1,b=0  /  a=0,b=1)
+PetscFD (utils/PetscFDHierarchy): Partition, FaceGhosts, Hierarchy,
+  buildHierarchy, assembleStencilOperator, createStencilMatrix,
+  jacobiSpectrumBound, cellCentredInterpolation
+
+TensorProblem: [TensorComputes/BCs] via AddTensorBCAction ->
+  addTensorComputeBC, getBoundaryCondition(buffer, face),
+  exchangeGhostLayers (halo + BC ghost fill), beginFixedBoundaryData /
+  endFixedBoundaryData
 \end{verbatim}
 \end{schematic}
 
-\subsection{Data-Flow Schematic --- One Picard Iteration}
+Names in the original design that were not built: \texttt{PetscFDSolverBase}
+(built as \texttt{ImplicitFDSolver}); \texttt{applyAt},
+\texttt{rhsContributionAt} (built as the operators' own
+\texttt{computeBuffer()} and \texttt{rhsContribution()});
+\texttt{coefficientsChanged} (the solver compares the summed stencil with the
+one last assembled); \texttt{StencilEntry::target\_field} (not built; the
+struct is \texttt{FDStencilEntry\{offset, coefficient\}});
+\texttt{assembleRHS} (inline in \texttt{substep()});
+\texttt{getBoundaryConditionsFor} (built as
+\texttt{getBoundaryCondition(buffer, face)});
+\texttt{applyGhostContribution} (dropped: the affine split below needs no
+separate boundary method); \texttt{stencilContribution} (built in PR1,
+removed in PR4 because nothing used it); \texttt{getGlobalIndexOffset}
+(not needed: the partition is gathered from public \texttt{DomainAction}
+getters). Still planned: \texttt{PicardTensorSolver} (PR6),
+\texttt{assemblePreconditionerMatrix}
+(PR4a).
 
-\texttt{PetscFDSolverBase} is a single solver object (not one object per
-field). Its \texttt{substep()} simply loops over its list of tracked fields,
-one at a time, in dependency order, doing one assemble+solve per field
-before moving to the next:
+\subsection{Data Flow of One Time Step}
 
 \begin{schematic}
 \begin{verbatim}
-                 +-----------------------------------------------+
-                 |  for each tracked field, one-by-one, in        |
-                 |  dependency order via DependencyResolverInterface |
-                 +-----------------------------------------------+
-                                    |
-  +---------------------------------+----------------------------------+
-  v                                 v                                  v
-bind MatShell(field)        assembleRHS(field)                 (BCs consulted by both)
-  MatShell's MatMult callback  walk owned DMDA points            TensorBoundaryCondition
-  invokes this field's          for each LinearFDOperator         ::applyGhostContribution()
-  LinearFDOperator(s) matrix-     ::rhsContributionAt()             -- modifies the matrix-free
-  free action directly on       for each lagged nonlinear op:       action/RHS near physical
-  torch tensors (same convNd      computeBuffer() (matrix-free,     (non-periodic) domain edges
-  kernel as the existing           evaluated at current/lagged
-  matrix-free compute path)        buffer state) -> added to b
-  -- no MatSetValues, no sparse
-  Mat ever assembled
-  |                                 |
-  +----------------+----------------+
-                    v
-              KSPSolve(ksp, b, x)
-       (Krylov method + matrix-free
-        preconditioner -- Jacobi/Chebyshev
-        or geometric MG using the same
-        stencil action; KSP configured via
-        its own -<field>_ petsc_options
-        prefix, set MOOSE-style in the
-        solve block)
-                    |
-                    v
-        copy Vec x -> torch buffer for field
-                    |
-                    v
- TensorProblem::exchangeGhostLayers(field)
-(periodic MPI halo exchange  +  TensorBoundaryCondition
- ::fillGhostCells() for physical, non-periodic edges --
- SAME a/b/c as stencilContribution() above, by construction)
-                    |
-                    v
-    (back to outer loop: next field, same iteration)
-
-After all fields updated once:
-    PicardTensorSolver checks convergence
-    (residual norm or named Postprocessor,
-     picard_rel_tol/abs_tol, picard_max_its)
-    -- not converged -> apply relaxation_factor,
-       re-invoke PetscFDSolverBase::substep()
-    -- converged / max_its reached -> done, advance timestep
+ImplicitFDSolver::substep()
+  run the explicit computes (everything in the root compute that is
+    not a field operator): sources f and buffer-valued BC data, at t^n
+  beginFixedBoundaryData(dt): exchange BC buffer halos once; BC
+    functions are evaluated at t^n + dt
+  for each field, in the order of 'buffer':
+    b = sum_i r_i (e.g. u^n/dt) + f          (u still holds u^n)
+    with boundary faces: g = A(0) (ghost fill with the BC values),
+                         b -= g, solve the linear part A(x) - A(0)
+    singular field: check sum(b) is round-off, remove the mean
+    solve A x = b:  PETSC: KSPCG + PCMG, fine shell = applyLinearOperator
+                    TORCH_PCG: conjugateGradientSolve, Jacobi
+    failed solve -> restore every field, _is_converged = false
+                    (TensorSolveIterationAdaptiveDT cuts dt), or error
+    write x into u, apply the operators once more (outputs hold A_i u),
+    exchangeGhostLayers(u)
+  endFixedBoundaryData()
+[planned, PR6] Picard: repeat the field loop until converged
 \end{verbatim}
 \end{schematic}
+
+Fields in one \texttt{ImplicitFDSolver} are solved one after another, but
+their sources are computed once, before the loop, from the state at $t^n$.
 
 \subsection{Boundary-Condition Dual-Use Invariant}
 
@@ -424,213 +323,235 @@ Section~\ref{sec:risks}.
 \begin{schematic}
 \begin{verbatim}
 TensorRobinBC(a, b, c) for buffer "u" on face "left"
+ghost = ghostCoefficientOnU0(a, b, s) * mirror + c / (a/2 + b/s),
+s = (2l+1) dx for ghost layer l
      |
-     +--> fillGhostCells(u)            [explicit / matrix-free path]
-     |      ghost value = one-sided extrapolation from a,b,c
-     |      consumed by: nonlinear computeBuffer() evaluations,
-     |                   explicit solvers, visualization
+     +--> fillGhostCells(u)              [ghost fill]
+     |      consumed by: explicit computes and solvers, and the
+     |                   implicit fine level (matrix-free A(x) - A(0),
+     |                   b - A(0): the affine split)
      |
-     +--> applyGhostContribution(idx)  [implicit / matrix-free path]
-            action/RHS edit derived from the SAME a,b,c
-            consumed by: PetscFDSolverBase's MatMult callback / assembleRHS
-            (an assembled-matrix stencilAt() variant of this exists only
-             for the PR4a fallback)
+     +--> ghostCoefficientOnU0(a, b, s)  [implicit matrix entries]
+            consumed by: the torch PCG Jacobi diagonal, and
+                         PetscFD::FaceGhosts::factor on the coarse
+                         levels (folded rows, interpolation)
 
-INVARIANT: both derive from one a,b,c triple in one class.
-REQUIRED TEST (not optional): a test that runs BOTH paths on the same
-BC instance and checks they imply the same boundary value/flux --
-not just that each individually "looks reasonable" in isolation.
+INVARIANT: both derive from one a,b triple and one ghost relation.
+REQUIRED TEST (not optional): the ghost fill's dependence on each
+mirror cell (fill(u) - fill(0)) equals the coefficients the implicit
+solver writes, for both ghost layers and both faces
+(TensorBoundaryConditionTest), and the fill satisfies a u + b du/dn = c.
 \end{verbatim}
 \end{schematic}
 
-\subsection{Steady-State (Non-Time-Dependent) Fields Mixed with Transient Ones}
+\subsection{Steady Fields Mixed with Transient Ones}
 \label{sec:steady-mixing}
 
-New requirement: it must be possible to solve a non-time-dependent PDE
-(e.g.\ a Poisson equation for an electric/chemical potential)
-\textit{alongside} transient phase-field variables in the same simulation,
-with the steady field feeding source terms into the transient ones'
-nonlinear remainder (and vice versa).
+Requirement (user): a steady PDE (e.g.\ a Poisson equation for an electric
+or chemical potential) must be solvable alongside transient phase-field
+variables, each feeding source terms into the other.
 
-Design implication: the time-derivative term must stop being an implicit
-assumption baked into \texttt{PetscFDSolverBase} and instead become
-\textbf{just another optional \texttt{LinearFDOperator} contribution},
-registered per field like any other. A transient field registers a
-time-derivative operator (contributing $u/dt$ to the matrix-free action and
-$u_{\text{old}}/dt$ to $b$); a steady field registers none --- its
-matrix-free action is the bare steady operator (e.g.\ the Laplacian for
-Poisson), and \texttt{PetscFDSolverBase::substep()} simply solves it to
-convergence every time its lagged inputs change (every Picard iteration, or
-every timestep if Picard is disabled), exactly like any other tracked field
-in the one-by-one loop --- no special-casing needed in the solver's control
-flow, only in what each field registers.
+As built, the time derivative is not an assumption of the solver: it is one
+optional \texttt{LinearFDOperator}, \texttt{TimeDerivativeOperator} (action
+$u/dt$, \texttt{rhsContribution} $u^n/dt$), listed in a field's
+\texttt{operators} like any other term. A steady field lists none; the
+periodic Poisson tests (\texttt{test/tests/implicit\_fd/poisson\_mms.i}) solve
+such a field, singular with the constants as nullspace. \texttt{ImplicitFDSolver}
+accepts several fields (for example \texttt{buffer = 'c phi'} with
+\texttt{operators = 'dcdt lap\_c; lap\_phi'}; \texttt{steady\_transient.i}
+and \texttt{pfhub\_6a.i}). The explicit computes run once before the field loop, so a
+source computed from another field sees that field at $t^n$ even if it was
+solved earlier in the same time step: the result does not depend on the order
+of \texttt{buffer} (decision D8). Re-solving the steady field against updated
+sources is the job of the Picard iteration (PR6); PR5a verifies the coupled
+case.
 
-\begin{schematic}
-\begin{verbatim}
-PetscFDSolverBase, one-by-one field loop, THIS run has 3 tracked fields:
-
-  field "c"   (transient, Cahn-Hilliard concentration)
-     linear ops: [FiniteDifferenceDiffusion(D), TimeDerivative(dt)]
-  field "eta" (transient, Allen-Cahn order parameter)
-     linear ops: [FiniteDifferenceLaplacian(kappa), TimeDerivative(dt)]
-  field "phi" (STEADY, e.g. electric potential)
-     linear ops: [FiniteDifferenceLaplacian(epsilon)]   <- no TimeDerivative
-     nonlinear remainder: charge density sourced from "c"/"eta" (lagged)
-
-Picard loop still just re-invokes substep() over all 3 fields in
-dependency order; "phi" re-solves to a fresh steady state every
-iteration using the latest lagged c/eta, "c"/"eta" see the latest phi
-as a lagged source in their own nonlinear remainder.
-\end{verbatim}
-\end{schematic}
-
-This is additive to the architecture already described, not a redesign ---
-flagged here because it changes \texttt{LinearFDOperator}'s contract (time
-derivative is explicit, not assumed) and needs its own new class,
-\textbf{\texttt{TimeDerivativeOperator}}
-(\texttt{include/tensor\_computes/TimeDerivativeOperator.h/.C}, implementing
-\texttt{LinearFDOperator}), plus its own verification case (PR5a).
-
-\section{Decisions Already Made}
+\section{Decisions}
 \label{sec:decisions}
 
+Each item records the decision, who made it and when, and its state in the
+code.
+
 \begin{enumerate}[leftmargin=*]
-\item \textbf{Segregated per-field linear systems, solved one-by-one by a
-single solver object} (\texttt{PetscFDSolverBase}), Picard-coupled across
-fields --- not monolithic block coupling. One solver object looping over
-fields (rather than one solver object per field) keeps the input-file
-syntax and the Picard wrapper simple: Picard just re-invokes the same
-\texttt{substep()}, which always walks every tracked field in sequence.
-\textit{Future-proofing:} the \texttt{LinearFDOperator::StencilEntry} carries
-an optional \texttt{target\_field} (unused in v1, defaults to ``self''), and
-DOF-indexing is kept as its own component rather than hardwired
-one-field-per-Mat, so a future monolithic solver is additive, not a rewrite.
-\item \textbf{Mutually exclusive solve mode} --- a simulation picks PETSc-FD
-mode or an existing explicit/spectral mode, not a mix in one run.
-\item \textbf{Preconditioner reuse across Picard iterations, with an
-iteration threshold and a mandatory rebuild-and-retry} (revised 2026-10-18;
-replaces ``reassembly every Picard iteration'').
+\item \textbf{Segregated per-field linear systems in one solver object},
+coupled across fields by lagging (and later Picard), not monolithic block
+coupling. \emph{Built:} \texttt{ImplicitFDSolver} solves the fields of its
+\texttt{buffer} list one after another, each with its own KSP and PETSc
+options prefix \texttt{<field>\_}. The \texttt{target\_field} tag on stencil
+entries proposed for a future monolithic solver was not built.
+\item \textbf{Mutually exclusive solve mode}: a simulation uses one
+\texttt{[TensorSolver]}, so implicit FD and the explicit/spectral solvers
+are not mixed in one run. \texttt{ImplicitFDSolver} requires
+\texttt{Domain/parallel\_mode = REAL\_SPACE}.
+\item \textbf{Preconditioner reuse, with an iteration threshold and a
+mandatory rebuild-and-retry} (user, 2026-10-18, from the PR1b sweep).
 \begin{itemize}
-\item \textbf{What is reused.} The shell operators always carry the current
-coefficients, so the Krylov method solves the current system. Only the
-level smoother setup is reused: the Jacobi diagonals and the Chebyshev
-eigenvalue bounds. The dense coarse factorisation is refreshed whenever the
-coarse matrix is refilled.
-\item \textbf{When it is rebuilt.} When the iteration count exceeds a
-threshold, and always, with a retry, on a negative converged reason. A stale
-Chebyshev setup went indefinite (\texttt{KSP\_DIVERGED\_INDEFINITE\_PC}) in
-PR1b.
-\item \textbf{How a rebuild is triggered.} With \texttt{KSPSetOperators} on
-every level and the outer KSP. Bumping a shell Mat's state alone is
-\emph{not} enough (independent review, confirmed in PETSc 3.25.4 mg.c and
-cheby.c): \texttt{PCSetUp\_MG} then re-sets-up only the finest smoother, the
-coarser levels keep their old Chebyshev bounds, and only the Jacobi
-diagonals are rebuilt (lazily) on every level.
+\item \emph{Built:} the shell operator always applies the current
+coefficients. The coarse levels and smoother weights are reassembled, and
+\texttt{KSPSetOperators} resets every level, only when the field's summed
+stencil changes (e.g.\ a new $dt$). A failed solve (negative converged
+reason, or a TORCH\_PCG residual above tolerance) restores the fields and
+reports non-convergence, so \texttt{TensorSolveIterationAdaptiveDT} retries
+with a smaller $dt$; without that time stepper it is an error.
+\item \emph{Not built (PR6):} the iteration threshold for rebuilding, and a
+rebuild when coefficients that depend on the solution change between Picard
+iterations. A rebuild must go through \texttt{KSPSetOperators}: bumping a
+shell Mat's state alone re-sets-up only the finest smoother (PETSc 3.25.4
+mg.c, independent review).
+\item Evidence (PR1b, $\beta=3$, $n=4096$): 1695~ms with reuse vs.\ 2786~ms
+with a full rebuild every step. Reuse saves little at $\sim$1300$\times$
+coefficient contrast.
 \end{itemize}
-Measured at $\beta=3$, $n=4096$: 1695~ms with reuse vs.\ 2786~ms with a full
-rebuild every step. Reuse saves little at $\sim$1300$\times$ coefficient
-contrast. In that sweep the coarse LU was refactored every step under every
-policy, and the ``bump-only'' policy was a partial rebuild.
-\item \textbf{Dirichlet, Neumann, and Robin all in v1} --- Robin is the
-general implementation; Dirichlet/Neumann are presets of it.
-\item \textbf{Hybrid PETSc + torch} (revised 2026-10-18,
-Section~\ref{sec:hybrid}), with KSPCG + PCMG on a torch fine-level shell as
-the default for SPD fields. PETSc owns the hierarchy (DMDA + \texttt{DMCoarsen}),
-the assembled coarse levels and the cell-centred transfers (revised after PR2b), and \textbf{matrix-free (partial-assembly) operator
-application by default.} PETSc's KSP operates against a \texttt{MatCreateShell} whose
-\texttt{MatMult} calls the existing matrix-free \texttt{computeBuffer()}-style
-stencil action directly on torch tensors; no sparse matrix is assembled or
-stored for \texttt{Amat}. For cases where matrix-free preconditioning
-proves insufficient on anisotropic/heterogeneous coefficients, PR4a adds a
-separately assembled \texttt{Pmat} to feed AMG
-(\texttt{PCHYPRE}/\texttt{PCGAMG}) while \texttt{Amat} stays matrix-free
-(Section~\ref{sec:soa}, R7); a fully assembled \texttt{Amat} is kept only as
-a documented last-resort fallback beyond that. Rationale for the
-matrix-free default: Marlin already has the matrix-free kernels and
-structured grid partial assembly is built for; it keeps the
-structure-of-arrays per-field layout (Section~\ref{sec:soa}), which
-vectorizes under SIMD on CPU and coalesces on GPU; and PETSc has no
-Metal/MPS GPU backend at all (CUDA/HIP/Kokkos only), so on an MPS-only
-machine the torch-native matrix-free action has a structural advantage.
-The \texttt{Vec}s PETSc's KSP operates on must wrap each field's existing
-tensor buffer zero-copy rather than allocate and copy into PETSc's own
-memory --- a requirement (Section~\ref{sec:soa}). On CPU and CUDA a
-wrapping path exists
-(\texttt{VecCreateMPIWithArray}/\texttt{VecCreateMPICUDAWithArrays}); on MPS
-none exists, which is why MPS runs the torch-native fallback instead.
-\item \textbf{Steady-state (non-time-dependent) fields may be freely mixed
-with transient fields} in one simulation (e.g.\ a Poisson equation for a
-potential, solved every Picard iteration/timestep alongside transient
-Cahn-Hilliard/Allen-Cahn fields) --- see Section~\ref{sec:steady-mixing}.
-This does \textit{not} reopen decision \#2 (explicit/spectral vs.\ PETSc-FD
-solve modes stay mutually exclusive); it only means multiple fields
-\textit{within} one PETSc-FD-mode simulation can differ in whether they
-carry a time-derivative term.
+\item \textbf{Dirichlet, Neumann and Robin} --- Robin is the general
+implementation, Dirichlet and Neumann are presets. \emph{Built} for the
+explicit path (PR1) and the implicit path (PR4), with the limits listed
+under PR4 (5-point Robin is an error).
+\item \textbf{Hybrid PETSc + torch} (user, 2026-10-18,
+Section~\ref{sec:hybrid}): KSPCG + PCMG with a torch fine-level shell is the
+default for SPD fields on CPU and CUDA; PETSc owns the hierarchy, the coarse
+levels are rediscretised and assembled, transfers are cell-centred. The
+fine operator is matrix-free; an assembled \texttt{Pmat} for AMG is the
+contingent PR4a. Zero-copy \texttt{Vec}s are a requirement and are built.
+\emph{Built} in PR3.
+\item \textbf{Steady fields may be mixed with transient fields} in one
+implicit run (Section~\ref{sec:steady-mixing}). This does not reopen item~2.
+\item \textbf{MPS through the torch PCG only} (user, 2026-10-18).
+\texttt{linear\_solver = AUTO} selects \texttt{TORCH\_PCG} on MPS and
+\texttt{PETSC} elsewhere; PETSc requires double precision and, on CUDA, a
+CUDA build of PETSc and libtorch. More complex solvers on MPS are deferred.
+\item \textbf{PCMG's Chebyshev smoother is the default, damped Jacobi an
+option} (user, 2026-10-23, after the \#189 review). On CPU, Chebyshev + SOR kept
+the biharmonic iterations flat in $n$ (9 at $n = 64$--$256$, against 15 at
+$n = 256$ for damped Jacobi) and took fewer on 120 steps of 1a (mean 4.3 against
+5.9). Damped Jacobi with the Gershgorin weight stays as
+\texttt{smoother = DAMPED\_JACOBI}. Only the preconditioner changes.
+\item \textbf{No PETSc divergence test} (user, 2026-10-24): warm started from
+$u^n$, $\|r_0\|/\|b\| \sim dt\,\|Bu^n\|/\|u^n\|$, so a converging large-$dt$ solve
+crossed the default \texttt{divtol} at its first iteration. \texttt{TORCH\_PCG}
+has none either; \texttt{-<field>\_ksp\_divtol} sets one.
+\item \textbf{Coarse multigrid rows next to a boundary face are
+rediscretised} (PR4), not Galerkin: ghost layer $l$ is folded onto its
+mirror cell with the homogeneous ghost factor
+(\texttt{TensorRobinBC::ghostCoefficientOnU0} at spacing $(2l+1)h$ of the
+level); the cell-centred interpolation folds the same way and restriction
+stays $P^T$; \texttt{DMDA\_Q0} keeps \texttt{DMCoarsen} cell-centred on
+non-periodic axes. The boundary values enter only the fine residual. PCMG
+iterations with boundary faces 7, 6, 6 at $n = 64, 128, 256$
+($l_{tol}=10^{-10}$, CPU) against 9, 9, 9 periodic.
+\item \textbf{Boundary value timing} (user, 2026-10-22). In
+\texttt{ImplicitFDSolver}, \texttt{Function}-valued boundary values are
+evaluated at $t^{n+1}$; buffer-valued ones hold what their compute wrote at
+the start of the time step ($t^n$), a one-step lag. This is documented, not
+changed: only an explicit function of time can be evaluated at $t^{n+1}$;
+removing the other lags is what a Picard iteration does (input to PR6).
+Reaffirmed in the PR4 milestone review (user, 2026-10-25), with the test
+requirement corrected and \texttt{bcs/be\_3pt\_buffer} checking the lag
+against a direct solve with the buffer value at $t^n$ (error 0.0225 against
+0.0026 for a function).
+\item \textbf{Strict zero-mean check with Neumann faces only} (user,
+2026-10-25). Data that balance in the continuous problem generally leave a
+discrete mean of order $h^2$; it is an error rather than projected out, so a
+genuine inconsistency is not hidden. Documented in \texttt{ImplicitFDSolver.md}.
+\item \textbf{A Robin face with $ab < 0$ is an error} (user, 2026-10-25): its
+ghost term $a/(a/2 + b/dx)$ turns negative once $dx < 2|b/a|$, after which the
+operator may be indefinite (depending on the rest of the problem), so whether a
+problem solved depended on the grid; behaviour should not change with $dx$.
+\item \textbf{\texttt{FiniteDifferenceDivGrad} face coefficient} (user,
+2026-10-25; PR5): harmonic mean $2D_iD_j/(D_i+D_j)$ by default, the exact
+series conductance for a jump on a cell face; an arithmetic option for
+coefficients that can reach zero (e.g.\ degenerate mobility), where the
+harmonic mean shuts the face. The docs say when to use which.
+\item \textbf{Sign of $D$} (user, 2026-10-25; PR5): explicit use allows any
+sign (negative $D$ is useful e.g.\ as the explicit part of an IMEX split);
+harmonic mode requires $D_iD_j > 0$ on every face. In \texttt{ImplicitFDSolver}
+$D < 0$ is an error (the operator would not be semidefinite, and whether a
+problem solved would depend on $dt$ and $dx$), and so is $D = 0$ in harmonic
+mode. Checked at every assembly.
+\item \textbf{Biharmonic faces} (user, 2026-10-25; PR5): with the 3-point
+Laplacian, Neumann faces impose $\partial u/\partial n = q$ and
+$\partial(\nabla^2 u)/\partial n = 0$, Dirichlet faces $u = g$ and
+$\nabla^2 u = 0$; Robin faces and the 5-point biharmonic with faces are errors.
+The milestone review found that the ghost fill of $u$ alone imposes
+$\partial^2u/\partial n^2 = 0$ and $\partial^3u/\partial n^3 = 0$ instead
+when the face data vary along the face; the user approved (2026-10-26) setting
+the ghosts of $w = \nabla^2 u$ to the exact reflection, which imposes the pairs
+above (the homogeneous operator is unchanged), and (2026-10-26) imposing them
+wherever the operator is used, explicit and postprocessing included.
+\item \textbf{$D$ at a domain face} (user, 2026-10-25; PR5): the boundary
+cell's own $D_0$ (a mirrored $D$ ghost, the same under either mean). Exact for
+$D$ constant next to the face, $O(h)$ in the face coefficient for a smooth $D$.
+A Neumann face still gives $\partial u/\partial n$, so its physical flux is
+$D_0$ times the given value; the docs say so. Measured in 1D (NumPy, $n$ = 32 to
+256): second order on Dirichlet and no-flux faces, first order on a Neumann face
+with a nonzero flux where $D$ varies; kept over linear extrapolation of $D$ (second
+order, but it can lose $D$'s sign and reaches across a jump next to the face), and
+documented (user, 2026-10-26).
+\item \textbf{Coarse $D$} (user, 2026-10-25; PR5): each PCMG coarse level
+takes the mean of $D$ over its $2^{\mathrm{dim}}$ child cells and is
+rediscretised with the same face rule, as the constant-coefficient levels are.
+Preconditioner only. Iterations across jumps are recorded in the capacitor
+tests; Galerkin $P^TAP$ or AMG (PR4a) is the follow-up if they degrade.
+\item \textbf{Central advection at high cell P\'eclet deferred, CUDA graph
+capture not adopted} (user, 2026-10-18; PR2c).
 \end{enumerate}
 
-\section{Residual Risks This Roadmap Retires Early}
+\section{Risks}
 \label{sec:risks}
 
-\begin{longtable}{>{\bfseries}p{0.06\textwidth} p{0.32\textwidth} p{0.3\textwidth} p{0.24\textwidth}}
+\begin{longtable}{>{\bfseries}p{0.05\textwidth} p{0.3\textwidth} p{0.2\textwidth} p{0.35\textwidth}}
 \toprule
-\# & Risk & Why it matters & Where it's retired \\
+\# & Risk & Why it matters & Status \\
 \midrule
 \endhead
-R1 & DMDA partition layout may not actually match Marlin's torch-tensor
-layout rank-for-rank & Silent cross-rank data corruption if wrong, hard to
-detect later & PR2, in isolation, before any solver logic is built on it \\
-R2 & Picard may not converge (or converge slowly) for strongly nonlinear
-coupling (e.g.\ KKS mobility) & Could force a redesign of the coupling
-strategy late & PR6, explicitly measured and tuned on a real coupled case,
-not assumed \\
-R3 & PCMG setup may dominate Picard runtime, and reuse may degrade the
-preconditioner at high contrast & Could make the ``performant'' goal fail
-in practice & Partly measured in PR1b: after \texttt{MAT\_SPD}, setup
-is about one solve at $n\ge4096$; reuse saved 39\% at $\beta=3$. Re-profiled at PR3
-and PR6 \\
-R4 & Ghost-fill and stencil-row BC math could silently diverge over time as
-code evolves & Would reintroduce exactly the kind of ad hoc inconsistency
-SBM's \texttt{psi} mask already has & A same-BC-instance dual-path test is
-a \textit{required} deliverable of PR1, not optional polish \\
-R5 & Robin generality could block Dirichlet/Neumann usability if sequenced
-badly & Delays the SBM no-flux use case, which only needs Neumann & PR1
-delivers Dirichlet+Neumann usable on their own; Robin's extra generality
-lands in the same PR but is not a gate for anything downstream \\
-R6 & Overhead of crossing between torch tensors and PETSc's own
-\texttt{Vec}/\texttt{Mat}/device memory (especially on CUDA/MPS) could
-erase any benefit of using PETSc at all, vs.\ a custom torch-native
-matrix-free CG/multigrid solver, if zero-copy \texttt{Vec} wrapping
-(Section~\ref{sec:soa}) is not actually achieved in practice & Could
-invalidate the entire ``use PETSc'' premise of this plan on GPU & PR1a,
-measured directly for both wrapped-zero-copy and naive-copy cases (CPU
-here; CUDA run handed off to the user) before PR2/PR3 commit further
-engineering to the PETSc path; PR3 re-confirms zero-copy directly, not by
-timing inference \\
-R7 & Matrix-free preconditioning (Jacobi/Chebyshev/geometric MG) may
-converge too slowly on strongly anisotropic or heterogeneous coefficients
-(e.g.\ KKS mobility tensors) --- a limitation algebraic multigrid
-(BoomerAMG/GAMG) is specifically built to handle but matrix-free action
-alone cannot & Could force a choice between accepting slow convergence and
-giving up the matrix-free zero-copy design & PR4a's mixed mode:
-matrix-free \texttt{Amat} + a separately assembled approximate
-\texttt{Pmat} (from \texttt{stencilAt()}) feeding
-\texttt{PCHYPRE}/\texttt{PCGAMG}, preserving zero-copy on \texttt{Amat} and
-the solve vectors (Section~\ref{sec:soa}) \\
-R6 status & \textbf{Retired 2026-10-18} by PR1a + PR1b & Zero-copy works
-on CPU and CUDA; at steady state PETSc is not slower (Jacobi-CG 3--19\%
-faster; PCMG repeat solve 0.70--0.92$\times$ torch MG-PCG, because its smoother needs fewer iterations; per iteration it is 13--38\% slower at large $n$) & Setup cost
-traced to our own configuration \\
-R8 & PCMG on torch shell levels may not extend cleanly to multiple ranks:
-level halos via DMDA or our own exchange, coarse gather
-(\texttt{PCREDUNDANT}/\texttt{PCTELESCOPE}), coarsening of thin slabs &
-Multi-rank is required; a late failure reshapes PR3 & Retired for 2D periodic by PR2b (PETSc-owned DMDA hierarchy); multi-rank 3D, non-periodic remain \\
-R9 & Non-SPD operators break Chebyshev/Jacobi + CG; torch \texttt{PCSHELL}
-smoothers under GMRES are untested & SPD default does not cover all target
-physics & PR2c spike \\
-R10 & Fusion headroom of torch smoothers inside a PETSc callback is
-unmeasured (eager V-cycle floor $\sim$2~ms in both stacks) & Decides whether
-custom smoothers are worth their maintenance & PR2c: traced 2.4--3.2$\times$
-eager on H200; none on CPU \\
+R1 & DMDA partition may not match Marlin's tensor layout rank for rank &
+Silent cross-rank corruption & \textbf{Retired.} PR2 spike on 1--8 ranks;
+in production \texttt{PetscFD::buildHierarchy} checks the fine DMDA owns
+exactly this rank's Marlin block, and \texttt{FineDMDAMatchesMarlinBlock}
+tests it \\
+R2 & Picard may converge slowly or not at all for strongly nonlinear
+coupling (e.g.\ KKS mobility) & Could force a late redesign of the coupling
+& \textbf{Open.} PR6, measured on a real coupled case \\
+R3 & PCMG setup may dominate Picard runtime; reuse may degrade the
+preconditioner at high contrast & ``Performant'' goal & \textbf{Partly
+measured} (PR1b: after \texttt{MAT\_SPD} setup is about one solve at
+$n\ge4096$; reuse saved 39\% at $\beta=3$). Setup is paid only when the
+stencil changes in the current code; re-measure in PR6 \\
+R4 & Ghost-fill and implicit-matrix BC math could diverge as code evolves &
+Inconsistent boundary treatment, as with the \texttt{psi} mask & \textbf{Retired
+for the code as built} (PR4): both use \texttt{ghostCoefficientOnU0};
+\texttt{TensorBoundaryConditionTest} checks that the fill's dependence on
+each mirror cell equals those coefficients, both layers, both faces. The PR1
+dual-path test checked \texttt{stencilContribution}, which nothing used; it
+was replaced. Any new operator or BC that writes matrix entries must extend
+that test \\
+R5 & Robin generality could delay Dirichlet/Neumann & SBM no-flux needs only
+Neumann & \textbf{Retired} (PR1) \\
+R6 & Torch/PETSc hand-off overhead could erase PETSc's benefit & Premise of
+using PETSc on GPU & \textbf{Retired 2026-10-18} (PR1a, PR1b): zero-copy on
+CPU and CUDA; at steady state PETSc is not slower (Jacobi-CG 3--19\% faster;
+PCMG repeat solve 0.70--0.92$\times$ torch MG-PCG). PR3 confirmed no
+host/device copies in \texttt{KSPSolve} on H200 \\
+R7 & Geometric MG with point Jacobi may converge slowly on strongly
+anisotropic or heterogeneous coefficients & Could force AMG and an
+assembled \texttt{Pmat} & \textbf{Open, contingent.} PR1a: AMG needed
+1.5$\times$ fewer iterations at $D_x/D_y=10^4$ but was slower at $n=64$.
+Revisit in PR5/PR6 with real coefficients; PR4a if needed \\
+R8 & PCMG may not extend to multiple ranks (halos, coarse gather, thin
+slabs) & Multi-rank is required & \textbf{Retired for the built scope.}
+PR2b (PETSc-owned hierarchy); PR3 tests on 1, 2 and 4 ranks; PR4
+(non-periodic) multi-rank per the user. Not shown: large rank counts \\
+R9 & Non-SPD operators break CG and Jacobi smoothing & SPD default does not
+cover all target physics & \textbf{Open.} PR2c spike: Gauss-Seidel robust
+for upwind advection; central advection at high Pe deferred.
+\texttt{ImplicitFDSolver} accepts only SPD/SPSD operators (an error
+otherwise) \\
+R10 & Fusion headroom of torch smoothers inside PETSc callbacks & Whether
+custom smoothers are worth maintaining & \textbf{Answered} (PR2c): traced
+2.4--3.2$\times$ eager on H200, none on CPU. No torch smoother is in the
+production path \\
+R11 & Lagged boundary data and sources: buffer-valued BC values and explicit
+sources are at $t^n$ & Splitting error in coupled or BC-driven problems &
+\textbf{Documented} (decision~11); addressed by Picard (PR6) \\
 \bottomrule
 \end{longtable}
 
@@ -646,9 +567,8 @@ to derive the forcing/source term, inject that source as an added
 \texttt{ParsedCompute}-style term in $b$ (natural fit --- nonlinear/explicit
 terms already flow into $b$ this way), run at 2--3 grid resolutions, and
 confirm the solution error converges at the expected order (3-pt Laplacian:
-$O(dx^2)$; 5-pt: $O(dx^4)$; first-order one-sided BC extrapolation: expect
-to check whether it drops global order near boundaries --- record what's
-actually observed, don't assume).
+$O(dx^2)$; 5-pt: $O(dx^4)$; with boundary faces, record the observed order
+rather than assume it).
 \item \textbf{Cross-validation against an independent method}, not just
 regression against ourselves. Concrete anchors already in the repo:
 \begin{itemize}
@@ -710,6 +630,23 @@ detail discovered later --- new consequential choices get their own
 sign-off.
 \end{description}
 
+\textbf{Lessons from PR1--PR4.}
+\begin{itemize}[leftmargin=*]
+\item \textbf{Tests must check what the solver actually uses.} The PR1 R4
+dual-path test checked \texttt{stencilContribution}, a method this roadmap
+required but no solver called; it protected an unused path while the
+implicit solver used \texttt{ghostCoefficientOnU0}. PR4 removed the method
+and tests the coefficients the solver writes. A roadmap requirement for a
+method is not a reason to keep it.
+\item \textbf{Measure before setting test thresholds.} Iteration-count and
+error thresholds come from a measured run on each device, not from an
+expected value.
+\item \textbf{Every pre-push review finding is confirmed by an experiment}
+before it is fixed or dismissed.
+\item \textbf{Devices.} CPU and MPS are tested locally; CUDA (H200) runs on
+another machine and is tested by the user.
+\end{itemize}
+
 \section{PR Roadmap}
 \label{sec:roadmap}
 
@@ -718,100 +655,54 @@ behavior-neutral for existing functionality until it's explicitly
 activated.
 
 \pr{0}{\texttt{LinearFDOperator} Mixin + Retrofit \texttt{FiniteDifferenceLaplacian}}
-\textbf{Scope:} Add the header-only \texttt{LinearFDOperator} mixin
-(\texttt{include/tensor\_computes/LinearFDOperator.h}); add it to
-\texttt{FiniteDifferenceLaplacian}, implementing \texttt{stencilAt()} from
-the exact same coefficients already used to build its conv kernel. No new
-solver, no behavior change to any existing input file.
+\textbf{Built:} the header-only mixin
+\texttt{include/tensor\_computes/LinearFDOperator.h} (stencil as
+\texttt{FDStencilEntry\{offset, coefficient\}} from \texttt{stencilAt()}),
+implemented by \texttt{FiniteDifferenceLaplacian} from the same coefficients
+as its conv kernel; behavior-neutral. PR3 extended the interface with
+\texttt{stencilAt(spacing)}, \texttt{definiteness()},
+\texttt{inputBufferName()} and \texttt{rhsContribution()}.
 
-\textbf{Why first:} Zero-risk, establishes the interface shape everything
-else builds on, and gives us a free consistency check (matrix-free kernel
-vs.\ \texttt{stencilAt()} must agree) before anything depends on it.
+\textbf{Verification:} \texttt{unit/src/LinearFDOperatorTest.C}: stencil
+coefficients equal the conv-kernel coefficients for 3- and 5-point stencils
+in 1D/2D/3D.
 
-\textbf{Verification:} Existing explicit-solve regression tests must pass
-unchanged (behavior-neutral); new unit test asserts \texttt{stencilAt()}
-coefficients exactly match the conv-kernel coefficients for 3-pt and 5-pt
-stencil widths, 1D/2D/3D.
+\status{merged into \texttt{devel} (commit \texttt{2580075}, via PR \#185).}
 
-\textbf{Retires:} Nothing yet; sets up R4's enforcement pattern for later.
+\pr{1}{Boundary Condition TensorComputes (ghost fill, explicit path)}
+\textbf{Built:} \texttt{TensorBoundaryCondition},
+\texttt{TensorRobinBC} ($a u + b\,\partial u/\partial n = c$, up to two ghost
+layers, the second from the pair (\texttt{u1}, ghost 2) at spacing
+$3\Delta x$), and the presets \texttt{TensorDirichletBC} /
+\texttt{TensorNeumannBC}; the \texttt{[TensorComputes/BCs]} block
+(\texttt{AddTensorBCAction}, \texttt{TensorProblem::addTensorComputeBC},
+\texttt{getBoundaryCondition(buffer, face)}); \texttt{exchangeGhostLayers}
+fills physical-face ghosts independent of the rank count; setup validation
+(missing, duplicate or periodic faces). The planned
+\texttt{stencilContribution()} was built here and removed in PR4 because no
+solver used it.
 
-\status{proposed.}
+\textbf{Verification:} explicit-path tests in \texttt{test/tests/real\_space}
+(Dirichlet linear profile and 2D corners, Neumann conservation and linear
+profile, Robin steady state against an analytic solution, semi-infinite
+and thin-slab diffusion); the R4 dual-path unit test
+(\texttt{unit/src/TensorBoundaryConditionTest.C}), rewritten in PR4.
 
-\pr{1}{Boundary Condition TensorComputes (ghost-fill only, no PETSc yet)}
-\textbf{Scope:} \texttt{TensorBoundaryCondition} base, \texttt{TensorRobinBC}
-(general math), \texttt{TensorDirichletBC}/\texttt{TensorNeumannBC}
-(presets); \texttt{AddTensorBCAction} parsing a new
-\texttt{[TensorComputes][BCs]} sub-block; \texttt{TensorProblem::}
-\texttt{addTensorComputeBC} / \texttt{\_bcs} list /
-\texttt{getBoundaryConditionsFor()}; extend \texttt{exchangeGhostLayers()}
-to call \texttt{fillGhostCells()} for physical (non-periodic) boundaries,
-independent of partition count (fixing the current conflation of ``single
-partition'' with ``no exchange needed''). \texttt{stencilContribution()} is
-implemented but unused until PR4.
+\textbf{Retired:} R5; R4 for the explicit path (implicit path: PR4).
 
-\textbf{Why before the solver:} Lets BCs be validated against the
-\textit{existing} explicit solver (\texttt{RealSpaceForwardEuler}) first,
-decoupled from PETSc risk.
-
-\textbf{Verification:} MMS/analytic steady-state test with Dirichlet and
-Neumann (zero-flux) on a small non-periodic grid, run explicitly; and the
-\textbf{required R4 dual-path test} (same BC instance, check
-\texttt{fillGhostCells} and \texttt{stencilContribution} imply the same
-boundary condition).
-
-\textbf{Retires:} R4, R5 (Dirichlet/Neumann usable standalone).
-
-\status{proposed.}
+\status{merged into \texttt{devel} (PR \#186, \texttt{fd\_boundary\_conditions},
+2026-10-20).}
 
 \pr{1a}{Torch-Native vs.\ PETSc Matrix-Free Solve Benchmark}
-\textbf{Scope:} A standalone, Python-only benchmark script (no Marlin
-dependency, no MOOSE build required) comparing: (1) a pure-torch matrix-free
-CG with Jacobi preconditioning, implemented directly against a
-\texttt{torch.linalg.cg}-style iteration or hand-rolled CG, operating on the
-same convolution-based stencil action \texttt{FiniteDifferenceLaplacian}
-already uses; against (2) \texttt{petsc4py} with a \texttt{MatCreateShell}
-wrapping that identical stencil action, solved via \texttt{KSPSolve} (CG +
-Jacobi/Chebyshev). The \texttt{petsc4py} leg must build its \texttt{Vec}s by
-wrapping the torch tensor's existing buffer zero-copy
-(\texttt{VecCreateSeqWithArray}/\texttt{VecCreateMPIWithArray} on CPU;
-\texttt{VecCreateSeqCUDAWithArrays}/\texttt{VecCreateMPICUDAWithArrays} or
-\texttt{VecCUDAPlaceArray} on CUDA, wrapping \texttt{tensor.data\_ptr()}
-directly --- see Section~\ref{sec:soa}), not a naive array copy into a
-separately allocated \texttt{PETSc.Vec}; the benchmark must report both
-numbers (wrapped zero-copy vs.\ naive copy) so it is clear which gap, if
-any, is structural versus avoidable. Run on CPU here; the same script is
-handed to the user to run on a CUDA machine (MPS is covered on this machine
-for the torch leg only, since PETSc has no MPS \texttt{Vec} type to wrap at
-all --- see Sections~\ref{sec:soa} and \ref{sec:decisions}). Report
-wall-clock per-iteration cost, iteration count to a fixed tolerance, and the
-tensor/array hand-off overhead specifically for both the wrapped and
-naive-copy cases.
-
-\textbf{Why before PR2/PR3:} This is R6 --- if torch-native matrix-free CG
-is competitive with or faster than PETSc once hand-off overhead is counted,
-especially on GPU, that changes how much further PETSc-specific engineering
-(DMDA layout matching, options plumbing) is worth investing in before
-building on it. Cheap to measure now, expensive to discover after PR2/PR3
-are built.
-
-\textbf{Verification:} The benchmark results themselves are the
-deliverable; write up the comparison (CPU numbers from this machine, CUDA
-numbers from the user's run) as part of this PR's record, and revisit R6's
-resolution explicitly based on what's observed rather than the assumption
-either way.
-
-\textbf{Retires:} R6 (or reopens the PETSc-vs-torch-native question
-explicitly if the data says so --- this PR's job is to produce real
-numbers, not to confirm a predetermined answer).
-
-\textbf{Approach actually taken:} the standalone Python/\texttt{petsc4py}
-script above was abandoned in favor of a C++ unit test
-(\texttt{unit/src/PetscTorchMatrixFreeBenchmarkTest.C}) in Marlin's existing
-gtest harness, reusing the production \texttt{MooseTensor::}
-\texttt{conjugateGradientSolve} directly instead of reimplementing CG. Two
-further comparisons were added at the user's request: an anisotropic
-(ill-conditioned) case testing R7's AMG claim, and a fully assembled
-\texttt{Mat} scaling/memory sweep.
+\textbf{Question (R6):} does the torch/PETSc hand-off erase PETSc's benefit
+over a torch-native matrix-free CG? \textbf{Built:} a C++ gtest benchmark
+(\texttt{unit/src/PetscTorchMatrixFreeBenchmarkTest.C}, branch
+\texttt{petsc\_torch\_benchmark}, not merged) comparing the production
+\texttt{MooseTensor::conjugateGradientSolve} with \texttt{KSPSolve} on a
+\texttt{MatCreateShell} of the same stencil action, with zero-copy
+\texttt{Vec}s; plus, at the user's request, an anisotropic case for R7 and an
+assembled-\texttt{Mat} scaling sweep. The originally planned standalone
+\texttt{petsc4py} script was not built.
 
 \textbf{Results (2026-10-17).} All correctness tests pass on both CPU
 (macOS arm64, this machine) and CUDA (the user's machine, confirmed via a
@@ -928,8 +819,9 @@ unchanged operators, including after wrapping new \texttt{Vec}s over the
 same buffers. It does recur in full for a newly created \texttt{KSP}/\texttt{PC}. If
 the operator's state changes on an existing \texttt{PC}, the diagonal is
 rebuilt and the host loop and both copies return, but not the pinned
-allocation. Whether the Marlin Picard loop changes the \texttt{Mat} state
-every iteration is not yet known and decides how often this is paid.
+allocation. (As built in PR3, \texttt{ImplicitFDSolver} creates one
+\texttt{KSP} per field, marks definite levels \texttt{MAT\_SPD}, and changes
+the operator state only when the stencil changes.)
 
 The cost belongs to \texttt{PCJACOBI}'s setup rather than to zero-copy
 wrapping, so a different preconditioner would not pay it. It is avoidable
@@ -940,8 +832,7 @@ nonzero constant) and \texttt{MatSetOption(mat, MAT\_SPD, PETSC\_TRUE)}
 asserts the operator is SPD. Neither has been tried. At 3.2~ns per unknown
 the one-off cost is about 80\% of an entire 32-iteration torch-native solve
 (4.1~ns per unknown), so creating the \texttt{KSP}/\texttt{PC} once and
-reusing it across solves matters until this is settled. PR3 must verify
-this on its own code path.
+reusing it across solves matters.
 
 \textbf{Where PETSc's steady-state advantage comes from.} The matvec is the
 same work in every leg: the \texttt{im2col} and \texttt{gemv} kernels total
@@ -1009,10 +900,8 @@ residual and correction across the bus. That would explain AMG being 4.3$\times$
 slower on CUDA than on CPU (79.2 against 18.2~ms), but it has not been
 measured. Whether AMG pays off at larger $n$ (where Jacobi-CG iteration
 counts are expected to grow and AMG's to stay roughly flat) is untested.
-Whether \texttt{Pmat} is built once or per step depends on the reassembly
-cadence of Section~\ref{sec:decisions} item 3, whose v1 default is every
-Picard iteration; at these costs that choice does not change the
-conclusion.
+At these costs, whether \texttt{Pmat} is built once or per step does not
+change the conclusion.
 
 \textbf{History of this comparison.} The first two CUDA runs reported
 identical Jacobi/AMG iteration counts to the CPU run because the test
@@ -1090,12 +979,10 @@ matrix-free leg is faster than torch-native on both devices (CUDA: 11\% at
 large $n$). Its first \texttt{KSPSolve} carries a one-off, $n^{2}$-scaling
 cost (3.2~ns per unknown) traced from the PETSc source to
 \texttt{PCJACOBI}'s lazily built, host-checked diagonal (not yet confirmed by
-an experiment); PR3 must create the \texttt{KSP}/\texttt{PC} once and reuse it.
-The independent-reviewer-agent pass (Section~\ref{sec:gates}) was run
-together with PR1b's on 2026-10-18; its PR1a findings (a leaked shell Mat, a
-stale comment, the CPU speed-up range) are fixed (see PR1b). Like PR1b, this
-benchmark is not merged as-is; its zero-copy assertions carry forward into
-PR3.}
+an experiment). The independent-reviewer-agent pass was run together with
+PR1b's on 2026-10-18 and its findings are fixed. Not merged (spike, tag
+\texttt{pr1b-spikes}); its role passed to PR3, which creates one
+\texttt{KSP} per field and reuses it.}
 
 \pr{1b}{Multigrid Spikes and the Hybrid-Design Decision}
 \label{sec:pr1b}
@@ -1152,29 +1039,16 @@ np~$=1/2/4/8$ pass after the fixes.
 only, not merged; not on the production path.}
 
 \pr{2}{DMDA/Decomposition Compatibility Spike}
-\textbf{Scope:} Isolated, throwaway-if-needed investigation + the minimal
-\texttt{DomainAction} addition (\texttt{getGlobalIndexOffset()} or
-equivalent) needed to build DMDA's explicit \texttt{lx/ly/lz} partition
-arrays. Deliverable is a small standalone test program/test case that
-builds a DMDA matching Marlin's existing decomposition on 1, 2, and
-$>$2 MPI ranks and verifies, by direct index comparison, that DMDA-owned
-ranges match Marlin's torch-tensor local ownership exactly --- no PDE solve
-yet.
+\textbf{Question (R1):} can a DMDA be forced onto Marlin's decomposition,
+with owned ranges matching the torch tensors exactly? \textbf{Answer:} yes.
+The spike (\texttt{18d5886}, unmerged) passes on 1/2/3/4/6/8 ranks using
+only public \texttt{DomainAction} getters; no \texttt{DomainAction} addition
+was needed. In production, \texttt{PetscFD::gatherPartition} and
+\texttt{buildHierarchy} do this and check ownership on every run, periodic
+and non-periodic (\texttt{DM\_BOUNDARY\_NONE}) axes alike, tested by
+\texttt{PetscFDHierarchyTest.FineDMDAMatchesMarlinBlock}.
 
-\textbf{Why isolated:} This is R1, the highest-risk unknown. If DMDA can't
-be forced to match, the whole PETSc-wiring design in PR3+ needs to change
-(fallback: hand-rolled DOF numbering) --- better to find out now than
-inside a bigger PR.
-
-\textbf{Verification:} The index-matching test itself \textit{is} the
-verification; report pass/fail across 1/2/4+ rank configurations and both
-periodic and non-periodic axes.
-
-\textbf{Retires:} R1.
-
-\status{spike implemented (\texttt{18d5886}, agent worktree, unmerged). It
-passes on 1/2/3/4/6/8 ranks using only public \texttt{DomainAction} getters.
-Non-periodic axes and review are outstanding.}
+\status{spike done, not merged; superseded by \texttt{PetscFDHierarchy} (PR3, PR4). R1 retired.}
 
 \pr{2b}{Multi-Rank PCMG on Torch Shell Levels (Spike)}
 \textbf{Scope:} Run PR1b's PCMG problem on real MPI ranks through
@@ -1309,71 +1183,34 @@ All four modes match the CPU eager result to $\le5.2\times10^{-16}$ relative
 (the first run's check failed only because its input came from the CUDA random
 generator; fixed in \texttt{63f0df1}).}
 
-\pr{3}{\texttt{PetscFDSolverBase}, Single Field, Matrix-Free, No Picard, No Nonlinear Remainder}
-\textbf{Hybrid-design update (2026-10-18):}
-\begin{itemize}[leftmargin=*]
-\item \textbf{Default solver for an SPD field} (revised after PR2b). KSPCG +
-PCMG on a fine DMDA built on Marlin's partition; \texttt{DMCoarsen} builds the
-coarse levels through \texttt{KSPSetDM} + \texttt{KSPSetComputeOperators}. The
-fine level is a torch shell; coarse levels are rediscretised and assembled with
-\texttt{MatSetValuesStencil}. Transfers are our cell-centred bilinear
-interpolation, assembled as AIJ (global column indices); restriction is $P^T$, so
-coarse operators carry a $4^k$ (2D) / $8^k$ (3D) scaling. Chebyshev/Jacobi
-smoothers. All of this can be overridden through \texttt{-<field>\_} options.
-\item \textbf{SPD marking.} Levels are marked \texttt{MAT\_SPD} and \texttt{MAT\_SPD\_ETERNAL} when the
-operator declares itself SPD (without \texttt{\_ETERNAL}, a re-assembly
-clears the flag); preconditioner rebuilds go through \texttt{KSPSetOperators}
-(Section~\ref{sec:decisions}, item~3), not a bare state bump.
-\item \textbf{Chebyshev bounds.} Leave a hook for analytic Chebyshev bounds.
-\item \textbf{DTOL with warm starts.} PETSc's default divergence test uses
-$\|b\|$ as its reference when the initial guess is nonzero. Whether to
-change it is a separate design decision, not a default change.
-\item \textbf{Extra verification.} \texttt{-log\_view} must show no
-host$\leftrightarrow$device copies in \texttt{KSPSolve}, and the iteration
-count must be independent of grid size.
-\end{itemize}
+\pr{3}{\texttt{ImplicitFDSolver}: Periodic, Matrix-Free, No Picard}
+\textbf{Built} (design name \texttt{PetscFDSolverBase}):
+\texttt{ImplicitFDSolver : TensorSolver, IterativeTensorSolverInterface}
+(\texttt{include/tensor\_solver/ImplicitFDSolver.h},
+\texttt{src/tensor\_solver/ImplicitFDSolver.C}) and the \texttt{PetscFD}
+utilities (\texttt{src/utils/PetscFDHierarchy.C}); the solver block takes
+\texttt{buffer}, per-field \texttt{operators} and \texttt{source},
+\texttt{linear\_solver}, \texttt{l\_tol}, \texttt{l\_max\_its} and MOOSE's
+\texttt{petsc\_options*} (prefix \texttt{<field>\_}).
+\texttt{TimeDerivativeOperator} (planned for PR5a) was pulled forward. The
+operators must be \texttt{LinearFDOperator}s acting on the solved field and
+SPD or SPSD; a singular field's right-hand side must have zero mean up to
+round-off. Section~\ref{sec:architecture} describes the backends.
+Not built from the PR3 design: the Chebyshev analytic-bounds hook; a
+pointer-equality zero-copy test in the production tests (zero-copy is by
+\texttt{VecPlaceArray} on the solver's tensors and was checked by
+\texttt{-log\_view} on H200). The DTOL default with warm starts was left to PR3b
+(decision~9).
 
-\textbf{Scope:} \texttt{PetscFDSolverBase : public TensorSolver} --- the
-single solver object, exercised here with exactly one tracked field and one
-\texttt{LinearFDOperator} contribution (constant-D diffusion or Laplacian),
-no boundary terms yet (periodic domain only), reusing
-\texttt{Moose::PetscSupport} for \texttt{-<field>\_} prefixed options. The
-field's \texttt{LinearFDOperator} action is bound into a
-\texttt{MatCreateShell} whose \texttt{MatMult} callback invokes the existing
-matrix-free conv-kernel code directly on the torch tensor --- no sparse
-\texttt{Mat} is assembled. The field's solution/RHS \texttt{Vec}s are built
-by wrapping its existing torch tensor buffer zero-copy
-(Section~\ref{sec:soa}: \texttt{VecCreateMPIWithArray} on CPU,
-\texttt{VecCreateMPICUDAWithArrays}/\texttt{VecCUDAPlaceArray} on CUDA), not
-by allocating separate PETSc-owned storage. \texttt{substep()}'s
-one-field-at-a-time loop degenerates to binding the shell operator + one
-\texttt{KSPSolve} when there's only one tracked field; the loop structure
-itself (so later PRs just add fields, not new solver plumbing) is part of
-this PR's deliverable.
+\textbf{Verification:} \texttt{test/tests/implicit\_fd}: Poisson MMS
+(singular, zero-mean), backward Euler against the exact discrete
+amplification of a Fourier mode (2D/3D, 3/5-point, both backends, CUDA),
+grid-independent PCMG iterations, uneven rank ownership on 3 ranks, PETSc
+options reaching the KSP, failed-solve cutback, and setup errors;
+\texttt{unit/src/PetscFDHierarchyTest.C}.
 
-\textbf{Verification:} MMS convergence-order study on a periodic domain;
-cross-validation against the existing spectral
-\texttt{ReciprocalLaplacianFactor}/\texttt{FFTSemiImplicit} path on the same
-problem; confirm \texttt{petsc\_options\_iname}/\texttt{\_value} set in the
-input file actually reach the KSP (e.g.\ via \texttt{-<field>\_ksp\_view}
-showing the configured PC type and confirming no AMG/assembled-matrix
-option is silently required). Confirm zero-copy directly: compare
-\texttt{data\_ptr()} of the torch tensor against the address PETSc's
-\texttt{Vec} resolves to, and/or a profiler trace showing no
-\texttt{cudaMemcpy} during \texttt{KSPSolve} on the CUDA build --- not
-inferred from timing alone. Profile matrix-free action + solve cost (R3,
-first measurement) and compare directly against PR1a's standalone benchmark
-numbers on the same problem size, using PR1a's wrapped-zero-copy numbers as
-the relevant comparison.
-
-\textbf{Retires:} Nothing new, but is the first real exercise of R1's fix
-and the PETSc-options-reuse mechanism end to end, in the matrix-free mode
-R6/PR1a is expected to favor.
-
-\status{implemented as \texttt{ImplicitFDSolver} (branch \texttt{implicit\_fd\_solver}, issue \#184),
-independently reviewed, findings addressed; PR open against \texttt{devel}, not merged.
-Backends: PETSc KSPCG + PCMG (CPU, CUDA) and torch PCG (any device, default on MPS).
-\texttt{TimeDerivativeOperator} (PR5a) was pulled forward. Tests pass on CPU at 1, 2 and 4 ranks,
+\status{merged into \texttt{devel} (PR \#188, \texttt{implicit\_fd\_solver}, issue \#184,
+2026-10-20), independently reviewed, findings addressed. Tests pass on CPU at 1, 2 and 4 ranks,
 MPS and CUDA (H200). Physics record (CPU, $l_{tol}=10^{-12}$, $n=32\to256$): Poisson MMS
 observed order 2.00 (3-point) and 4.00 (5-point) for both backends, identical errors;
 backward Euler against the exact spectral BE solution, order 2.00 / 4.00, while the FFT
@@ -1381,213 +1218,746 @@ integrator (AdamsBashforthMoulton AB1, the FFTSemiImplicit update) matches that 
 $10^{-15}$. H200, $n=256$: 7 PCMG iterations, no host/device copies in \texttt{KSPSolve}
 with Jacobi smoothing on every level.}
 
-\pr{4}{Boundary Terms in Matrix-Free Operator Application (connect PR1 + PR3)}
-\textbf{Scope:} \texttt{PetscFDSolverBase}'s \texttt{MatMult} callback and
-\texttt{assembleRHS} consult \texttt{TensorProblem::getBoundaryConditionsFor()}
-near physical edges, calling a matrix-free
-\texttt{applyGhostContribution()}-style method on
-\texttt{TensorBoundaryCondition} (the matrix-free analog of what was
-originally named \texttt{stencilContribution()}); run the single-field
-implicit solver on a non-periodic domain with Dirichlet/Neumann/Robin
-boundaries.
+\pr{3b}{Implicit Biharmonic, PFHub 1a, Smoother and Coarse-Matrix Fixes}
+\textbf{Built} (commits tagged ``(PR3b)'' on \texttt{implicit\_ch\_biharmonic}):
+\begin{itemize}[leftmargin=*]
+\item \texttt{FiniteDifferenceBiharmonic}
+(\texttt{src/tensor\_computes/FiniteDifferenceBiharmonic.C}), the composed
+3- or 5-point Laplacian squared, as a \texttt{LinearFDOperator}; periodic
+only in \texttt{ImplicitFDSolver} (an error with boundary faces).
+\item The implicit FD PFHub 1a input
+(\texttt{benchmarks/01\_spinodal\_decomposition/1a\_implicit\_fd.i}):
+backward Euler with $\partial_t c$ and the biharmonic implicit,
+$M\nabla^2 f'(c^n)$ explicit as the source; XDMF output, solve timing, and a
+plot in the benchmark notebook. \texttt{TensorIntegralChangePostprocessor}
+works with ghost layers on several ranks.
+\item The \texttt{smoother} parameter: PCMG's Chebyshev by default, or damped
+Jacobi with the Gershgorin weight; coarse Chebyshev bounds re-estimated when the
+operators change; the coarsest level solved by LU (decision~8).
+\item No PETSc divergence test (decision~9).
+\item Review fixes for \#189: the biharmonic kernel is built once; the Jacobi
+diagonal asserts a positive centre; a 2-rank
+\texttt{integral\_change} test; the notebook skips a missing implicit FD output.
+\item Coarse matrices preallocated from the stencil's columns (the DMDA box
+preallocation stored 729 entries per row for 73 used with the 3D 5-point
+biharmonic); stencil entries that wrap onto the same coarse column are
+summed; \texttt{-<field>\_pc\_mg\_levels} is an error.
+\item Size-scaling script \texttt{benchmarks/03\_implicit\_fd\_scaling}
+(CUDA, MPS or CPU; $512^2$ to $8192^2$; timing only, not PFHub results).
+\end{itemize}
 
-\textbf{Verification:} MMS with a non-trivial boundary term; confirm
-observed convergence order near boundaries (record actual order, don't
-assume); the R4 dual-path test from PR1 is re-run in this matrix-free
-implicit context too (not just the explicit context).
+\textbf{Verification:} implicit biharmonic Fourier mode against the exact
+discrete amplification in 2D and 3D, 3/5-point, both backends, CUDA and MPS
+(MPS at $l_{tol}=10^{-5}$); smoother tests (default type, Chebyshev after a
+$dt$ jump, damped Jacobi weight); large-$dt$ solve without a divergence stop;
+coarse-assembly unit
+tests (\texttt{AssembledOperatorAddsWrappedOffsets},
+\texttt{StencilMatrixStoresOnlyTheStencil}).
 
-\textbf{Retires:} Closes the loop on R4 across the explicit and matrix-free
-implicit paths.
+\status{merged into \texttt{devel} (PR \#189, \texttt{implicit\_ch\_biharmonic},
+2026-10-26). PR4 is built on it. CUDA run of the new Chebyshev default: not recorded here. Scaling results:
+not recorded here.}
 
-\status{proposed.}
+\pr{4}{Boundary Conditions in \texttt{ImplicitFDSolver}}
+\textbf{Built:} \texttt{ImplicitFDSolver} solves on non-periodic domains with
+\texttt{TensorRobinBC} faces on both backends. No boundary method was added
+to \texttt{TensorBoundaryCondition}: the fine level reuses the ghost fill
+through the affine split, and the matrix entries come from
+\texttt{TensorRobinBC::ghostCoefficientOnU0}
+(Section~\ref{sec:architecture}, Boundary-Condition Dual-Use Invariant).
+The planned \texttt{applyGhostContribution()} was dropped, and the unused
+\texttt{stencilContribution()} of PR1 was removed.
 
-\pr{4a (build if PR4's matrix-free preconditioning proves insufficient on anisotropic/heterogeneous cases)}{AMG-Preconditioned Mixed Mode}
-\textbf{Scope:} A \texttt{Pmat} assembly path
-(\texttt{assemblePreconditionerMatrix()}) building a real sparse PETSc
-\texttt{Mat} via \texttt{MatSetValuesStencil} from the same
-\texttt{LinearFDOperator} coefficients (exposed via \texttt{stencilAt()}),
-passed to \texttt{KSPSetOperators(ksp, Amat, Pmat)} as the second argument,
-alongside the existing matrix-free \texttt{Amat} (\texttt{MatCreateShell}),
-which remains in place for the Krylov iteration itself.
-\texttt{-<field>\_pc\_type hypre}/\texttt{gamg} then builds BoomerAMG/GAMG
-from \texttt{Pmat} while every \texttt{MatMult} still runs against the
-zero-copy, matrix-free \texttt{Amat} (Section~\ref{sec:soa}). \texttt{Pmat}
-is reassembled at the preconditioner-update cadence of
-Section~\ref{sec:decisions} item 3 (PCMG with a torch fine level is now PR3's
-default; PR4a remains the route where geometric coarsening fails); it may be an
-approximate/frozen-coefficient matrix rather than an exact Jacobian, since
-AMG preconditioners only need the right coarsening structure. Selected
-per-field via a solver option. A separate, lower-priority fallback ---
-assembling \texttt{Amat} itself as a real sparse \texttt{Mat} instead of a
-shell, forfeiting zero-copy entirely --- is kept as a documented last
-resort, scoped only if the mixed mode itself proves insufficient.
+\textbf{As built} (decisions by the user, 2026-10-22):
+\begin{itemize}[leftmargin=*]
+\item The Robin value $c$ (Dirichlet \texttt{value}, Neumann \texttt{flux}) varies along the
+face, from a MOOSE \texttt{Function} at the face position and the solve time, or from a
+buffer whose first owned layer holds the face value (tangential halo exchanged). $a$ and
+$b$ stay scalar. The implicit solve evaluates functions at $t^{n+1}$; a buffer holds what its compute wrote at the start of the time step, $t^n$.
+\item Fine level: the operator action is affine; each solve takes $b \leftarrow b - A(0)$
+and applies $A(x) - A(0)$, so the discretisation is unchanged. The torch PCG Jacobi
+diagonal includes the ghost coefficient in the cells next to a face.
+\item Coarse levels (preconditioner only): ghost layer $l$ is folded onto mirror cell $l$
+with the homogeneous factor $-(a/2 - b/s)/(a/2 + b/s)$, $s = (2l+1)h$; the cell-centred
+interpolation folds the same way and restriction stays $P^T$. \texttt{DMDA\_Q0}
+interpolation keeps \texttt{DMCoarsen} cell-centred on non-periodic axes. This answers the
+deferred question on coarse BC rows: rediscretised.
+\item Scope: time derivative and Laplacian; 3-point with Dirichlet, Neumann and Robin,
+5-point with Dirichlet and Neumann (5-point Robin is nonsymmetric and an error). Robin
+with $a/(a/2 + b/\Delta x) < 0$ is an error. Biharmonic with no-flux, and PFHub 1b, are a
+follow-on PR (PR5).
+\end{itemize}
 
-\textbf{Rationale:} This is R7. Strongly anisotropic or heterogeneous
-coefficient fields (plausible in KKS/grand-potential mobility tensors, not
-just hypothetical) are a case matrix-free Jacobi/Chebyshev/geometric-MG
-preconditioning is known to converge slowly on, and algebraic multigrid is
-specifically built to handle via coarsening on actual matrix entries. The
-mixed-\texttt{Pmat} mode gets AMG's convergence benefit without
-reintroducing the per-solve \texttt{Vec}/\texttt{Mat} hand-off cost
-Section~\ref{sec:soa}'s zero-copy requirement exists to avoid --- only
-\texttt{Pmat}'s own assembly is paid, at the Section~\ref{sec:decisions}
-item 3 cadence, not every solve.
+\textbf{Verification:} \texttt{test/tests/implicit\_fd/bc\_mms.i} (both
+backends, 3/5-point, steady and backward Euler),
+\texttt{grid\_independence\_bcs}, setup-error tests;
+\texttt{PetscFDHierarchyTest} (folded coarse rows and interpolation, Robin
+face, Gershgorin bound with faces); \texttt{TensorBoundaryConditionTest}
+(fill dependence equals the solver's ghost coefficients).
 
-\textbf{Verification:} Side-by-side iteration-count/wall-clock comparison
-against PR4's pure matrix-free path on an anisotropic test case, to confirm
-the convergence benefit materializes and quantify \texttt{Pmat} assembly
-cost against the solve cost it buys.
+\textbf{Retired:} R4 for the implicit path.
 
-\status{proposed (contingent --- may never be built if PR4's pure
-matrix-free preconditioning suffices on the target physics).}
+\status{implemented on branch \texttt{implicit\_fd\_bcs}; reviewed by a pre-push review agent,
+findings addressed; tests pass on CPU serial and multi-rank (user); rebased onto the
+\#189 head \texttt{0c38df2} (Chebyshev default smoother), CPU serial tests pass; PR \#191 open. MMS on the unit square with Dirichlet, Robin and two Neumann faces (function and
+buffer values) matches an independent sparse direct solve of the same discretisation to
+$10^{-6}$ relative for both backends; observed order 1.97--1.99. PCMG iterations
+($l_{tol}=10^{-10}$, CPU) at $n = 64, 128, 256$: 7, 6, 6 with boundary faces, against 9, 9, 9
+periodic, the same with either smoother. Crank's semi-infinite and thin-slab diffusion
+solutions (the explicit \texttt{real\_space} benchmarks, with the implicit solver): error
+$5.8\times10^{-3}$, $1.7\times10^{-3}$, $6.7\times10^{-4}$ at 25, 100, 400 substeps, first order
+down to the semi-discrete floor $3.2\times10^{-4}$, both backends, golds from an independent
+dense solve. MPS and CUDA runs of the PR4 tests: not recorded here.}
 
-\pr{5}{\texttt{FiniteDifferenceDiffusion} (variable coefficient) + lagged nonlinear remainder in $b$}
-\textbf{Scope:} New real-space variable-coefficient $\nabla\cdot(D\nabla u)$
-operator implementing \texttt{LinearFDOperator} (harmonic-mean half-point
-coefficients); wire a generic lagged-nonlinear-remainder path into
-\texttt{assembleRHS} so a non-\texttt{LinearFDOperator} TensorCompute's
-\texttt{computeBuffer()} output contributes to $b$ at the current/lagged
-state.
+\pr{4a (contingent)}{AMG-Preconditioned Mixed Mode}
+\textbf{Scope:} an assembled \texttt{Pmat} from the same
+\texttt{LinearFDOperator} stencils (\texttt{stencilAt()}), passed as
+\texttt{KSPSetOperators(ksp, Amat, Pmat)} with the matrix-free shell kept as
+\texttt{Amat}, so that \texttt{-<field>\_pc\_type hypre}/\texttt{gamg} can
+be used; reassembled when the stencil changes. A fully assembled
+\texttt{Amat} is a last resort beyond that.
 
-\textbf{Verification:} MMS with spatially varying $D$; cross-validation
-against \texttt{examples/cahn\_hilliard/cahnhilliard\_fem.i} (independent
-FEM implementation) and/or the existing spectral
-\texttt{ReciprocalMatDiffusion} on a periodic case. This is the first PR
-that actually exercises a full
-Cahn-Hilliard-shaped single-field implicit-diffusion / explicit-nonlinear
-split.
+\textbf{Rationale:} R7. PCMG with point Jacobi may converge slowly on
+strongly anisotropic or heterogeneous coefficients; AMG coarsens on the
+matrix entries. PR1a measured AMG at 1.5$\times$ fewer iterations at
+$D_x/D_y = 10^4$, $n=64$, but slower in wall time.
 
-\textbf{Retires:} Nothing new; first real profiling data point for R3 under
-a nontrivial coefficient field.
+\textbf{Verification:} iterations and wall time against PCMG on an
+anisotropic case, with \texttt{Pmat} assembly cost.
 
-\status{proposed.}
+\status{proposed, contingent: build only if PR5/PR6 coefficients show PCMG
+is insufficient.}
 
-\pr{5a}{\texttt{TimeDerivativeOperator} + Steady-State Field Mixing (Poisson-alongside-phase-field)}
-\textbf{Scope:} New \texttt{TimeDerivativeOperator}
-(\texttt{LinearFDOperator}-implementing) making the time-derivative term an
-explicit, optional per-field contribution rather than an assumption baked
-into \texttt{PetscFDSolverBase} (see Section~\ref{sec:steady-mixing});
-demonstrate a steady field (e.g.\ a Poisson equation for a potential) with
-no \texttt{TimeDerivativeOperator} registered, tracked in the same
-\texttt{PetscFDSolverBase} one-by-one field loop alongside a transient
-field, with a lagged source term coupling the two.
+\pr{5}{Variable Coefficients and the No-Flux Biharmonic}
+\textbf{Scope} (user, 2026-10-25: the former PR4b bundled with variable
+coefficients as one capability upgrade):
+\begin{itemize}[leftmargin=*]
+\item \texttt{FiniteDifferenceDivGrad} (user-chosen name), a real-space
+$\nabla\cdot(D\nabla u)$ (times \texttt{factor}) implementing \texttt{LinearFDOperator}, with $D$
+from a buffer; usable for diffusion, Poisson with $\varepsilon(x)$ and variable
+mobility. Explicit and implicit share one face-flux formula.
+\item \texttt{FiniteDifferenceBiharmonic} with non-periodic faces in
+\texttt{ImplicitFDSolver} (no-flux Cahn-Hilliard); the PFHub 1b input, and 2b
+on the \texttt{pfhub\_2a\_implicit\_fd} branch. 6a stays in PR5a (it needs a
+steady field coupled to a transient one).
+\item The torch-PCG Jacobi diagonal from the folded rows, so box stencils get
+their corner terms.
+\end{itemize}
+The lagged nonlinear remainder needs no new path: any explicit compute
+writing the \texttt{source} buffer already enters $b$ (PR3b's 1a input does
+this).
 
-\textbf{Verification:} MMS for the steady Poisson solve in isolation
-(confirm it reduces to a standard steady diffusion MMS case with no time
-stepping); a coupled two-field case (one steady, one transient) checking
-the steady field is being re-solved to a fresh steady state each Picard
-iteration/timestep rather than going stale.
+\textbf{Design:} a per-row stencil on \texttt{LinearFDOperator} for
+variable coefficients, used by the folded assembly and diagonal, with the
+constant-stencil path unchanged; $D$ restricted to the coarse levels. Folding
+the composed 13-point biharmonic stencil with the Dirichlet or Neumann ghost
+factor ($\mp1$) gives exactly $L_{bc}L_{bc}$ (1D Neumann row 0:
+$[2,-3,1]$; Dirichlet rows 0, 1: $[10,-5,1]$, $[-5,6,-4,1]$), so the coarse
+levels need no new folding; the fine level applies the two Laplacians in turn.
 
-\textbf{Retires:} Closes out the user's steady+transient mixing
-requirement.
+Decided (Section~\ref{sec:decisions}): the face coefficient, the sign of $D$,
+the biharmonic faces, $D$ at a domain face and the coarse $D$.
 
-\status{proposed.}
+\textbf{Verification:} MMS with no-flux faces and with spatially varying
+$D$ against independent SciPy solves; mass conservation; a unit test of the
+folded biharmonic against \texttt{MatMatMult}$(L_{bc}, L_{bc})$ and of the
+folded diagonal against \texttt{MatGetDiagonal}; PCMG iterations against
+$n$. A parallel-plate capacitor (user, 2026-10-25): two dielectric slabs
+($\varepsilon_r$ 1 and 100) between plates at a potential difference $V$,
+zero-flux top and bottom so the problem is 1D; the plate charge against the
+series capacitance $C/A = \varepsilon_0 / (d_1/\varepsilon_{r1} +
+d_2/\varepsilon_{r2})$, a uniform displacement and the potential split
+between the slabs. Pass/fail with Dirichlet faces as the plates; metal plates
+as $\varepsilon_r = 10^9$ inside the domain are run and their error and
+iterations recorded (trouble there is evidence for PR4a, not a PR5 blocker).
 
-\pr{6}{\texttt{PicardTensorSolver} + Segregated Two-Field Coupling (KKS-shaped)}
-\textbf{Scope:} \texttt{PicardTensorSolver : public TensorSolver} wrapping a
-\texttt{PetscFDSolverBase} with $\geq 2$ tracked fields (e.g.\ $c, \eta$),
-reusing the \texttt{IterativeTensorSolverInterface} knob shape (min/max its,
-rel/abs tol or Postprocessor-driven convergence, relaxation factor).
+\textbf{Capacitor results} (2026-10-26, \texttt{test/tests/implicit\_fd/capacitor.i},
+$L = 1$\,mm, $V = 10$\,V, $d_1 = L/4$, CPU, \texttt{l\_tol} $= 10^{-13}$):
+\begin{itemize}[leftmargin=*]
+\item \emph{Dirichlet plates} (gated, $n = 32$): the charge at both plates and inside
+slab 1 and the potential match the exact values to $10^{-14}$ with torch PCG and PCMG,
+on 1 and 4 ranks; the arithmetic face mean is $6\times10^{-2}$ off. PCMG takes 21, 23,
+23, 22 iterations at $n = 32$ to 256; torch Jacobi PCG 140, 278, 534 at $n = 32$ to 128.
+\item \emph{Metal plates} ($\varepsilon_r = 10^9$, thickness $L/8$, recorded): the charge
+inside slab 1 is $2\times10^{-9}$ (torch) and $5\times10^{-10}$ (PCMG) off at $n = 32$;
+the potential $7\times10^{-9}$ and $2\times10^{-9}$ (relative to $V$). The plate-face
+charges are $10^{-5}$ to $10^{-4}$ off: the potential drop across a plate is
+$6\times10^{-10}$\,V, so round-off in $\phi$ dominates the face flux there (a
+NumPy direct solve of the same 1D system shows the same, $10^{-6}$ to $10^{-5}$,
+while its mid-slab flux is exact to $10^{-15}$). Torch Jacobi PCG takes 94, 188, 379
+iterations at $n = 32$, 64, 128; PCMG takes 1763, 4597, 9565 (2, 5, 13\,s), growing
+with $n$ and slower than Jacobi. The Jacobi-scaled condition number of the 1D system is
+385, 1590, 6460, so the diagonal scaling removes the $10^9$ contrast; the coarse levels
+of PCMG, with $D$ averaged across the metal--dielectric faces, do not. Evidence for
+PR4a (or a Galerkin coarse operator) when such contrasts matter.
+\end{itemize}
 
-\textbf{Verification:} Measure actual Picard convergence behavior (this is
-R2 --- do not assume it converges; report iteration counts and residual
-decay for the real coupled case, tune relaxation if needed); cross-validate
-against \texttt{examples/libtorch\_kks/KKS\_libtorch.i}'s qualitative
-behavior; re-profile per-iteration cost under the item-3 reuse policy
-across two coupled fields (R3, second measurement).
+\textbf{DivGrad face types and a changing $D$} (2026-10-26,
+\texttt{divgrad\_mms.i}): a Robin face (steady and backward Euler) and a coefficient
+switched to a jump of 100 at the start of the second step match SciPy sparse solves of
+the same discretisation to $10^{-12}$ relative, with torch PCG and PCMG on 1 and 4 ranks.
+The explicit computes see the time at the start of the step (decision~11), so the switch
+applies from the second solve; PCMG takes 11, 19, 18 iterations at $n = 32$. With the
+coarse levels not reassembled after the switch the second solve fails.
 
-\textbf{Retires:} R2, R3 (final measurement before declaring the
-performant-goal met or needing follow-up work).
+\status{implemented and verified on branch \texttt{implicit\_fd\_pr5} (on top of PR4),
+tag \texttt{pr5-variable-coefficient}, 2026-10-26. The milestone review (numerics,
+parallel, tests, docs, verifier) and the pre-push review found: a hang when $D$ changed on
+some ranks only (reassembly is now collective), a PETSc segfault on a zero diagonal (now an
+error), the biharmonic face pairs holding only for face data linear along the face (fixed
+with the approved two-stage operator, for every use), and a per-iteration coefficient check
+(now once per change); all fixed with tests. CUDA runs in PR CI. The full PFHub 1b run and
+the 2b branch rebase are the user's.}
 
-\status{proposed.}
+\pr{5a}{Steady Field Coupled to a Transient Field}
+\textbf{Scope:} \texttt{TimeDerivativeOperator} is built (PR3) and steady
+fields solve (Poisson tests). Remaining: a steady field (e.g.\ a Poisson
+potential) and a transient field in one \texttt{ImplicitFDSolver}, coupled
+through lagged sources; re-solving the steady field against current
+sources is left to PR6.
 
-\pr{7}{Port SBM/KKS No-Flux Example to the New Pipeline}
-\textbf{Scope:} Reimplement \texttt{test/tests/kks/KKS\_no\_flux\_bc.i}'s
-physics using the new \texttt{TensorNeumannBC} (zero-flux) in place of the
-\texttt{psi}-masking hack, on the new FD+PETSc solve path.
+\textbf{Verification:} a coupled two-field case against an independent
+solution.
 
-\textbf{Verification:} Compare interface evolution/qualitative behavior
-against the original spectral \texttt{psi}-masked version; conservation
-checks (e.g.\ total concentration) over the run; this is the end-to-end
-demonstration that the ``basic'' target functionality (KKS + SBM) is met.
+\textbf{Decisions (user, 2026-10-26).}
+\begin{itemize}
+\item \textbf{D8, coupling order.} Every source comes from $t^n$, whatever the
+  order of \texttt{buffer}. A Gauss-Seidel sweep in \texttt{buffer} order
+  (results depend on the order) and solving the transient fields before the
+  steady ones were proposed and declined; a block-coupled solve
+  (PCFIELDSPLIT with cross-field operators) is deferred until after Picard
+  (PR6).
+\item \textbf{D9, the mean of the solution.} When the operator maps the
+  constants to $\lambda > 0$ times the constants (A symmetric), the summed
+  equations fix $\bar u = \bar b / \lambda$ exactly; the solver detects this
+  from $A\mathbf{1}$ when the operator is applied and sets the mean of the
+  Krylov solution to $\bar b/\lambda$ after each solve, for every field
+  (nothing to mark). Found by the coupled test: PCMG's SOR smoothing (and Jacobi
+  next to boundary faces) leaves the mean wrong by about $l_{tol}\|u\|$ per
+  step, which made the right-hand side of the singular steady field
+  incompatible at $l_{tol} = 10^{-8}$. Widening the singular-field mean check
+  to $l_{tol}$ was proposed and withdrawn (it hides the drift and still fails
+  as the drift accumulates). MOOSE has no automatic equivalent: PETSc's
+  transpose null space silently projects the right-hand side, and the
+  navier\_stokes \texttt{NSPressurePin} (\texttt{average}) is an opt-in
+  offset to a user target.
+\item \textbf{D10, the singular-field mean check.} The round-off allowance for
+  the mean of a singular field's right-hand side is scaled by the largest
+  $\sum|b|$ of its solves so far, not the current one. Found by the milestone
+  review: \texttt{steady\_transient.i} run to 200 steps aborted near step
+  100, because the mean of $c$ (exactly conserved) stays at the round-off of its
+  initial size, about $10^{-18}$, while $c$ decays. A net source is still
+  rejected (a $10^{-10}$ offset added at $t = 1$ stops the run).
+\end{itemize}
 
-\textbf{Retires:} Closes out the stated ``basic'' functionality goal.
+\textbf{Results.}
+\begin{itemize}
+\item \texttt{steady\_transient.i}: $c_t = D\nabla^2 c + k\phi$,
+  $-\nabla^2\phi = s c$ on a periodic box, one Fourier mode against its exact
+  two-step recurrence; $\phi^0$ the steady solution of $c^0$. Torch PCG: errors
+  up to $9\times10^{-15}$ ($c$) and $8\times10^{-17}$ ($\phi$) over 10 steps, on 1, 3
+  and 4 ranks; swapping the field order is bit-identical; PETSc agrees to
+  $8\times10^{-15}$; MPS float32 $4\times10^{-7}$. Sabotage: no coupling gives
+  $3\times10^{-2}$, $\phi^0 = 0$ gives $6\times10^{-3}$.
+\item Mean correction: with the $c$ solve alone ($s = 0$), $\overline{c}$ stays
+  at $10^{-17}$ over 200 steps at $l_{tol} = 10^{-8}$ and $10^{-6}$ (PCMG), against $-1.5\times10^{-9}$ and
+  $1.3\times10^{-8}$ without it. PFHub 1b (no-flux faces) at
+  $l_{tol} = 10^{-8}$ keeps the total of $c$ (20101) to $2.5\times10^{-10}$,
+  against drifts of $6\times10^{-5}$ (PETSc) and $1.5\times10^{-4}$ (torch PCG)
+  without it; new tests at the loose tolerance catch the removal. No
+  measurable cost at $256^2$. The existing golds are unchanged within their
+  tolerances.
+\end{itemize}
 
-\status{proposed.}
+\textbf{PFHub 6a} (\texttt{benchmarks/06\_electrostatics}, regression test
+\texttt{pfhub\_6a.i}). No new code: $c$ and the steady $\phi$ in one solver,
+sources at $t^n$. The face condition $\partial\mu/\partial n = 0$ enters the
+update only through the total face flux
+$M(\partial B/\partial n - \kappa\,\partial\nabla^2c/\partial n)$, $B = f' + k\phi$, so
+the zero split (Neumann faces of $B$ and the biharmonic's Neumann pair) gives the
+same $c$ as the benchmark's split to round-off (checked in 1D: difference 0.0).
+An inhomogeneous biharmonic face condition was approved and then dropped as
+unnecessary (user, 2026-10-26). $F(400)$: 104.00 ($100^2$), 104.01 ($200^2$),
+103.82 ($100^2$, solve $\Delta t = 0.05$) on the original schedule of 20 substeps per step
+(104.10, 104.11, 103.82 on the smooth schedule of PR7b), against the submissions'
+102.9--105.8 (INL MOOSE 103.6, CORAL 104.9, PRISMS-PF 105.8, MMSP 102.9,
+MEMPHIS 103.0; FiPy 114.3). Total $c$ conserved to $2\times10^{-13}$ relative.
+
+\status{implemented and verified on branch \texttt{implicit\_fd\_pr5}, tag
+\texttt{pr5a-steady-transient}, 2026-10-26. The milestone review (numerics, tests and
+parallel, docs, verifier) found no error in the mean correction, the coupling or the 6a
+equations (checked against the PFHub notebook). It found: the singular-field mean check
+rejecting a neutral decaying source after about 100 steps (fixed with D10, with tests), a
+loose-tolerance spec whose error columns could not fail (now gated below $10^{-7}$), the
+$t = 0$ free energy of the initial guess of $\phi$ in the PFHub file (left out), and stale
+numbers and text in the docs (corrected). Known limit: in single precision the mean correction
+is off when $D\,\Delta t/h^2 \gtrsim 3\times10^4$ (2D), where $\lambda$ is below the round-off of
+$A\mathbf{1}$. CUDA runs in PR CI.}
+
+\pr{6}{Picard Iteration + Two-Field Coupling (KKS-shaped)}
+\textbf{Scope:} iterate the \texttt{ImplicitFDSolver} field loop to
+convergence within a time step (design name \texttt{PicardTensorSolver},
+not built; whether it wraps \texttt{ImplicitFDSolver} or is an option of it
+is open), with \texttt{IterativeTensorSolverInterface}-style knobs (min/max
+iterations, tolerances or a Postprocessor, relaxation). Inputs from what is
+built: the explicit computes, and so the sources and buffer-valued boundary
+values, are evaluated once per time step at $t^n$ (decision~11); a Picard
+iteration re-evaluates them, which also removes the boundary-value lag. The
+preconditioner rebuild threshold of decision~3 and rebuilds on
+solution-dependent coefficients belong here.
+
+\textbf{Verification:} measured Picard convergence on the real coupled case
+(R2); cross-validation against \texttt{examples/libtorch\_kks/KKS\_libtorch.i};
+per-iteration cost under the reuse policy (R3).
+
+\textbf{Design (user, 2026-10-26).} An option of \texttt{ImplicitFDSolver}, off by
+default (today's lagged scheme, unchanged). The coupled step is one nonlinear
+system over all fields $U = (u_1, \dots, u_m)$,
+$F(U) = A U - b(U) = 0$, with $A$ the sum of each field's
+\texttt{LinearFDOperator}s and $b(U)$ the $u^n/dt$ terms plus the explicit
+sources evaluated at $U$. Today's field-by-field linear solve with $A$ (PCMG or
+torch PCG) is the preconditioner. PETSc SNES drives the iteration, so the method
+is a \texttt{petsc\_options} choice: Picard (the default \texttt{newtonls} with the
+field solves as preconditioner and the basic line search), Anderson,
+NGMRES, and later Newton-Krylov. A plain Picard loop in torch covers the torch-only
+backend. The nonlinear driver is chosen independently of the linear solver
+(\texttt{nonlinear\_solver = AUTO|PETSC|TORCH}, user, 2026-10-27), so the SNES
+methods also run over the torch field solves, e.g.\ on MPS. The SNES vectors are
+on the device with a CUDA PETSc and on the host otherwise; host vectors with
+device field solves copy every iterate, and the solver warns at the first solve.
+Empty \texttt{petsc\_options} lists count as no options.
+\begin{itemize}
+\item \textbf{D11, ordering.} Every source in an iterate comes from the iterate
+  of all fields (Jacobi), so each iterate and the converged result are
+  independent of the order of \texttt{buffer}, as D8. Gauss-Seidel was declined.
+\item \textbf{D12, convergence.} The single coupled residual norm
+  $\|A U - b(U)\|_2$ with the standard SNES relative and absolute tests (rather
+  than a per-field scaled norm).
+\item \textbf{D13, step.} The full, undamped Picard update by default
+  (\texttt{basic} line search, damping 1); damping, line searches and
+  Anderson/NGMRES mixing through \texttt{petsc\_options}.
+\item \textbf{D14, iteration count.} With the nonlinear iteration on,
+  \texttt{getIterations()} (the adaptive time stepper's signal) is the number of
+  nonlinear iterations, with the Krylov total printed; with it off, the Krylov
+  count as today.
+\item \textbf{Coupling to SNES.} Right preconditioning in the
+  \texttt{SNESSetPicard} form: the SNES residual is the true $F(U)$ and the
+  Jacobian is $A$, applied through each field's existing solve as a block-diagonal
+  preconditioner; \texttt{-snes\_mf\_operator} later gives Newton-Krylov with $A$
+  as the preconditioner. The existing solve as a nonlinear preconditioner was
+  declined: \texttt{nrichardson} would then test the preconditioned residual.
+\item \textbf{D15, time level of the explicit computes.} With the nonlinear
+  iteration on, the explicit computes are evaluated at $t^{n+1}$, so the converged
+  step is fully implicit backward Euler,
+  $A U^{n+1} = u^n/dt + f(U^{n+1}, t^{n+1})$, consistent with the boundary
+  functions (already at $t^{n+1}$). The lagged scheme (iteration off) keeps
+  $f(u^n, t^n)$. A source with an explicit $t$ differs between the two even after
+  a single iteration; time-independent sources do not.
+\item \textbf{D16, buffer-valued boundary data.} With the nonlinear iteration on,
+  the face data of a \texttt{c\_buffer} boundary condition are prepared again after
+  every re-run of the explicit computes, so the converged step satisfies
+  $c(U^{n+1}, t^{n+1})$ and decision~11's lag is removed. A solution-dependent
+  boundary value is then part of the nonlinear coupling, which the block-diagonal
+  preconditioner does not see: strong coupling costs iterations or ends in a dt
+  cut. Scalar and function boundary data are unchanged.
+\end{itemize}
+\textbf{Finding (substep 4): the mixing methods need the field solves as their
+NPC.} With \texttt{-snes\_type anderson} or \texttt{ngmres} alone, SNES mixes the
+raw residuals and never calls the PCSHELL (0 linear iterations): the bicrystal
+does not converge in 200 iterations, and on the coupled $c/\phi$ pair an iterate
+leaves a mean of $3$--$5\times10^{-13}$ in $\phi$'s right-hand side, above the
+singular-field check. With \texttt{-npc\_snes\_type newtonls} (whose linear
+solve is the field-solve PC) both converge to round-off. Documented in
+\texttt{ImplicitFDSolver.md}; no code change (user, 2026-10-26).
+
+\textbf{Validation: the bicrystal area rate.} \texttt{bicrystal.i} (PFHub 9a's
+model) with Anderson, $r_0 = 100$, interface width 30, domain 320, to $t = 20$;
+slope of the area fitted over $t \in [5, 20]$, against $-2\pi L\kappa$:
+\begin{center}
+\begin{tabular}{lrrr}
+ & $dt = 0.5$ & $0.25$ & $0.125$ \\
+$h = 10$ & & $-3.12\%$ & $-3.35\%$ \\
+$h = 5$ & $+1.27\%$ & $+0.74\%$ & $+0.50\%$ \\
+$h = 2.5$ & $+2.15\%$ & $+1.62\%$ & $+1.37\%$ \\
+$h = 1.25$ & & $+1.83\%$ & $+1.58\%$ \\
+\end{tabular}
+\end{center}
+The spatial error is second order (differences $3.85$, $0.87$, $0.21$ points
+between successive $h$) and the time error first order ($0.53$, $0.25$). The
+converged deviation is about $+1.4\%$: a property of the model at $r_0 = 100$, not
+of the discretisation. The sharp-interface rate holds only for $r \gg$ the interface
+width ($r_0/w \approx 3.3$ here), and the deviation grows as the grain shrinks
+($+0.9\%$ over $[5,10]$, $+2.1\%$ over $[15,20]$ at $h = 2.5$, $dt = 0.125$). At
+$h = 5$ the negative spatial error happens to cancel most of it: that is why the
+deviation grew under refinement. Checks: a domain of 480 gives the same slope to
+four digits (no periodic-image effect); $r_0 = 200$ ($h = 2.5$, $dt = 0.25$,
+domain 640) gives $-0.01\%$.
+
+\textbf{PFHub 6a, fully implicit (substep 5).} \texttt{6a\_implicit\_fd\_nonlinear.i},
+a separate input; the lagged input and its results are unchanged (user, 2026-10-27). The
+step follows the nonlinear iterations (\texttt{TensorSolveIterationAdaptiveDT}, substeps
+$=1$, so a failed solve cuts $dt$). Findings, $100^2$ to $t = 50$, $F$ against a nonlinear
+run with $dt \le 0.005$:
+\begin{itemize}[leftmargin=*]
+\item Plain Picard fails near $t = 41$, where the solve $dt$ passes about $0.19$: the
+iterations rise from 3 to the limit of 50 as $dt$ grows (the Picard limit
+$dt\,L f'' < 1$). Anderson with the field solves as its NPC reaches $t = 400$ at a solve
+$dt$ of 1 with at most 24 iterations.
+\item Anderson's iterations grow slowly with $dt$: 4 iterations hold $dt$ at
+$1.85\times10^{-3}$, 8--9 at $0.034$, 12 at $0.15$. A step twice as long costs far less
+than two steps, so the window was widened from 4--10 to 8--15 (user, 2026-10-27).
+\item At the same solve $dt$ the nonlinear error is several times smaller than the lagged
+one: $-0.009$ against $+0.039$ at $t = 5$ ($dt = 0.023$), $+0.002$ against $+0.078$ at
+$t = 50$ ($dt = 0.25$), both on the lagged input's step schedule (then 20 substeps per step).
+\item The iteration window does not see the time error. With 8--15 alone $dt$ reaches
+$0.15$ by $t \approx 1$ and $F(5)$ is off by $-0.18$; caps of $0.1$, $0.05$, $0.02$ give
+$-0.12$, $-0.060$, $-0.020$ (first order). The input caps at $0.05$ (user,
+2026-10-27), a demonstration setting: twice the lagged input's steps at $t = 5$, a fifth of
+them at $t = 50$ ($-0.005$). Second order in time is PR7b.
+\item An earlier reference ($dt \le 0.025$) carried an error of $-0.009$ at $t = 5$, as large
+as the differences it was used to measure there; the numbers above use $dt \le 0.005$.
+\item To $t = 400$: 8030 steps, no cuts, 8.9 iterations per step (at most 10),
+$F(400) = 103.79$, total $c$ conserved to $3\times10^{-11}$; 1032\,s on one core,
+against 18\,s for the lagged input at its larger steps (25\,s on the smooth schedule of PR7b).
+\end{itemize}
+
+\textbf{Later (not PR6):} a ``half-Newton'' linearisation that adds each
+source's derivative with respect to its own field (a per-cell diagonal from
+autograd) to that field's operator, with Newton-Krylov (autograd Jacobian
+action) as the fallback. Open there: sources containing derivatives of their
+field (Cahn-Hilliard's $\nabla^2 f'(c)$ gives $\nabla^2(f''\cdot)$, not a
+diagonal), $f'' < 0$ making the operator indefinite, and the coarse-level
+restriction of the diagonal (as D6).
+
+\status{done: tag \texttt{pr6-picard}, milestone review addressed, in PR \#192 (with
+PR5 and PR7), 2026-10-27.}
+
+\pr{7}{Port SBM/KKS No-Flux Example to the Implicit FD Path}
+\textbf{Scope:} reimplement \texttt{test/tests/kks/KKS\_no\_flux\_bc.i} with
+\texttt{TensorNeumannBC} zero-flux faces instead of the \texttt{psi} mask
+(\texttt{test/tests/implicit\_fd/kks\_no\_flux.i}).
+
+\textbf{Decisions (user, 2026-10-27).}
+\begin{itemize}
+  \item \textbf{Geometry.} The solve region of the masked input, the strip
+    $-20 < x < 20$, periodic in $y$ over $[-50, 50]$, with sharp zero-flux faces at
+    $x = \pm 20$ in place of the diffuse SBM walls (half width $l = 4.2$). Near the walls
+    the two differ at order $l$, so the port is a related boundary problem, not a
+    reproduction of the masked one. Grid spacing 1 (the masked input's 5 does not resolve
+    the interface).
+  \item \textbf{Split.} Both parabolas have the curvature $2\rho^2 = 4$ in $c$, so
+    $\mu = 4c + g(\eta)$ exactly. $c$: implicit $\partial_t c - 4M\nabla^2 c$ with the
+    source $M\nabla^2 g$ (Neumann faces of $g$); $\eta$: implicit
+    $\partial_t\eta - L\kappa\nabla^2\eta$ with the source $-L\,\partial F/\partial\eta$ at
+    fixed $c$. The PR6 nonlinear solve (Anderson) iterates the sources to the fully implicit
+    backward Euler step, in place of the explicit AB3 with 1000 substeps.
+  \item \textbf{Verification.} No gated comparison with the masked run and no MOOSE build;
+    conservation, energy decrease, convergence, a mirror test and the spectral solver on
+    the unmasked periodic problem.
+\end{itemize}
+
+\textbf{Results} ($dt = 0.1$, 10 steps, $dx = 1$ unless varied):
+\begin{itemize}
+  \item total $c$ conserved to $5\times10^{-13}$ (of 1738); the free energy decreases
+    every step at every resolution tried.
+  \item The strip equals the mirrored initial condition on the doubled periodic domain
+    $-20 < x < 60$ (halved integrals) to $5\times10^{-14}$ relative: the test's gold.
+  \item $dt$ halved four times: differences of $\int\eta$ and $F$ at $t = 1$ fall by
+    2.03--2.11 per halving (first order). $dx$ halved twice: by 4.00--4.07 (second order).
+  \item The extrapolated limit ($dt, dx \to 0$) of $\int\eta$ is within
+    $7.7\times10^{-2}$ ($3\times10^{-5}$ relative) of the spectral AB3 solver on the doubled
+    periodic domain without the mask at $dx = 0.5$, whose own change from $dx = 1$ is
+    $7.6\times10^{-2}$. The spectral run at $dx = 0.25$ gives NaN; not investigated.
+  \item PETSc multigrid and torch PCG (CPU), 1 and 4 ranks (split along $y$) agree with the gold to
+    $10^{-9}$. 26--33 Anderson iterations per step at $dt = 0.1$, 8 at $dt = 0.00625$.
+  \item MPS (single precision): the nonlinear residual stalls at $10^{-5}$ of its initial
+    value in the second step and the iteration does not converge at
+    \texttt{nl\_rel\_tol} $= 10^{-5}$ or $5\times10^{-5}$; no MPS test. Open.
+\end{itemize}
+
+\textbf{Example} (\texttt{examples/implicit\_kks/KKS\_no\_flux\_implicit.i}): to $t = 100$
+with \texttt{TensorSolveIterationAdaptiveDT}, 682 steps, total $c$ conserved to
+$4\times10^{-12}$, energy non-increasing (88.43 to 42.02). As the grain relaxes the initial
+residual of a step falls to $10^{-2}$ and \texttt{nl\_rel\_tol} $= 10^{-10}$ of it is below
+the residual's round-off ($10^{-12}$), so with the relative test alone the iteration stalled
+and the step was cut to \texttt{dtmin} at $t = 40.8$. The example adds
+\texttt{nl\_abs\_tol} $= 10^{-9}$; the test input keeps the relative test only.
+
+\status{done: tag \texttt{pr7-kks-no-flux}, in PR \#192, 2026-10-27. The milestone review
+(numerics with an independent Newton backward-Euler reference, docs and parallel, mutation
+testing, verifier) found no error in the model or the split. It found a conservation gate
+that could not fail and a CUDA test skipped behind a CPU-only prerequisite (both fixed), and
+a redundant ghost exchange of the nonlinear iterate (removed; the one after the linear solve
+is an open question). CUDA runs in CI.}
+
+\pr{7b}{Second-Order Time Integration (BDF2)}
+\textbf{Scope (user, 2026-10-27):} BDF2 for the transient fields of
+\texttt{ImplicitFDSolver}, $(3u^{n+1} - 4u^n + u^{n-1})/(2\,dt) + A u^{n+1} = b(U^{n+1})$,
+with the variable-step coefficients, since the adaptive stepper changes $dt$.
+With the nonlinear iteration of PR6 it is fully implicit to second order. Backward
+Euler's first-order time error is what bounds $dt$ in the PFHub 6a study of PR6, not
+the nonlinear convergence (Anderson converges in 8--15 iterations at steps that
+carry a visible time error), so this, and not more iterations, is how to take
+larger steps at a fixed accuracy.
+
+\textbf{Design questions (to decide):} where $u^{n-1}$ and the previous $dt$ live
+(\texttt{TimeDerivativeOperator} with its own history, or the solver's stored $u^n$
+of PR6); the first step (backward Euler, or a smaller start); a step cut, which must
+restore the history; the coefficient change of the operator, $3/(2dt)$ in place of
+$1/dt$, which changes the stencil and so rebuilds the preconditioner when $dt$ or the
+step ratio changes (decision~3); the lagged scheme of PR3--PR5a (whether BDF2 is
+offered there, where the explicit terms are first order anyway); and an error
+estimate (BDF2 against backward Euler) for an accuracy-driven $dt$, as an
+alternative to the iteration-driven stepper.
+
+\textbf{Verification:} order 2 in $dt$ on the closed-form coupled recurrence of PR6
+and on the scalar Newton reference (the BDF2 recurrence); order 2 of $F(t)$ in the
+6a study; mass conservation to round-off.
+
+\textbf{Substeps removed (first PR7b step, user, 2026-10-28).} \texttt{ImplicitFDSolver}
+no longer takes \texttt{substeps}: one solve per time step, so a failed solve can always be
+retried with a smaller $dt$, and a step history holds the previous step. The inputs that
+used substeps (the Crank tests, PFHub 1a/1b/6a and their regression tests) now take the
+smooth equivalent schedule: the first $dt$ and \texttt{dtmax} divided by the former substep
+count $s$, the growth factor $1.1^{1/s}$ per step (the same growth over $s$ steps), and
+output every $s$ steps through a new \texttt{time\_step\_interval} of the tensor outputs
+(with \texttt{FINAL} for the last step). The Crank results are unchanged to $2\times10^{-7}$
+relative (the same steps). The 1b and 6a regression golds were regenerated (the solve steps
+differ. 1b shares no output times with its old gold: $F$ interpolated to the old times differs
+by up to $2\times10^{-4}$ relative. 6a shares $t = 1$, where $F$ differs by $6\times10^{-7}$
+relative, and about $2\times10^{-6}$ interpolated to the old times after the first step). PFHub 6a on the smooth schedule: $F(400) = 104.10$ ($100^2$), 104.11
+($200^2$), 103.82 (cap 0.05); against the cap of 0.05, caps 0.5, 0.25, 0.1 differ by
+0.280, 0.083, 0.019.
+
+\textbf{BDF2 as built (decisions by the user, 2026-10-28).} \texttt{TimeDerivativeOperator}
+\texttt{order = 2}: MOOSE's variable-step weights ($s = dt + dt_\text{old}$: $w_0 = 1 + dt/s$,
+$w_1 = -s/dt_\text{old}$, $w_2 = dt^2/(dt_\text{old} s)$), with a centre stencil entry of
+$w_0/dt$ and a contribution of $-(w_1 u^n + w_2 u^{n-1})/dt$. The first step is backward Euler.
+The operator keeps $u^n$, $u^{n-1}$ and $dt_\text{old}$ itself (the buffer states have no
+$u^0$). They are keyed by the start time of the step, so a retried step keeps them. It is
+allowed with the lagged scheme and documented there as first order overall when there are
+explicit terms. The solver is unchanged: a $w_0$ change is a stencil change, so the existing
+rebuild covers it (decision~3). Verification:
+\begin{itemize}[leftmargin=*]
+\item A periodic mode over 8 steps with ratios 0.5 to 2, against the exact BDF2 recurrence
+(\texttt{bdf2\_mode.py}): $3\times10^{-8}$ (PETSc), $4\times10^{-10}$ (torch) relative. At
+fixed steps to $t = 0.1$ the error against the exact decay falls at order 2.24, 2.13, 2.06
+(backward Euler 1.06, 1.04, 1.02); manual runs of \texttt{bdf2\_mode.i} with
+\texttt{TensorComputes/Solve/dudt/order} 1 or 2,
+\texttt{Executioner/TimeStepper/type=ConstantDT}, \texttt{Executioner/TimeStepper/dt} $= 0.1/m$
+and \texttt{Executioner/num\_steps} $= m$ for $m = 10, 20, 40, 80$,
+\texttt{TensorSolver/l\_tol=1e-13} and \texttt{--allow-unused}.
+\item The bicrystal with the nonlinear iteration on varying steps, against a Newton BDF2
+reference: $4\times10^{-14}$.
+\item A step cut with the history in place equals a run on the accepted times from the start.
+\item Mutants caught: a retry that advances the history, constant-step weights, and a flipped
+$w_2$. A stencil without $w_0$ survives (it changes only the multigrid preconditioner, not the
+solution).
+\item PFHub 6a, fully implicit, $100^2$. $F$ against BDF2 at $dtmax = 0.005$, for dtmax 0.1, 0.05
+and 0.02: backward Euler $-0.130$, $-0.067$, $-0.027$ at $t = 5$; BDF2 $-3.8\times10^{-4}$,
+$-1.1\times10^{-4}$, $-1.9\times10^{-5}$ (at $t = 1$: $-2.1\times10^{-4}$, $-6.0\times10^{-5}$,
+$-8.1\times10^{-6}$, order 1.8--2.2). Same steps, no cuts, and wall time within 10\%. Manual
+runs of \texttt{6a\_implicit\_fd\_nonlinear.i} with \texttt{n=100 end\_time=5},
+\texttt{Executioner/dtmax} and \texttt{TensorComputes/Solve/dcdt/order}.
+\item Restart: the history is not restartable data, so a recovered run would take backward
+Euler on its first step. Recover does not restore the tensor buffers either (a known issue).
+\end{itemize}
+
+\status{done (2026-10-28), tag pr7b-bdf2, commits ``(PR7b)'' in \#192.}
+
+\pr{9}{Smoothed Boundary Method on the Implicit FD Path}
+\textbf{Scope:} the smoothed boundary method (Yu, Chen and Thornton, arXiv:1107.5341) on
+\texttt{ImplicitFDSolver}, with the KKS case of \texttt{test/tests/kks/KKS\_no\_flux\_bc.i}
+(no flux, $90^\circ$ contact angle) as the target. Branch \texttt{implicit\_fd\_sbm}, on top of
+\#192; commits ``(PR9)''.
+
+\textbf{Equations.} For no flux (paper Eq.~4--6 with $B_N = 0$, Eq.~22 at $\theta = 90^\circ$),
+multiplied through by the domain parameter $\psi$:
+\begin{align*}
+\psi\,\partial_t c &= \nabla\cdot(\psi M\nabla\mu), &
+\psi\,\partial_t \eta &= \nabla\cdot(\psi L\kappa\nabla\eta) - \psi L\,\partial F/\partial\eta.
+\end{align*}
+With $\mu = 4c + g(\eta)$ (PR7): implicit $\psi\partial_t c - \nabla\cdot(4\psi M\nabla c)$, source
+$\nabla\cdot(\psi M\nabla g)$; implicit $\psi\partial_t\eta - \nabla\cdot(\psi L\kappa\nabla\eta)$,
+source $-\psi L\,\partial F/\partial\eta$. The operators are symmetric and need no division by
+$\psi$. $\sum\psi c$ is conserved to round-off. A nonzero boundary flux, a contact angle
+other than $90^\circ$ (both $|\nabla\psi|$ sources), Dirichlet boundaries (Eq.~7) and the
+Cahn-Hilliard form with gradient energy (Eq.~23, whose fourth-order operator is not a
+symmetric product of $\psi$-weighted operators) are out of scope.
+
+\textbf{Decisions (user, 2026-10-28).}
+\begin{itemize}[leftmargin=*]
+\item The $\psi$-multiplied form, with $c$ (not $\psi c$) as the unknown.
+\item A new operator \texttt{CoefficientTimeDerivativeOperator}, $a(\mathbf{x})\,\partial_t u$
+with a \texttt{coefficient} buffer and the backward Euler and BDF2 weights of
+\texttt{TimeDerivativeOperator}; its stencil centre is the per-cell field $a w_0/dt$, restricted
+to the coarse levels as the \texttt{FiniteDifferenceDivGrad} coefficient is. It is reused for
+grand-potential models ($\chi\,\partial_t\mu$).
+\item $\psi$-weighted sources are ordinary sources formed in the input.
+\item The $\psi$-weighted diffusion uses \texttt{FiniteDifferenceDivGrad} with
+\texttt{face\_mean = arithmetic}: a $\psi = 0$ cell next to the domain has a positive face
+coefficient and no time-derivative weight, so it acts as a ghost cell carrying the no-flux
+condition.
+\item \textbf{Inactive cells.} A cell with a zero diagonal and a zero right-hand side (so
+$\psi = 0$ on the cell and on all its faces) is inactive: $u$ is held at $u^n$, an identity row
+in the operator action, the Jacobi diagonal, the PETSc levels and the residual. A zero diagonal
+with a nonzero right-hand side stays an error, and so does a zero-diagonal cell whose row is not
+zero ($A$ applied to the inactive indicator must vanish). A coarse cell is inactive only if all
+its children are.
+\item The threshold for small $\psi$ stays in the input, as in the spectral input: a $\psi$
+profile that reaches 0 (the cosine ramp \texttt{psi\_func}), or a \texttt{ParsedCompute} that
+sets $\psi = 0$ below a cutoff.
+\item From the spectral \texttt{ReciprocalMatDiffusion} and \texttt{ReciprocalAllenCahn}: the
+profile, the active set $\psi > 0$, and the held state outside the domain are kept. The FFT
+derivatives, the separate $\nabla\psi/\psi$ term (contained in the multiplied form) and
+\texttt{always\_update\_psi} (the coefficient version check covers it) are not.
+\end{itemize}
+
+\textbf{Constraint: $\psi$ will change in time} (user, 2026-10-28; e.g.\ a KKS-like model
+recast as SBM, with thermodynamics coupled at the interfaces only, and Gibbs energy minimisers).
+Nothing about $\psi$ is fixed at setup: the inactive set, the stencils and the coarse
+coefficients follow every change of the coefficient buffers, and a cell that becomes active
+starts from its held value. Open for then (a physics decision): with $\partial_t\psi \ne 0$,
+$\psi\,\partial_t c$ does not conserve $\int\psi c$; the conservative form is $\partial_t(\psi c)$.
+
+\textbf{Steady singular fields} (e.g.\ Poisson with SBM no-flux faces): the nullspace is the
+constants on each connected active region, not the whole grid. Detected and an error until
+needed.
+
+\textbf{Verification:}
+\begin{itemize}[leftmargin=*]
+\item \texttt{CoefficientTimeDerivativeOperator} with $a = 1$ equals
+\texttt{TimeDerivativeOperator} (backward Euler and BDF2); a spatially varying $a > 0$ against
+an independent sparse solve of the same discretisation.
+\item Inactive cells: held at $u^n$ exactly, the active cells' solution unchanged by the
+inactive block, both backends, 1--4 ranks; the error paths.
+\item A 1D slab with $\psi$ walls against the sharp zero-flux solution, converging as the wall
+width $l \to 0$.
+\item The KKS case against the spectral SBM input (same $\psi$, same $l$): $\sum\psi c$
+conserved to round-off, the free energy non-increasing, and $\eta$, $c$ close to the spectral
+run, limited by the spatial discretisation.
+\end{itemize}
+
+\textbf{Record (2026-10-28).}
+\begin{itemize}[leftmargin=*]
+\item \texttt{coefficient\_dt.i}: $a = 1$ reproduces the BDF2 mode gold; with
+$a = 1 + 0.5\sin 2\pi x\sin 2\pi y$ both backends match a scipy sparse solve
+(\texttt{coefficient\_dt.py}) to $1.4\times10^{-8}$, and $\int a u$ is conserved.
+\item \texttt{sbm\_inactive.i}: the inactive cells stay at $u^n$ exactly; the active cells
+match scipy on the active block (\texttt{sbm\_inactive.py}) to $3\times10^{-9}$ (PETSc, 4 ranks),
+$2\times10^{-12}$ (torch) and $2\times10^{-14}$ (the tested torch nonlinear iteration;
+$2.5\times10^{-11}$ with the PETSc one); in single precision, $7\times10^{-7}$ (CPU, MPS).
+\item \texttt{sbm\_slab.i}: the error against the sharp zero-flux solution at $t = 0.1$ is
+$3.7\times10^{-4}$, $1.05\times10^{-4}$, $2.5\times10^{-5}$, $6.1\times10^{-6}$ and
+$1.8\times10^{-6}$ for $l = 0.08$ to $0.005$ (halving, 4 cells per $l$): order 2 in $l$.
+\item \texttt{kks\_sbm.i}: $\int\psi c$ conserved to $10^{-12}$, the free energy decreasing,
+both backends and 1 and 4 ranks within $10^{-13}$. At $t = 1$, $\int\psi\eta$ is 2328.73
+(time-converged, $dt = 0.01$) against 2329.46 for the spectral AB3 run
+(\texttt{KKS\_no\_flux\_bc.i}, the same grid and $\psi$), a gap of 0.73 in a change of 129; at
+$dx = 0.5$ (time-converged, $dt = 0.01$ and $0.005$ within $10^{-3}$), 2329.355 against 2329.539
+(gap 0.18).
+\item \textbf{Identity-row scale (preconditioner only).} With the largest diagonal on the
+inactive identity rows, PCMG took about 100 iterations per solve on \texttt{kks\_sbm.i}; with the
+smallest active diagonal it takes 12--13, as with $\psi = 1$ (12) or a $\psi$ floor without
+inactive cells. The inactive rows and columns are decoupled from the active block, so the
+solution is unchanged (all golds pass unchanged).
+\item \textbf{Review (2026-10-29).} Aspect review, mutation testing (17 mutations, 9 killed, two of them by
+tests added in the review: a PCMG iteration cap of 15 on \texttt{kks\_sbm.i}, serial (14--16 on 4
+ranks), and the within-step coefficient change error. Of the 8 survivors, 7 change only the
+PCMG preconditioner or the speed of the torch PCG solve; the eighth disables the error for a
+zero-diagonal cell with nonzero off-diagonal entries, which no test reaches)
+and a fix verification. Fixed: the single-precision identity scale (DBL\_MAX in float32), the
+quoted figures.
+\end{itemize}
+
+\status{done (2026-10-29, tag \texttt{pr9-sbm}); new PR from branch \texttt{implicit\_fd\_sbm},
+on top of \#192.}
 
 \pr{8 (deferred)}{Monolithic Block-Matrix Groundwork}
-\textbf{Scope:} Not scheduled; documented here so the \texttt{target\_field}
-tagging convention from PR0 doesn't rot unused. Revisit only if a future
-model needs exact (non-Picard) multi-field coupling.
+\textbf{Scope:} not scheduled. Revisit only if a model needs exact
+(non-Picard) multi-field coupling; it would use field-split / block
+\texttt{Vec}s (Section~\ref{sec:soa}). The \texttt{target\_field} tag
+proposed for it in PR0 was not built.
 
-\status{deferred --- explicitly out of scope until requested.}
+\status{deferred until requested.}
+
+\subsection*{Outside the core PRs: PFHub 2a with the implicit FD solver}
+On branch \texttt{pfhub\_2a\_implicit\_fd} (on top of PR4); its PR goes up
+together with 2b, which needs PR5's no-flux biharmonic (user, 2026-10-25). The existing 2a inputs started $c$
+with $\epsilon = 0.01$; the PFHub specification uses $0.05$, corrected on
+that branch. Results posted with $0.01$ (\texttt{results.2a.1.json}) and the
+notebook's \texttt{2a\_secant\_out.csv} need regenerating.
 
 \section{Status Tracking}
 
-\begin{longtable}{>{\bfseries}p{0.08\textwidth} p{0.42\textwidth} p{0.18\textwidth} p{0.2\textwidth}}
+\begin{longtable}{>{\bfseries}p{0.08\textwidth} p{0.34\textwidth} p{0.26\textwidth} p{0.22\textwidth}}
 \toprule
-PR & Deliverable & Status & Verification attached? \\
+PR & Deliverable & Status & Verification \\
 \midrule
 \endhead
-PR0 & LinearFDOperator mixin + Laplacian retrofit & proposed & --- \\
-PR1 & BC TensorComputes, ghost-fill & proposed & --- \\
-PR1a & Torch-native vs.\ PETSc matrix-free benchmark & CPU+CUDA verified, reviewed; not merged (tag \texttt{pr1b-spikes}) & CPU+CUDA logs and tables in Section~\ref{sec:roadmap} (PR1a) \\
-PR1b & Multigrid spikes $\to$ hybrid design & reviewed, findings addressed; not merged (tag \texttt{pr1b-spikes}) & chain table and logs (Section~\ref{sec:pr1b}) \\
-PR2 & DMDA/decomposition compatibility spike & spike implemented, unmerged & passes 1--8 ranks \\
-PR2b & Multi-rank PCMG on torch shells & spike done (\texttt{b3dcd72}) & PETSc-owned hierarchy + cell-centred transfer adopted (user, 2026-10-18) \\
-PR2c & Non-SPD + torch PCSHELL smoother + fusion & done (\texttt{40f6977}, \texttt{65109ae}) & GS robust for upwind; Cheby/Jacobi fails at Pe $=10$; central Pe $\ge1$ deferred; CUDA traced 2.4--3.2$\times$ eager, +graph capture 1.8$\times$ more at $n=256$, none at $n\ge1024$ \\
-PR3 & ImplicitFDSolver (was PetscFDSolverBase), single field, matrix-free & implemented, reviewed; PR open, not merged & MMS and BE cross-validation orders 2/4, CPU 1--4 ranks, MPS, H200 \\
-PR4 & BC terms in matrix-free operator application & proposed & --- \\
-PR4a & AMG-preconditioned mixed mode (matrix-free Amat + assembled Pmat), contingent & proposed & --- \\
-PR5 & FiniteDifferenceDiffusion + lagged remainder & proposed & --- \\
-PR5a & TimeDerivativeOperator + steady-field mixing & TimeDerivativeOperator done in PR3; mixing proposed & --- \\
-PR6 & PicardTensorSolver, two-field coupling & proposed & --- \\
-PR7 & SBM/KKS no-flux port & proposed & --- \\
+PR0 & LinearFDOperator mixin + Laplacian retrofit & merged (\texttt{2580075}, PR \#185) & stencil vs.\ conv-kernel unit tests \\
+PR1 & BC TensorComputes, ghost fill & merged (PR \#186) & real-space explicit tests; dual-path unit test (rewritten in PR4) \\
+PR1a & Torch-native vs.\ PETSc matrix-free benchmark & spike, reviewed; not merged (tag \texttt{pr1b-spikes}) & CPU+CUDA logs and tables (PR1a) \\
+PR1b & Multigrid spikes $\to$ hybrid design & spike, reviewed; not merged (tag \texttt{pr1b-spikes}) & chain table and logs (Section~\ref{sec:pr1b}) \\
+PR2 & DMDA/decomposition compatibility & spike, not merged; superseded by \texttt{PetscFDHierarchy} & 1--8 ranks; ownership checked in production \\
+PR2b & Multi-rank PCMG & spike done (\texttt{b3dcd72}) & PETSc-owned hierarchy + cell-centred transfer adopted (user, 2026-10-18) \\
+PR2c & Non-SPD + torch PCSHELL smoother + fusion & spike done (\texttt{40f6977}, \texttt{65109ae}) & GS robust for upwind; central Pe $\ge1$ deferred; CUDA traced 2.4--3.2$\times$ eager \\
+PR3 & ImplicitFDSolver, periodic, matrix-free & merged (PR \#188) & MMS and BE orders 2/4; CPU 1--4 ranks, MPS, H200 \\
+PR3b & Biharmonic, PFHub 1a input, smoother choice (Chebyshev default), no divergence test, preallocation, scaling script & merged (PR \#189) & biharmonic Fourier mode 2D/3D, both backends \\
+PR4 & BCs in ImplicitFDSolver, face-varying values & implemented, pre-push reviewed, findings addressed; CPU serial and multi-rank pass; PR \#191 open, to merge before \#192 (tag \texttt{pr4-implicit-bcs}) & MMS vs.\ direct solve, both backends; PCMG iterations flat in $n$ \\
+PR4a & AMG mixed mode, contingent & proposed & --- \\
+PR5 & Variable coefficients, no-flux biharmonic, PFHub 1b & done (tag pr5-variable-coefficient), in PR \#192 & DivGrad MMS (2D, 3D, coefficient jump), capacitor, biharmonic faces MMS; CPU 1--4 ranks \\
+PR5a & Steady + transient coupling & done (tag pr5a-steady-transient), in PR \#192 & sources at $t^n$ (order-independent); exact mean of the solution; coupled test against the exact recurrence; PFHub 6a within the submissions' spread \\
+PR6 & Picard, two-field coupling & done (tag pr6-picard), in PR \#192 & coupled BE recurrence, time source, bicrystal Newton reference; CPU 1--4 ranks, MPS \\
+PR7 & SBM/KKS no-flux port & done (tag pr7-kks-no-flux), in PR \#192 & mirror gold, conservation, energy decrease, $dt$/$dx$ orders, spectral limit; CPU 1--4 ranks \\
+PR7b & Substeps removed, output interval, BDF2 time integration & done (tag pr7b-bdf2), in PR \#192 & exact variable-step recurrence, order 2, Newton BDF2 reference, cutback history, 6a \\
 PR8 & Monolithic groundwork & deferred & --- \\
+PR9 & Smoothed boundary method, \texttt{CoefficientTimeDerivativeOperator}, inactive cells & done (tag pr9-sbm), new PR on top of \#192 & coefficient $dt$ and inactive block vs.\ scipy, slab order 2 in $l$, KKS vs.\ spectral SBM; CPU 1--4 ranks \\
+--- & PFHub 2a, implicit FD & branch \texttt{pfhub\_2a\_implicit\_fd}; PR together with 2b & --- \\
 \bottomrule
 \end{longtable}
 
-\section{Open Questions Deferred (not blocking PR0)}
+\section{Open Questions}
 
 \begin{enumerate}[leftmargin=*]
-\item \sout{Input syntax for multiple PETSc solvers} --- \textbf{resolved:}
-a single \texttt{PetscFDSolverBase} instance per \texttt{[TensorSolver]}
-block lists its tracked fields and iterates over them one-by-one; each
-field's \texttt{petsc\_options*} triplet is a named sub-block keyed by field
-name within that one \texttt{[TensorSolver]} block. No separate per-field
-solver objects.
-\item DMDA stencil width when different linear operators need different
-ghost widths --- v1 sizes one DM to the max; revisit only if that proves
-wasteful in PR3/PR5 profiling.
-\item \sout{Whether \texttt{coefficientsChanged()} caching is worth
-enabling} --- superseded by decision \#3's reuse policy. Open: the threshold
-value and whether it is user-facing.
-\item Whether DMDA is still the right choice (PETSc wiring design) once
-matrix-free is the default --- DMDA's main unique value was correct
-assembled-matrix DOF numbering; under matrix-free action, Marlin's existing
-MPI decomposition may be sufficient on its own without a DMDA layer at all
-(PETSc's \texttt{Vec} layout still needs to match for \texttt{KSPSolve}'s
-own vector operations, but that's a smaller ask than matching \texttt{Mat}
-row ownership). Revisit when scoping PR2 in light of PR1a's results.
-\item Whether PETSc is used at all for the matrix-free path, or whether
-PR1a's benchmark shows a pure torch-native CG/multigrid solver (no PETSc
-dependency) is preferable --- this is R6, and is now a per-device question
-rather than one global answer: on CPU and CUDA, zero-copy \texttt{Vec}
-wrapping (Section~\ref{sec:soa}) is structurally possible, so the question
-is whether it is faster in practice once wrapped (PR1a decides this with
-real numbers); on MPS, no PETSc \texttt{Vec} type exists at all, so the
-torch-native path is the only option there regardless of what PR1a
-measures on CPU/CUDA. \textbf{Resolved 2026-10-18:} PETSc (KSPCG+PCMG,
-torch fine level) is the default on CPU and CUDA (Section~\ref{sec:hybrid}).
-\item Which solves PR3--PR6 need first (SPD-only vs.\ non-SPD), and whether
-MPS is a first-class target or torch-CG-only. \textbf{MPS resolved
-2026-10-18 (user):} MPS is supported through one route for now, the existing
-torch-native PCG (\texttt{conjugateGradientSolve}) reused in the solver block.
-The torch smoothers written for PETSc's \texttt{PCSHELL} are reused as its
-preconditioner, which also serves pure-torch builds (no PETSc, or no CUDA
-PETSc). More complex solvers on MPS are deferred.
-\item Whether non-periodic BCs need special treatment on coarse PCMG levels
-(rediscretised BC rows vs.\ Galerkin) --- check in PR2b/PR4.
+\item Preconditioner rebuild threshold of decision~3: its value and whether
+it is user-facing (PR6).
+\item DMDA stencil width when operators need different ghost widths: one DM
+sized to the widest stencil (as built); revisit if profiling shows waste.
+\item Whether PCMG with point Jacobi suffices on the KKS coefficients (R7,
+PR4a).
+\item Non-SPD operators (advection, central differencing at high Pe):
+deferred until a target physics needs implicit advection (PR2c).
+\item A Newton direction for the nonlinear iteration (PR6 plan): each source's derivative
+with respect to its own field as a per-cell diagonal of that field's operator, with
+Jacobian-free Newton--Krylov for cross-field derivatives. Open: sources with derivatives of
+$u$ (not diagonal), $f'' < 0$ (indefinite), and the coarse-level restriction.
+\item A per-cell reaction operator $k(\mathbf{x})\,u$ on the solved field, with $k$ from the
+other fields, for grand-potential models (user, 2026-10-28). The nonlinear iteration already
+refreshes such a coefficient at every iterate.
+\item An accuracy-driven $dt$ from a BDF2 against backward Euler estimate (deferred from PR7b).
+\item Restart: \texttt{--recover} restores no tensor buffers, and the BDF2 history is not
+restartable data.
+\item Work on steps that write no output: \texttt{TensorProblem::executeTensorOutputs} runs at
+every \texttt{TIMESTEP\_END}, so the postprocess computes, the CPU copies and the mapping to
+MOOSE variables run at every time step, not every output step. With substeps removed (PR7b)
+that is every solve. Whether to skip the copies and the mapping on such steps is open.
+\item The ghost exchange of each field after its linear solve
+(\texttt{ImplicitFDSolver::substep}) is likely redundant: every compute that reads a
+field's ghosts exchanges them itself (\texttt{runComputeWithGhosts}), and removing the
+matching exchange from the nonlinear iteration left every \texttt{implicit\_fd} output
+byte-identical on 1--4 ranks (PR7 review). Remove it once the same check (serial, MPI, the
+face and \texttt{c\_buffer} tests) passes without it; add communication back only where a
+reader needs it.
 \end{enumerate}
+
+\textbf{Resolved:} input syntax for several fields (one
+\texttt{ImplicitFDSolver} with \texttt{buffer} and \texttt{;}-separated
+\texttt{operators}; PETSc options apply to every field under its own prefix
+\texttt{<field>\_}, not per-field sub-blocks); whether to keep the DMDA
+(yes: PETSc owns the hierarchy, Section~\ref{sec:hybrid}); PETSc or
+torch-only (PETSc on CPU and CUDA, 2026-10-18); MPS (torch PCG with a Jacobi
+preconditioner; the spike torch smoothers are not used); coarse BC rows
+(rediscretised, decision~10).
 
 \end{document}

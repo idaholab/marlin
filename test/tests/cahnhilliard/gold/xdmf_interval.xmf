@@ -1,0 +1,56 @@
+<?xml version="1.0"?>
+<Xdmf xmlns:xi="http://www.w3.org/2003/XInclude" Version="2.2">
+	<Domain>
+		<Topology TopologyType="2DCoRectMesh" Dimensions="21 21" />
+		<Geometry Type="ORIGIN_DXDY">
+			<DataItem Format="XML" Dimensions="2">0 0</DataItem>
+			<DataItem Format="XML" Dimensions="2">0.15 0.15</DataItem>
+		</Geometry>
+		<Grid Name="TimeSeries" GridType="Collection" CollectionType="Temporal">
+			<Grid Name="T0" GridType="Uniform">
+				<Time Value="0" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="c" Center="Node">
+					<DataItem DataType="Float" Dimensions="21 21" Format="HDF">xdmf_interval.h5:/c.0</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="20 20" Format="HDF">xdmf_interval.h5:/mu.0</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T1" GridType="Uniform">
+				<Time Value="0.0040000000000000001" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="c" Center="Node">
+					<DataItem DataType="Float" Dimensions="21 21" Format="HDF">xdmf_interval.h5:/c.1</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="20 20" Format="HDF">xdmf_interval.h5:/mu.1</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T2" GridType="Uniform">
+				<Time Value="0.0080000000000000002" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="c" Center="Node">
+					<DataItem DataType="Float" Dimensions="21 21" Format="HDF">xdmf_interval.h5:/c.2</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="20 20" Format="HDF">xdmf_interval.h5:/mu.2</DataItem>
+				</Attribute>
+			</Grid>
+			<Grid Name="T3" GridType="Uniform">
+				<Time Value="0.010000000000000002" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Topology)" />
+				<xi:include xpointer="xpointer(//Xdmf/Domain/Geometry)" />
+				<Attribute Name="c" Center="Node">
+					<DataItem DataType="Float" Dimensions="21 21" Format="HDF">xdmf_interval.h5:/c.3</DataItem>
+				</Attribute>
+				<Attribute Name="mu" Center="Cell">
+					<DataItem DataType="Float" Dimensions="20 20" Format="HDF">xdmf_interval.h5:/mu.3</DataItem>
+				</Attribute>
+			</Grid>
+		</Grid>
+	</Domain>
+</Xdmf>

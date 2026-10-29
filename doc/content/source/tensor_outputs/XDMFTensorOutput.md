@@ -26,7 +26,10 @@ users in the process (such as the Exodus output through netCDF).
 Writes one or more buffers selected by
 [!param](/TensorOutputs/XDMFTensorOutput/buffer) to an XDMF/HDF5 pair suitable for Paraview or
 Visit. Enable HDF5 with [!param](/TensorOutputs/XDMFTensorOutput/enable_hdf5) and select cell or
-node data with [!param](/TensorOutputs/XDMFTensorOutput/output_mode).
+node data with [!param](/TensorOutputs/XDMFTensorOutput/output_mode). With
+[!param](/TensorOutputs/XDMFTensorOutput/time_step_interval) set to $n$, only every $n$-th time
+step is written; add `FINAL` to [!param](/TensorOutputs/XDMFTensorOutput/execute_on) to also
+write the last step when it does not end an interval.
 
 ## Example Input File Syntax
 

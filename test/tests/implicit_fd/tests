@@ -1,5 +1,5 @@
 [Tests]
-  design = 'ImplicitFDSolver.md TimeDerivativeOperator.md FiniteDifferenceBiharmonic.md'
+  design = 'ImplicitFDSolver.md TimeDerivativeOperator.md FiniteDifferenceBiharmonic.md CoefficientTimeDerivativeOperator.md'
   issues = '#184'
 
   [backward_euler]
@@ -203,6 +203,60 @@
     []
   []
 
+  [bdf2]
+    requirement = 'The system shall integrate implicit finite-difference time steps with the variable-step BDF2 formula, backward Euler on the first step,'
+    # bdf2_mode.py: the exact scalar BDF2 recurrence of the mode on the step sequence of
+    # bdf2_mode.i (ratios 0.5 to 2); the solves match it to 3e-8 (PETSc) and 4e-10 (torch PCG)
+    # relative at l_tol = 1e-8. At fixed steps to t = 0.1 the error against the exact decay falls
+    # at order 2.06 (backward Euler: 1.02).
+    [mode_petsc]
+      type = CSVDiff
+      input = bdf2_mode.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=bdf2_mode_3pt'
+      csvdiff = bdf2_mode_3pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu'
+      detail = 'reproducing the exact recurrence of a periodic Fourier mode over changing time steps with the PETSc solver,'
+    []
+    [mode_torch]
+      type = CSVDiff
+      input = bdf2_mode.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG stencil=5 Outputs/file_base=bdf2_mode_5pt'
+      csvdiff = bdf2_mode_5pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the same with the 5-point stencil and the torch solver,'
+    []
+    [nonlinear]
+      type = CSVDiff
+      input = bicrystal.i
+      # bicrystal_newton.py ... 0.25 bdf2: Newton BDF2 steps of 0.25, 0.25, 0.5, 0.25, 0.375;
+      # the iteration matches it to 4e-14
+      cli_args = "dt=0.25 TensorComputes/Solve/deta1_op/order=2 "
+                 "TensorComputes/Solve/deta2_op/order=2 "
+                 "Executioner/TimeStepper/type=TimeSequenceStepper "
+                 "Executioner/TimeStepper/time_sequence='0.25 0.5 1 1.25 1.625' "
+                 "Outputs/file_base=bicrystal_bdf2"
+      csvdiff = bicrystal_bdf2.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'iterating two nonlinear coupled fields to the fully implicit BDF2 step of a Newton reference, and'
+    []
+    [cutback]
+      type = CSVDiff
+      input = cutback.i
+      # dt doubles from 0.002 until the third step fails the linear solve and is retried at 0.004;
+      # the gold is a run on the accepted times from the start (TimeSequenceStepper, no failure),
+      # which the retried run reproduces to all printed digits
+      cli_args = 'TensorComputes/Solve/dudt/order=2 Executioner/num_steps=4 Executioner/TimeStepper/dt=0.002 Executioner/TimeStepper/min_iterations=1000 Executioner/TimeStepper/growth_factor=2 Outputs/file_base=cutback_bdf2'
+      csvdiff = cutback_bdf2.csv
+      expect_out = 'Solve failed, cutting timestep'
+      compute_devices = 'cpu'
+      detail = 'keeping the step history of a retried step.'
+    []
+  []
+
   [biharmonic]
     requirement = 'The system shall integrate a periodic Fourier mode of u_t = -M kappa Laplacian(Laplacian(u)) with implicit backward Euler finite differences, reproducing the exact discrete amplification factor in every step,'
     [3pt_torch]
@@ -356,6 +410,667 @@
     []
   []
 
+  [grid_independence_bcs]
+    requirement = 'The system shall solve the steady Poisson problem on a domain with Dirichlet, Neumann and Robin faces with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size'
+    [n64]
+      type = RunApp
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=64 Outputs/csv=false -u_ksp_converged_reason'
+      # 7 iterations measured; fail above 12
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 64 x 64 grid,'
+    []
+    [n128]
+      type = RunApp
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=128 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 128 x 128 grid, and'
+    []
+    [n256]
+      type = RunApp
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=256 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 256 x 256 grid.'
+    []
+  []
+
+  [biharmonic_bcs]
+    requirement = 'The system shall solve the implicit biharmonic on a non-periodic domain, imposing u and Laplacian(u) = 0 on a Dirichlet face and du/dn and dLaplacian(u)/dn = 0 on a Neumann face, matching an independent sparse direct solve of the same discretisation, with'
+    # golds checked against an independent SciPy assembly of M L0 (L_u u + g_u) (the homogeneous
+    # folded Laplacian applied to the data Laplacian), max_error agreeing to 1e-8; order 2.00 from
+    # n = 32 to 128 in all three cases. The Neumann mass stays at its initial 0 to round-off.
+    # These face data are linear along the faces.
+    [steady_dirichlet]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'tf=0 ops=bih num_steps=1 TensorComputes/Initialize/active=f_ic Outputs/file_base=biharmonic_bc_steady_dirichlet'
+      csvdiff = biharmonic_bc_steady_dirichlet.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Dirichlet faces in the steady problem with torch preconditioned conjugate gradient,'
+    []
+    [be_dirichlet]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'Outputs/file_base=biharmonic_bc_be_dirichlet'
+      csvdiff = biharmonic_bc_be_dirichlet.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Dirichlet faces with backward Euler,'
+    []
+    [be_neumann]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann'
+      csvdiff = biharmonic_bc_be_neumann.csv
+      rel_err = 1e-6
+      # the mass is 0 up to round-off
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Neumann faces with backward Euler, conserving the mass,'
+    []
+    [be_neumann_petsc]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann_petsc'
+      csvdiff = biharmonic_bc_be_neumann_petsc.csv
+      rel_err = 1e-6
+      abs_zero = 1e-12
+      compute_devices = 'cpu'
+      detail = 'Neumann faces with backward Euler and the PETSc multigrid solver,'
+    []
+    [steady_dirichlet_petsc]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC tf=0 ops=bih num_steps=1 TensorComputes/Initialize/active=f_ic Outputs/file_base=biharmonic_bc_steady_dirichlet_petsc'
+      csvdiff = biharmonic_bc_steady_dirichlet_petsc.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu'
+      detail = 'Dirichlet faces in the steady problem with the PETSc multigrid solver,'
+    []
+    # with face data curved along the faces the golds match an independent NumPy/SciPy model of
+    # the two-stage operator (w ghosts -w0, w0) to 1e-10; the max_error is 6.4e-3, 1.6e-3,
+    # 4.0e-4 (Dirichlet) and 5.3e-3, 1.3e-3, 3.4e-4 (Neumann) at n = 16, 32, 64. Reflecting u's
+    # ghosts instead (d2u/dn2 = 0, d3u/dn3 = 0) stalls at 1.3e-2 and 0.13.
+    [steady_dirichlet_curved]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'n=16 M=1 faces=dirichlet_curved tf=0 ops=bih num_steps=1 TensorComputes/Initialize/active=f_ic Outputs/file_base=biharmonic_bc_steady_dirichlet_curved'
+      csvdiff = biharmonic_bc_steady_dirichlet_curved.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Dirichlet face data curved along the faces,'
+    []
+    [be_neumann_curved]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'n=16 M=1 faces=neumann_curved tf=0 ops="dudt bih" num_steps=1 TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann_curved'
+      csvdiff = biharmonic_bc_be_neumann_curved.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'Neumann face data curved along the faces, and'
+    []
+    [be_neumann_curved_petsc]
+      type = CSVDiff
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC n=16 M=1 faces=neumann_curved tf=0 ops="dudt bih" num_steps=1 TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" Outputs/file_base=biharmonic_bc_be_neumann_curved'
+      csvdiff = biharmonic_bc_be_neumann_curved.csv
+      rel_err = 1e-6
+      prereq = 'biharmonic_bcs/be_neumann_curved'
+      compute_devices = 'cpu'
+      detail = 'the same with the PETSc multigrid solver.'
+    []
+  []
+
+  [divgrad]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall solve a variable-coefficient problem -div(D grad u) = f implicitly with Dirichlet, Neumann and Robin faces, matching a SciPy sparse solve of the same discretisation (second order in h), with'
+    # the golds agree with SciPy sparse solves of the same discretisation to 11 digits (12 for
+    # the Robin face and the jump, which switches D at the start of the second step), and on 4
+    # ranks with 1 rank to 1e-12
+    [steady_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'Outputs/file_base=divgrad_steady_harmonic'
+      csvdiff = divgrad_steady_harmonic.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the harmonic face mean in the steady problem,'
+    []
+    [steady_arithmetic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'face_mean=arithmetic Outputs/file_base=divgrad_steady_arithmetic'
+      csvdiff = divgrad_steady_arithmetic.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the arithmetic face mean in the steady problem,'
+    []
+    [be_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'tf=1 ops="dudt divgrad" num_steps=2 Outputs/file_base=divgrad_be_harmonic'
+      csvdiff = divgrad_be_harmonic.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler,'
+    []
+    [steady_robin]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorComputes/BCs/active="left right_robin bottom top" Outputs/file_base=divgrad_steady_robin'
+      csvdiff = divgrad_steady_robin.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'a Robin face in the steady problem,'
+    []
+    [be_robin]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorComputes/BCs/active="left right_robin bottom top" tf=1 ops="dudt divgrad" num_steps=2 Outputs/file_base=divgrad_be_robin'
+      csvdiff = divgrad_be_robin.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'a Robin face with backward Euler, and'
+    []
+    [be_jump]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'tf=1 ops="dudt divgrad" num_steps=3 D_jump=1 Outputs/file_base=divgrad_be_jump'
+      csvdiff = divgrad_be_jump.csv
+      rel_err = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'a coefficient changed to a jump of 100 after the first backward-Euler step.'
+    []
+  []
+
+  [divgrad_petsc]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall solve a variable-coefficient problem -div(D grad u) = f implicitly with the PETSc multigrid preconditioned solver, its coarse levels rediscretised from the mean of D over each coarse cell, matching the torch solve, with'
+    # 1e-11 relative to the torch golds measured, on 1 and 4 ranks
+    [steady_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=divgrad_steady_harmonic'
+      csvdiff = divgrad_steady_harmonic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/steady_harmonic'
+      compute_devices = 'cpu'
+      detail = 'the harmonic face mean in the steady problem,'
+    []
+    [steady_arithmetic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC face_mean=arithmetic Outputs/file_base=divgrad_steady_arithmetic'
+      csvdiff = divgrad_steady_arithmetic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/steady_arithmetic'
+      compute_devices = 'cpu'
+      detail = 'the arithmetic face mean in the steady problem,'
+    []
+    [be_harmonic]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt divgrad" num_steps=2 Outputs/file_base=divgrad_be_harmonic'
+      csvdiff = divgrad_be_harmonic.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/be_harmonic'
+      compute_devices = 'cpu'
+      detail = 'backward Euler,'
+    []
+    [steady_robin]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorComputes/BCs/active="left right_robin bottom top" Outputs/file_base=divgrad_steady_robin'
+      csvdiff = divgrad_steady_robin.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/steady_robin'
+      compute_devices = 'cpu'
+      detail = 'a Robin face in the steady problem,'
+    []
+    [be_robin]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorComputes/BCs/active="left right_robin bottom top" tf=1 ops="dudt divgrad" num_steps=2 Outputs/file_base=divgrad_be_robin'
+      csvdiff = divgrad_be_robin.csv
+      rel_err = 1e-8
+      prereq = 'divgrad/be_robin'
+      compute_devices = 'cpu'
+      detail = 'a Robin face with backward Euler,'
+    []
+    [be_jump]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt divgrad" num_steps=3 D_jump=1 Outputs/file_base=divgrad_be_jump -u_ksp_converged_reason'
+      csvdiff = divgrad_be_jump.csv
+      rel_err = 1e-8
+      # 11, 19, 18 iterations measured; Jacobi alone takes about 150, stale coarse levels fail
+      # to converge. Fail above 30.
+      absent_out = 'iterations ([0-9]{3,}|[4-9][0-9]|3[1-9])\b'
+      prereq = 'divgrad/be_jump'
+      compute_devices = 'cpu'
+      detail = 'a coefficient changed to a jump of 100 after the first backward-Euler step, reassembling the coarse levels,'
+    []
+    [be_partial_jump]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=20 tf=1 ops="dudt divgrad" num_steps=3 D_jump=1 D_jump_ymin=0.8 Outputs/file_base=divgrad_be_partial_jump'
+      # the gold matches a SciPy sparse solve to 1e-13 relative; on 2 ranks split in y only one
+      # rank's D changes, and every rank must still reassemble (without that the solve hangs)
+      csvdiff = divgrad_be_partial_jump.csv
+      rel_err = 1e-8
+      min_parallel = 2
+      max_parallel = 2
+      compute_devices = 'cpu'
+      detail = 'a coefficient changed on only one of two ranks,'
+    []
+    [steady_3d]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=16 Domain/dim=3 Domain/nz=16 Domain/zmax=1 Domain/periodic_directions=Z Outputs/file_base=divgrad_steady_3d -u_ksp_converged_reason'
+      # u gets sin(2 pi z); the gold (torch PCG) matches a SciPy sparse solve to 1e-12
+      # relative, PETSc 2e-12. Errors 6.8e-2, 1.7e-2, 4.4e-3 at n = 8, 16, 32 (second order).
+      # PCMG takes 10 iterations (16 with the z faces missing from the coarse levels); fail
+      # above 13.
+      csvdiff = divgrad_steady_3d.csv
+      rel_err = 1e-8
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[4-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a 3D domain, periodic in z, and'
+    []
+    [steady_harmonic_cuda]
+      type = CSVDiff
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=divgrad_steady_harmonic'
+      csvdiff = divgrad_steady_harmonic.csv
+      rel_err = 1e-8
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'the harmonic face mean in the steady problem on CUDA.'
+    []
+  []
+
+  [grid_independence_divgrad]
+    design = 'ImplicitFDSolver.md'
+    requirement = 'The system shall solve a variable-coefficient problem -div(D grad u) = f with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size, for'
+    # smooth D: 10, 9, 9, 8 iterations measured from n = 32 to 256; fail above 12.
+    # D jumping by 100 at x = 1/2: 20-21 from n = 32 to 256; fail above 30 (with the coarse D
+    # replaced by 1 it takes about 150).
+    [smooth_n64]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=64 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a smooth coefficient on a 64 x 64 grid,'
+    []
+    [smooth_n256]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=256 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[2-9][0-9]|1[3-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a smooth coefficient on a 256 x 256 grid,'
+    []
+    [jump_n64]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=64 Functions/D_func/expression="1 + 99*(x > 0.5) + 0*y" Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[4-9][0-9]|3[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a coefficient jump of 100 on a 64 x 64 grid, and'
+    []
+    [jump_n256]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC n=256 Functions/D_func/expression="1 + 99*(x > 0.5) + 0*y" Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[4-9][0-9]|3[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'a coefficient jump of 100 on a 256 x 256 grid.'
+    []
+  []
+
+  [capacitor]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall compute the charge on the plates of a capacitor filled with two dielectric slabs (relative permittivities 1 and 100, the interface on a cell face) equal to the exact series value eps0 V / (d1/eps1 + d2/eps2) to 1e-10 relative, measured at both plates and inside a slab, with the potential equal to the exact piecewise-linear one, with'
+    # the errors are 1e-14 measured (abs_zero makes the gate on them 1e-10); with
+    # face_mean = arithmetic they are 6e-2
+    [torch]
+      type = CSVDiff
+      input = capacitor.i
+      csvdiff = capacitor_torch.csv
+      cli_args = 'Outputs/file_base=capacitor_torch'
+      rel_err = 1e-10
+      abs_zero = 1e-10
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver and'
+    []
+    [petsc]
+      type = CSVDiff
+      input = capacitor.i
+      csvdiff = capacitor_torch.csv
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=capacitor_torch'
+      rel_err = 1e-10
+      abs_zero = 1e-10
+      prereq = 'capacitor/torch'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid preconditioned solver.'
+    []
+  []
+
+  [divgrad_jacobi]
+    design = 'ImplicitFDSolver.md'
+    requirement = 'The system shall precondition the conjugate gradient solve of a variable-coefficient operator with its cell-wise diagonal, solving a coefficient jump of 100 on a 64 x 64 grid within 400 iterations.'
+    # 318 iterations measured; a constant (mean) diagonal takes 1985
+    [jump]
+      type = RunApp
+      input = divgrad_mms.i
+      cli_args = 'n=64 Functions/D_func/expression="1 + 99*(x > 0.5) + 0*y" TensorSolver/l_max_its=400 Outputs/csv=false'
+      compute_devices = 'cpu'
+    []
+  []
+
+  [divgrad_errors]
+    design = 'FiniteDifferenceDivGrad.md ImplicitFDSolver.md'
+    requirement = 'The system shall report an error in the implicit solve with a FiniteDifferenceDivGrad when'
+    [negative]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'face_mean=arithmetic Functions/D_func/expression="x - 0.5 + 0*y"'
+      expect_err = "The coefficient 'D' of FiniteDifferenceDivGrad 'divgrad' must be nonnegative in "
+                   "an implicit solve"
+      detail = 'the coefficient is negative somewhere,'
+    []
+    [harmonic_zero]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
+      expect_err = 'has D_i D_j <= 0 on a face, where the harmonic mean is undefined'
+      detail = 'the coefficient is zero somewhere with the harmonic face mean,'
+    []
+    [decoupled_cells]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
+      expect_err = 'has a zero diagonal in some cells where the right-hand side is nonzero'
+      detail = 'the coefficient is zero on every face of some cells in a steady problem,'
+    []
+    [decoupled_cells_petsc]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC face_mean=arithmetic Functions/D_func/expression="max(0, x - 0.5) + 0*y"'
+      expect_err = 'has a zero diagonal in some cells where the right-hand side is nonzero'
+      detail = 'the same with the PETSc solver,'
+    []
+    [harmonic_negative]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'Functions/D_func/expression="-1 + 0*x"'
+      expect_err = "must be positive in an implicit solve with the harmonic face mean"
+      detail = 'the coefficient is negative with the harmonic face mean, and'
+    []
+    [positive_factor]
+      type = RunException
+      input = divgrad_mms.i
+      cli_args = 'TensorComputes/Solve/divgrad/factor=1'
+      expect_err = "Operator 'divgrad' is not symmetric positive \(semi\)definite"
+      detail = 'the operator has a positive factor.'
+    []
+  []
+
+  [steady_transient]
+    requirement = 'The system shall solve a transient field and a steady field coupled through sources computed at the start of the step, matching the exact two-step recurrence of a periodic Fourier mode, independent of the order of the fields, and conserving the mean of the transient field exactly at any linear tolerance, with'
+    [torch]
+      type = CSVDiff
+      input = steady_transient.i
+      csvdiff = steady_transient_out.csv
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver,'
+    []
+    [swapped]
+      type = CSVDiff
+      input = steady_transient.i
+      cli_args = "TensorSolver/buffer='phi c' TensorSolver/operators='lap_phi_op; dcdt_op lap_c_op' "
+                 "TensorSolver/source='src_phi src_c'"
+      csvdiff = steady_transient_out.csv
+      abs_zero = 1e-12
+      prereq = 'steady_transient/torch'
+      compute_devices = 'cpu'
+      detail = 'the fields listed in the other order,'
+    []
+    [petsc]
+      type = CSVDiff
+      input = steady_transient.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=steady_transient_petsc'
+      csvdiff = steady_transient_petsc.csv
+      abs_zero = 1e-12
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver, and'
+    []
+    [petsc_loose]
+      # at l_tol = 1e-8 the multigrid solve of c alone leaves a mean of 1e-10, which would make
+      # the right-hand side of phi incompatible
+      type = CSVDiff
+      input = steady_transient.i
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorSolver/l_tol=1e-8 Outputs/file_base=steady_transient_loose'
+      csvdiff = steady_transient_loose.csv
+      # the errors are the multigrid solve's (1e-8, and up to 100% different between rank counts),
+      # so they are gated below 1e-7: smaller values count as zero, a larger one fails against the
+      # zeroed gold; mean_c at round-off
+      abs_zero = 1e-14
+      override_columns = 'error_c error_phi'
+      override_rel_err = '1e-7 1e-7'
+      override_abs_zero = '1e-7 1e-7'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver at a loose linear tolerance.'
+    []
+  []
+
+  [singular_decaying_source]
+    requirement = 'The system shall accept the round-off mean left in the right-hand side of a singular steady field by a conserved, decaying source, and reject a net source that appears after the decay,'
+    [long]
+      # c decays to 7e-8 of its initial size over 200 steps while its mean stays at the round-off
+      # of its initial size; the check scaled by the current right-hand side aborted near step 100
+      type = RunApp
+      input = steady_transient.i
+      cli_args = 'Executioner/num_steps=200 Outputs/csv=false'
+      compute_devices = 'cpu'
+      detail = 'running the coupled test to 200 steps, and'
+    []
+    [late_charge]
+      type = RunException
+      input = steady_transient.i
+      cli_args = "Executioner/num_steps=200 Outputs/csv=false "
+                 "TensorComputes/Solve/src_phi_compute/expression='s*(c+if(t>1,1e-10,0))' "
+                 "TensorComputes/Solve/src_phi_compute/extra_symbols=true"
+      expect_err = 'the right-hand side must have zero mean'
+      compute_devices = 'cpu'
+      detail = 'stopping when a net source of 1e-10 is added at t = 1.'
+    []
+  []
+
+  [pfhub_1b]
+    requirement = 'The system shall run PFHub benchmark 1b (spinodal decomposition with no-flux faces) on a reduced grid with the implicit finite-difference solver, conserving the total concentration, with'
+    # gold from the PETSc run; the torch PCG run agrees to 1e-11 relative, 4 ranks to 1e-12
+    [petsc]
+      type = CSVDiff
+      input = pfhub_1b.i
+      csvdiff = pfhub_1b_out.csv
+      rel_err = 1e-8
+      abs_zero = 1e-8
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_1b.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=pfhub_1b_torch'
+      csvdiff = pfhub_1b_torch.csv
+      rel_err = 1e-8
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver.'
+    []
+  []
+
+  [pfhub_6a]
+    requirement = 'The system shall run PFHub benchmark 6a (spinodal decomposition with an electrostatic potential, a steady Poisson field coupled to the transient concentration) on a reduced grid with the implicit finite-difference solver, conserving the total concentration, with'
+    # the torch PCG and PETSc runs agree to 4e-9 relative in F and 6e-8 in the extremes of c, 4 ranks
+    # with 1 rank to 1e-11
+    [petsc]
+      type = CSVDiff
+      input = pfhub_6a.i
+      csvdiff = pfhub_6a_out.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=pfhub_6a_torch'
+      csvdiff = pfhub_6a_torch.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver.'
+    []
+  []
+
+  [pfhub_6a_nonlinear]
+    requirement = 'The system shall iterate the steps of PFHub benchmark 6a (a field with inhomogeneous Dirichlet data, the steady potential, coupled to the transient concentration) to the fully implicit backward Euler step, solving the small correction systems of the late iterations below the linear tolerance, with'
+    # the correction solves of phi have right-hand sides of 1e-8 against plate data of 1: applying
+    # the operator as (A x + g) - g instead of with zero face data stalls them at eps |g|, 2e-9
+    # relative, above l_tol = 1e-10, from the first step on. The two backends and 1 and 3 ranks
+    # agree to round-off.
+    [petsc]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'end_time=0.01 TensorSolver/nonlinear_solve=true Outputs/file_base=pfhub_6a_nonlinear'
+      csvdiff = pfhub_6a_nonlinear.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'end_time=0.01 TensorSolver/nonlinear_solve=true TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=pfhub_6a_nonlinear'
+      csvdiff = pfhub_6a_nonlinear.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      prereq = 'pfhub_6a_nonlinear/petsc'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver, and'
+    []
+    [petsc_3_ranks]
+      type = CSVDiff
+      input = pfhub_6a.i
+      cli_args = 'end_time=0.01 TensorSolver/nonlinear_solve=true Outputs/file_base=pfhub_6a_nonlinear'
+      csvdiff = pfhub_6a_nonlinear.csv
+      rel_err = 1e-6
+      abs_zero = 1e-8
+      prereq = 'pfhub_6a_nonlinear/torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver on 3 ranks.'
+    []
+  []
+
+  [pfhub_1b_conservation]
+    requirement = 'The system shall conserve the total concentration of PFHub benchmark 1b (no-flux faces) to round-off at a loose linear tolerance, setting the mean the summed equations fix after each solve, with'
+    # without that, the total drifts by 6e-5 (PETSc) and 1.5e-4 (torch PCG) at l_tol = 1e-8
+    [petsc]
+      type = CSVDiff
+      input = pfhub_1b.i
+      cli_args = 'TensorSolver/l_tol=1e-8 Outputs/file_base=pfhub_1b_loose'
+      csvdiff = pfhub_1b_loose.csv
+      # total_c_change gated at 1e-8, the other columns at the solve error
+      abs_zero = 1e-8
+      rel_err = 1e-5
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver and'
+    []
+    [torch]
+      type = CSVDiff
+      input = pfhub_1b.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorSolver/l_tol=1e-8 Outputs/file_base=pfhub_1b_loose_torch'
+      csvdiff = pfhub_1b_loose_torch.csv
+      abs_zero = 1e-8
+      rel_err = 1e-5
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver.'
+    []
+  []
+
+  [grid_independence_biharmonic_bcs]
+    requirement = 'The system shall solve the biharmonic on a domain with Neumann faces with the PETSc multigrid preconditioned solver in a number of iterations that does not grow with the grid size'
+    [n64]
+      type = RunApp
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" n=64 Outputs/csv=false -u_ksp_converged_reason'
+      # 14-15 iterations measured from n = 32 to 256 (16 for steady Dirichlet); fail above 20
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[3-9][0-9]|2[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 64 x 64 grid and'
+    []
+    [n256]
+      type = RunApp
+      input = biharmonic_bc_mms.i
+      cli_args = 'linear_solver=PETSC faces=neumann TensorComputes/BCs/active="neumann_left neumann_right neumann_bottom neumann_top" n=256 Outputs/csv=false -u_ksp_converged_reason'
+      expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations'
+      absent_out = 'iterations ([0-9]{3,}|[3-9][0-9]|2[1-9])\b'
+      compute_devices = 'cpu'
+      detail = 'on a 256 x 256 grid.'
+    []
+  []
+
+  [jacobi_diagonal_bcs]
+    requirement = 'The system shall give the PETSc solver the diagonal of the operator including the boundary face terms, used by a Jacobi preconditioner'
+    # Jacobi-preconditioned CG takes 164 iterations; with the interior diagonal also in the
+    # cells next to a face it takes 95, so the count tells the two apart
+    type = RunApp
+    input = bc_mms.i
+    cli_args = 'TensorSolver/linear_solver=PETSC n=64 Outputs/csv=false -u_pc_type jacobi -u_ksp_converged_reason'
+    expect_out = 'Linear u_ solve converged due to CONVERGED_RTOL iterations 164\b'
+    compute_devices = 'cpu'
+  []
+
   [petsc_options]
     requirement = 'The system shall pass PETSc options to the implicit finite-difference solve under the prefix of the solved field'
     [default]
@@ -452,6 +1167,160 @@
     []
   []
 
+  [bcs]
+    requirement = 'The system shall solve implicit finite-difference problems on a non-periodic domain, with Dirichlet, Neumann and Robin conditions whose values vary along the face, from functions at the time of the unknown and from buffers as written at the start of the step, matching an independent sparse direct solve of the same discretisation, using the torch preconditioned conjugate gradient solver, for'
+    # golds from an independent SciPy assembly of the same discretisation (spsolve); the
+    # error is the O(h^2) discretisation error, observed orders 1.98-1.99 (3-point) and
+    # 1.97-1.99 (5-point) from n = 32 to 128. With the boundary values at t instead of
+    # t + dt, the backward Euler error is 0.044 rather than 0.0026.
+    [poisson_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'Outputs/file_base=bc_poisson_3pt'
+      csvdiff = bc_poisson_3pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the steady Poisson problem with the 3-point stencil and a Robin face,'
+    []
+    [poisson_3pt_robin_buffer]
+      type = CSVDiff
+      input = bc_mms.i
+      # the Robin c from a buffer, whose halo along the face is exchanged across ranks
+      cli_args = 'TensorComputes/BCs/active="left right_buffer bottom top" Outputs/file_base=bc_poisson_3pt_robin_buffer'
+      # same gold as poisson_3pt: the buffer holds right_c, and the problem is steady
+      csvdiff = bc_poisson_3pt_robin_buffer.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the same with the Robin value from a buffer,'
+    []
+    [poisson_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'stencil=5 rb=0 Outputs/file_base=bc_poisson_5pt'
+      csvdiff = bc_poisson_5pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the steady Poisson problem with the 5-point stencil,'
+    []
+    [be_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 Outputs/file_base=bc_be_3pt'
+      csvdiff = bc_be_3pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler with time-dependent boundary values and the 3-point stencil,'
+    []
+    [be_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 stencil=5 rb=0 Outputs/file_base=bc_be_5pt'
+      csvdiff = bc_be_5pt.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler with time-dependent boundary values and the 5-point stencil,'
+    []
+    [be_3pt_buffer]
+      type = CSVDiff
+      input = bc_mms.i
+      # the top flux x - 2t from a buffer, which holds its value at t: the gold is the SciPy
+      # solve with that flux at t, an O(dt) time error (0.0225 against 0.0026 from a function)
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 TensorComputes/BCs/active="left right bottom top_buffer" Outputs/file_base=bc_be_3pt_buffer'
+      csvdiff = bc_be_3pt_buffer.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'backward Euler with a time-dependent boundary value from a buffer, and'
+    []
+    [be_3pt_mps]
+      type = CSVDiff
+      input = bc_mms.i
+      # single precision: the solve stops at l_tol = 1e-5, which leaves a solve error of
+      # ~1e-5 |u| on top of the 2.6e-3 discretisation error
+      cli_args = 'tf=1 ops="dudt lap" num_steps=2 TensorSolver/l_tol=1e-5 Outputs/file_base=bc_be_3pt'
+      csvdiff = bc_be_3pt.csv
+      rel_err = 1e-2
+      compute_devices = 'mps'
+      detail = 'backward Euler with the 3-point stencil in single precision on MPS.'
+    []
+  []
+
+  [crank]
+    requirement = 'The system shall reproduce analytic diffusion solutions from Crank, "The Mathematics of Diffusion" (2nd ed.), with implicit backward Euler finite differences and Dirichlet faces, matching an independent dense solve of the same discretisation, for'
+    # golds from a dense SciPy backward Euler solve (the cell-centred 3-point
+    # Laplacian with ghost 2c - u0). The error against the analytic solution is first order in
+    # dt down to the spatial floor of the semi-discrete solution, 3.2e-4: 5.8e-3, 1.7e-3,
+    # 6.7e-4 at 25, 100, 400 time steps. The explicit real_space tests of the same problems give
+    # 2.3e-4 with 250 forward Euler substeps.
+    [semi_infinite]
+      type = CSVDiff
+      input = crank_semi_infinite.i
+      csvdiff = crank_semi_infinite_out.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'a semi-infinite medium with a constant surface concentration (Sec. 3.3(i), eq. 3.13), and'
+    []
+    [thin_slab]
+      type = CSVDiff
+      input = crank_thin_slab.i
+      csvdiff = crank_thin_slab_out.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'an instantaneous planar source in a thin slab diffusing into an infinite medium (Sec. 2.5, eq. 2.15).'
+    []
+  []
+
+  [bcs_petsc]
+    requirement = 'The system shall solve implicit finite-difference problems on a non-periodic domain, with Dirichlet, Neumann and Robin conditions whose values vary along the face, matching an independent sparse direct solve of the same discretisation, using the PETSc conjugate gradient solver with geometric multigrid, for'
+    [poisson_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=bc_poisson_3pt'
+      csvdiff = bc_poisson_3pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/poisson_3pt'
+      compute_devices = 'cpu'
+      detail = 'the steady Poisson problem with the 3-point stencil and a Robin face,'
+    []
+    [poisson_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC stencil=5 rb=0 Outputs/file_base=bc_poisson_5pt'
+      csvdiff = bc_poisson_5pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/poisson_5pt'
+      compute_devices = 'cpu'
+      detail = 'the steady Poisson problem with the 5-point stencil,'
+    []
+    [be_3pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt lap" num_steps=2 Outputs/file_base=bc_be_3pt'
+      csvdiff = bc_be_3pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/be_3pt'
+      compute_devices = 'cpu'
+      detail = 'backward Euler with time-dependent boundary values and the 3-point stencil, and'
+    []
+    [be_5pt]
+      type = CSVDiff
+      input = bc_mms.i
+      cli_args = 'TensorSolver/linear_solver=PETSC tf=1 ops="dudt lap" num_steps=2 stencil=5 rb=0 Outputs/file_base=bc_be_5pt'
+      csvdiff = bc_be_5pt.csv
+      rel_err = 1e-6
+      prereq = 'bcs/be_5pt'
+      compute_devices = 'cpu'
+      detail = 'backward Euler with time-dependent boundary values and the 5-point stencil.'
+    []
+  []
+
   [errors]
     requirement = 'The system shall report an error if an implicit finite-difference solve is set up '
     [not_spd]
@@ -490,8 +1359,9 @@
       input = be_mode.i
       cli_args = "TensorSolver/linear_solver=TORCH_PCG TensorSolver/petsc_options_iname='-pc_type' "
                  "TensorSolver/petsc_options_value='jacobi'"
-      expect_err = 'This parameter is not used by linear_solver = TORCH_PCG'
-      detail = 'with PETSc options for the torch linear solver,'
+      expect_err = "The option '-pc_type' configures the field solves, which use PETSc only with "
+                   "linear_solver = PETSC."
+      detail = 'with PETSc options of the field solves for the torch linear solver,'
     []
     [smoother_with_torch_pcg]
       type = RunException
@@ -503,9 +1373,9 @@
     [failed_solve_without_cutback]
       type = RunException
       input = cutback.i
-      # two substeps of dt / 2 = 0.004 need about 34 iterations
-      cli_args = 'TensorSolver/substeps=2'
-      expect_err = 'did not converge in 30 iterations.*Use the TensorSolveIterationAdaptiveDT time stepper \(with substeps = 1\)'
+      # the same dt = 0.008 with the default time stepper, which cannot cut the step
+      cli_args = 'Executioner/inactive=TimeStepper Executioner/dt=0.008'
+      expect_err = 'did not converge in 30 iterations.*Use the TensorSolveIterationAdaptiveDT time stepper to retry'
       detail = 'with a linear solve that does not converge when the time step cannot be retried,'
     []
     [fields_differing_in_case]
@@ -531,12 +1401,766 @@
       compute_devices = 'cpu'
       detail = 'with a multigrid level count from the PETSc options,'
     []
+    [bc_robin_5pt]
+      type = RunException
+      input = bc_mms.i
+      cli_args = 'stencil=5'
+      expect_err = 'supports with the 3-point stencil only'
+      detail = 'with a Robin face and the 5-point stencil,'
+    []
+    [bc_robin_indefinite]
+      type = RunException
+      input = bc_mms.i
+      cli_args = 'ra=-1'
+      expect_err = 'has a\*b < 0, for which the ghost term a/\(a/2 \+ b/dx\) is negative on fine enough grids'
+      detail = 'with a Robin face with a b < 0,'
+    []
+    [bc_robin_ab_negative_coarse]
+      type = RunException
+      input = bc_mms.i
+      # definite at this n (a/(a/2 + b/dx) = 5.6), indefinite from n = 51 (dx < 2|b/a| = 0.02)
+      cli_args = 'rb=-0.01 n=32'
+      expect_err = 'has a\*b < 0, for which the ghost term a/\(a/2 \+ b/dx\) is negative on fine enough grids'
+      detail = 'with a Robin face with a b < 0 on a grid where its operator is still definite,'
+    []
+    [biharmonic_5pt_bc]
+      type = RunException
+      input = biharmonic_mode.i
+      cli_args = 'stencil=5 Domain/periodic_directions=Y TensorComputes/BCs/left/type=TensorNeumannBC TensorComputes/BCs/left/variable=u TensorComputes/BCs/left/boundary=left TensorComputes/BCs/right/type=TensorNeumannBC TensorComputes/BCs/right/variable=u TensorComputes/BCs/right/boundary=right'
+      expect_err = 'is a 5-point FiniteDifferenceBiharmonic, which ImplicitFDSolver supports on periodic domains only'
+      detail = 'with a 5-point biharmonic operator on a non-periodic domain,'
+    []
+    [biharmonic_robin]
+      type = RunException
+      input = biharmonic_bc_mms.i
+      cli_args = 'TensorComputes/BCs/dirichlet_left/type=TensorRobinBC TensorComputes/BCs/dirichlet_left/a=1 TensorComputes/BCs/dirichlet_left/b=1 TensorComputes/BCs/dirichlet_left/c_function=dirichlet_value TensorComputes/BCs/dirichlet_left/value_function=""'
+      expect_err = 'is a Robin condition \(a and b nonzero\), which ImplicitFDSolver does not support with a FiniteDifferenceBiharmonic'
+      detail = 'with a biharmonic operator and a Robin face,'
+    []
     [not_fd_operator]
       type = RunException
       input = be_mode.i
       cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorComputes/Solve/scale/type=ParsedCompute TensorComputes/Solve/scale/buffer=diff TensorComputes/Solve/scale/inputs=u TensorComputes/Solve/scale/expression=2*u TensorSolver/operators="dudt scale"'
       expect_err = "Compute 'scale' is not a LinearFDOperator"
       detail = 'with an operator that is not a finite-difference operator.'
+    []
+  []
+
+  [nonlinear_coupled]
+    requirement = 'The system shall iterate an implicit finite-difference step of a transient field and a steady field, coupled through sources, to the fully implicit backward Euler step, matching the exact recurrence of a periodic Fourier mode to round-off, independent of the order of the fields, with'
+    [torch]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      csvdiff = coupled_backward_euler_out.csv
+      # the errors and the mean of c are round-off: anything above 1e-12 fails
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the plain Picard iteration of the torch preconditioned conjugate gradient solver,'
+    []
+    [swapped]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = "TensorSolver/buffer='phi c' TensorSolver/operators='lap_phi_op; dcdt_op lap_c_op' "
+                 "TensorSolver/source='src_phi src_c'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/torch'
+      compute_devices = 'cpu'
+      detail = 'the fields listed in the other order,'
+    []
+    [petsc]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/linear_solver=PETSC'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/swapped'
+      compute_devices = 'cpu'
+      detail = 'the PETSc nonlinear Picard iteration over the multigrid field solves,'
+    []
+    [petsc_cuda]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/linear_solver=PETSC'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'the PETSc nonlinear Picard iteration on CUDA,'
+    []
+    [anderson]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # the field solves enter through the nonlinear preconditioner (without it, Anderson mixes
+      # unpreconditioned residuals)
+      cli_args = "TensorSolver/linear_solver=PETSC TensorSolver/petsc_options_iname='-snes_type "
+                 "-npc_snes_type' TensorSolver/petsc_options_value='anderson newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/petsc'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing, and'
+    []
+    [ngmres]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = "TensorSolver/linear_solver=PETSC TensorSolver/petsc_options_iname='-snes_type "
+                 "-npc_snes_type' TensorSolver/petsc_options_value='ngmres newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/anderson'
+      compute_devices = 'cpu'
+      detail = 'nonlinear GMRES,'
+    []
+    [anderson_torch]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # PETSc's nonlinear solve (selected by its options) over the torch field solves
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/ngmres'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing over the torch field solves,'
+    []
+    [petsc_3_ranks]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/linear_solver=PETSC'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/anderson_torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'the PETSc nonlinear Picard iteration on 3 ranks,'
+    []
+    [torch_mps]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # MPS has no double precision: tolerances single precision reaches (l_tol 1e-6 does not
+      # converge for phi); the measured errors are 3e-7 in c, 4e-8 in phi and 4e-9 in the mean
+      cli_args = 'TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-6
+      rel_err = 1e-5
+      compute_devices = 'mps'
+      detail = 'the plain Picard iteration of the torch solver in single precision on MPS, and'
+    []
+    [anderson_torch_mps]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      # PETSc's vectors on the host, the field solves on MPS; tolerances as for torch_mps
+      cli_args = "TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 "
+                 "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls'"
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-6
+      rel_err = 1e-5
+      allow_warnings = true
+      expect_out = 'PETSc.s nonlinear solve keeps its vectors on the host while the field solves run on .mps.'
+      compute_devices = 'mps'
+      detail = 'Anderson mixing over the torch field solves in single precision on MPS.'
+    []
+  []
+
+  [nonlinear_bicrystal]
+    requirement = 'The system shall iterate the implicit finite-difference step of two nonlinear coupled Allen-Cahn order parameters (a shrinking circular grain) to the fully implicit backward Euler step, matching a Newton reference with the exact Jacobian, with'
+    # the reference (bicrystal_newton.py) solves each step to round-off; the nonlinear and linear
+    # solves stop at relative residuals of 1e-13, and the observed differences are 1e-13. 1e-10 is
+    # well above that and far below the difference of the lagged scheme (40-70% at these steps).
+    [anderson]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing at a time step beyond the reach of the plain Picard iteration,'
+    []
+    [anderson_cuda]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      compute_devices = 'cuda'
+      min_slots = 2 # memory heavy
+      capabilities = 'cuda'
+      detail = 'Anderson mixing on CUDA, and'
+    []
+    [picard]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = 'dt=0.25 Outputs/file_base=bicrystal_picard'
+      csvdiff = bicrystal_picard.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'the plain Picard iteration at a smaller time step, and'
+    []
+    [picard_torch_mps]
+      type = CSVDiff
+      input = bicrystal.i
+      # MPS has no double precision: tolerances single precision reaches (1e-6 stalls at a
+      # relative residual of 8e-6); the measured differences are 1.1e-6 relative in the area and
+      # 5e-7 in the extremes
+      cli_args = "dt=0.25 TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 "
+                 "TensorSolver/petsc_options_iname='' TensorSolver/petsc_options_value='' "
+                 "Outputs/file_base=bicrystal_picard"
+      csvdiff = bicrystal_picard.csv
+      rel_err = 1e-5
+      compute_devices = 'mps'
+      detail = 'the plain Picard iteration of the torch solver in single precision on MPS,'
+    []
+    [anderson_torch]
+      type = CSVDiff
+      input = bicrystal.i
+      # PETSc's nonlinear solve over the torch field solves, at the time step of anderson
+      cli_args = "TensorSolver/linear_solver=TORCH_PCG TensorSolver/petsc_options_iname='-snes_type "
+                 "-npc_snes_type' TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      prereq = 'nonlinear_bicrystal/anderson'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing over the torch field solves,'
+    []
+    [anderson_3_ranks]
+      type = CSVDiff
+      input = bicrystal.i
+      cli_args = "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      rel_err = 1e-10
+      prereq = 'nonlinear_bicrystal/anderson_torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing on 3 ranks, and'
+    []
+    [anderson_torch_mps]
+      type = CSVDiff
+      input = bicrystal.i
+      # PETSc's vectors on the host, the field solves on MPS, at the time step beyond Picard
+      cli_args = "TensorSolver/l_tol=1e-5 TensorSolver/nl_rel_tol=1e-5 "
+                 "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Outputs/file_base=bicrystal_anderson"
+      csvdiff = bicrystal_anderson.csv
+      # single precision against the double gold: 6.8e-7 measured
+      rel_err = 1e-5
+      allow_warnings = true
+      expect_out = 'PETSc.s nonlinear solve keeps its vectors on the host while the field solves run on .mps.'
+      compute_devices = 'mps'
+      detail = 'Anderson mixing over the torch field solves in single precision on MPS.'
+    []
+  []
+
+  [nonlinear_time_level]
+    requirement = 'The system shall evaluate the sources of an iterated implicit finite-difference step at the end of the step, integrating a time-dependent source exactly with backward Euler'
+    [double]
+      type = CSVDiff
+      input = time_source.i
+      csvdiff = time_source_out.csv
+      # the source at the start of the step gives errors of 0.01 t / 0.1
+      abs_zero = 1e-12
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'in double precision, and'
+    []
+    [mps]
+      type = CSVDiff
+      input = time_source.i
+      # single precision: the measured error is 4e-9, the lagged scheme's 1e-2
+      cli_args = 'TensorSolver/l_tol=1e-6 TensorSolver/nl_rel_tol=1e-5'
+      csvdiff = time_source_out.csv
+      abs_zero = 1e-6
+      compute_devices = 'mps'
+      detail = 'in single precision on MPS.'
+    []
+  []
+
+  [nonlinear_buffer_bc]
+    requirement = 'The system shall refill boundary data held in buffers at every iterate of an iterated implicit finite-difference step, matching the result with the same data from a function'
+    type = CSVDiff
+    input = bc_mms.i
+    # the gold of the function BC (be_3pt): without the iteration the buffer data lag by a step
+    # (0.0225 against 0.0026)
+    cli_args = 'tf=1 ops="dudt lap" num_steps=2 TensorComputes/BCs/active="left right bottom top_buffer" TensorSolver/nonlinear_solve=true Outputs/file_base=bc_be_3pt_nonlinear'
+    csvdiff = bc_be_3pt_nonlinear.csv
+    rel_err = 1e-6
+    compute_devices = 'cpu cuda'
+    min_slots = 2 # memory heavy
+  []
+
+  [nonlinear_failure]
+    requirement = 'The system shall retry an iterated implicit finite-difference step with a smaller time step when'
+    [nonlinear_max_its]
+      type = RunApp
+      input = bicrystal.i
+      cli_args = "Executioner/num_steps=1 "
+                 "Executioner/TimeStepper/type=TensorSolveIterationAdaptiveDT "
+                 "Executioner/TimeStepper/dt=0.5 Executioner/TimeStepper/min_iterations=0 "
+                 "Executioner/TimeStepper/max_iterations=1000 Outputs/csv=false"
+      expect_out = 'The nonlinear solve failed after 200 iterations: DIVERGED_MAX_IT.*Solve failed, cutting timestep.*Time Step 1, time = 0.25'
+      compute_devices = 'cpu'
+      detail = 'the nonlinear iteration does not converge,'
+    []
+    [anderson_default_max_its]
+      type = RunApp
+      input = bicrystal.i
+      # nl_max_its at its default, 50 (bicrystal.i sets 200), also bounds a method chosen by
+      # option, whose own default is 10000 iterations
+      cli_args = "TensorSolver/nl_max_its=50 Executioner/num_steps=1 dt=4 "
+                 "TensorSolver/petsc_options_iname='-snes_type -npc_snes_type' "
+                 "TensorSolver/petsc_options_value='anderson newtonls' "
+                 "Executioner/TimeStepper/type=TensorSolveIterationAdaptiveDT "
+                 "Executioner/TimeStepper/dt=4 Executioner/TimeStepper/min_iterations=0 "
+                 "Executioner/TimeStepper/max_iterations=1000 Outputs/csv=false"
+      expect_out = 'The nonlinear solve failed after 50 iterations: DIVERGED_MAX_IT.*Solve failed, cutting timestep'
+      compute_devices = 'cpu'
+      detail = 'Anderson mixing does not converge within the default iteration limit,'
+    []
+    [field_solve_petsc]
+      type = RunApp
+      input = cutback.i
+      cli_args = 'TensorSolver/nonlinear_solve=true TensorSolver/linear_solver=PETSC TensorSolver/l_max_its=7 Outputs/csv=false'
+      expect_out = "The PETSC solve of field 'u' failed after 7 iterations.*Solve failed, cutting "
+                   "timestep.*Solve failed, cutting timestep.*Time Step 1, time = 0.002"
+      compute_devices = 'cpu'
+      detail = 'a PETSc field solve inside the iteration fails, and'
+    []
+    [field_solve_torch]
+      type = RunApp
+      input = cutback.i
+      cli_args = 'TensorSolver/nonlinear_solve=true Outputs/csv=false'
+      expect_out = 'did not converge in 30 iterations.*Solve failed, cutting timestep.*did not converge in 30 iterations.*Solve failed, cutting timestep.*Time Step 1, time = 0.002'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'a torch field solve inside the iteration fails,'
+    []
+    [field_solve_torch_3_ranks]
+      type = RunApp
+      input = cutback.i
+      # the residual norm of the torch loop must be reduced over the ranks, or the ranks disagree on
+      # convergence and hang (max_time makes that a fast failure)
+      cli_args = 'TensorSolver/nonlinear_solve=true Outputs/csv=false'
+      expect_out = 'did not converge in 30 iterations.*Solve failed, cutting timestep.*did not converge in 30 iterations.*Solve failed, cutting timestep.*Time Step 1, time = 0.002'
+      min_parallel = 3
+      max_parallel = 3
+      max_time = 60
+      compute_devices = 'cpu'
+      detail = 'a torch field solve inside the iteration fails on 3 ranks, with'
+    []
+    [retry_from_old_solution]
+      type = CSVDiff
+      input = cutback.i
+      # the retried step starts again from u^n: the gold is the run at dt = 0.002 from the start
+      # (TensorSolver/l_max_its=1000 Executioner/TimeStepper/dt=0.002), which the retry
+      # reproduces to all printed digits; from the failed iterate max_u is 1.7e-14
+      cli_args = 'TensorSolver/nonlinear_solve=true Outputs/file_base=cutback_nonlinear'
+      csvdiff = cutback_nonlinear.csv
+      compute_devices = 'cpu'
+      detail = 'the retried step starting again from the solution at the start of the step.'
+    []
+  []
+
+  [nonlinear_iteration_count]
+    requirement = 'The system shall report the number of nonlinear iterations of an iterated implicit finite-difference step to the adaptive time stepper'
+    type = RunApp
+    input = bicrystal.i
+    # 44 and 52 nonlinear iterations lie in the window [35, 100]; the 989 and 1154 linear
+    # iterations would cut dt
+    cli_args = "dt=0.25 Executioner/num_steps=2 "
+               "Executioner/TimeStepper/type=TensorSolveIterationAdaptiveDT "
+               "Executioner/TimeStepper/dt=0.25 Executioner/TimeStepper/min_iterations=35 "
+               "Executioner/TimeStepper/max_iterations=100 Outputs/csv=false"
+    expect_out = 'Time Step 2, time = 0.5, dt = 0.25'
+    compute_devices = 'cpu'
+  []
+
+  [nonlinear_errors]
+    requirement = 'The system shall report an error for the nonlinear iteration of an implicit finite-difference step'
+    [no_adaptive_dt]
+      type = RunException
+      input = bicrystal.i
+      cli_args = 'Outputs/csv=false'
+      expect_err = 'The nonlinear solve failed after 200 iterations: DIVERGED_MAX_IT. Use the TensorSolveIterationAdaptiveDT time stepper'
+      compute_devices = 'cpu'
+      detail = 'when it does not converge without an adaptive time stepper,'
+    []
+    [nl_param]
+      type = RunException
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/nonlinear_solve=false'
+      expect_err = 'TensorSolver/nl_rel_tol: This parameter is used only with nonlinear_solve = true.'
+      compute_devices = 'cpu'
+      detail = 'with a nonlinear tolerance but no nonlinear iteration,'
+    []
+    [snes_option]
+      type = RunException
+      input = steady_transient.i
+      cli_args = "TensorSolver/linear_solver=PETSC TensorSolver/petsc_options_iname='-snes_type' "
+                 "TensorSolver/petsc_options_value='anderson'"
+      expect_err = 'configures the nonlinear solve, which is used only with nonlinear_solve = true.'
+      compute_devices = 'cpu'
+      detail = 'with a nonlinear solver option but no nonlinear iteration, and'
+    []
+    [field_name]
+      type = RunException
+      input = time_source.i
+      cli_args = 'TensorSolver/buffer=nonlinear'
+      expect_err = "A field named 'nonlinear' would share the PETSc options prefix of the nonlinear "
+                   "solve."
+      compute_devices = 'cpu'
+      detail = 'with a field named like the prefix of the nonlinear solve options,'
+    []
+    [field_name_prefixed]
+      type = RunException
+      input = time_source.i
+      cli_args = 'TensorSolver/buffer=nonlinear_npc'
+      expect_err = "A field named 'nonlinear_npc' would share the PETSc options prefix of the "
+                   "nonlinear solve."
+      compute_devices = 'cpu'
+      detail = 'with a field named with that prefix, and'
+    []
+    [nl_rel_tol_range]
+      type = RunException
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/nl_rel_tol=1'
+      expect_err = 'nl_rel_tol >= 0 & nl_rel_tol < 1'
+      compute_devices = 'cpu'
+      detail = 'with a relative nonlinear tolerance of 1 or more.'
+    []
+  []
+
+  [kks_no_flux]
+    requirement = 'The system shall step the Kim-Kim-Suzuki model with zero-flux faces fully implicitly, conserving the total concentration to round-off and decreasing the free energy, and match the mirrored initial condition on the doubled periodic domain (the gold: its integrals halved), with'
+    # the strip and the mirrored periodic run agree to 5e-14 relative; the dt and dx studies
+    # converge at first and second order, and their limit is within 3e-5 of the spectral AB3
+    # solver on the doubled periodic domain without the mask (doc/roadmap, PR7). No MPS test: in
+    # single precision the nonlinear residual stalls near 1e-5 of its initial value.
+    [torch]
+      type = CSVDiff
+      input = kks_no_flux.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=kks_no_flux'
+      csvdiff = kks_no_flux.csv
+      rel_err = 1e-9
+      # the change of the total concentration is round-off (1e-12; the gold's is the doubled
+      # run's): smaller values count as zero, a larger one fails against the zeroed gold
+      override_columns = 'total_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver under the PETSc Anderson iteration,'
+    []
+    [petsc]
+      type = CSVDiff
+      input = kks_no_flux.i
+      cli_args = 'Outputs/file_base=kks_no_flux'
+      csvdiff = kks_no_flux.csv
+      rel_err = 1e-9
+      override_columns = 'total_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_no_flux/torch'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver, and'
+    []
+    [petsc_4_ranks]
+      type = CSVDiff
+      input = kks_no_flux.i
+      cli_args = 'Outputs/file_base=kks_no_flux'
+      csvdiff = kks_no_flux.csv
+      rel_err = 1e-9
+      override_columns = 'total_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_no_flux/petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver on 4 ranks.'
+    []
+  []
+
+  [kks_sbm]
+    design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
+    requirement = 'The system shall step the Kim-Kim-Suzuki model with smoothed boundary walls fully implicitly, with BDF2, holding the cells outside the walls inactive, conserving the integral of psi c to round-off and decreasing the free energy, with'
+    # the torch and PETSc backends, and 1 and 4 ranks, agree to 1e-13 relative. At t = 1 the run
+    # is within 0.73 of the spectral AB3 SBM solver (KKS_no_flux_bc.i, the same psi) in int psi
+    # eta, a gap that falls to 0.18 at dx = 0.5, both time-converged (doc/roadmap, PR9).
+    [torch]
+      type = CSVDiff
+      input = kks_sbm.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=kks_sbm'
+      csvdiff = kks_sbm.csv
+      rel_err = 1e-9
+      # the change of int psi c is round-off (1e-12): smaller values count as zero, a larger one
+      # fails against the zeroed gold
+      override_columns = 'total_psi_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'the torch preconditioned conjugate gradient solver under the PETSc Anderson iteration,'
+    []
+    [petsc]
+      type = CSVDiff
+      input = kks_sbm.i
+      cli_args = 'Outputs/file_base=kks_sbm'
+      csvdiff = kks_sbm.csv
+      rel_err = 1e-9
+      override_columns = 'total_psi_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_sbm/torch'
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver, and'
+    []
+    [petsc_4_ranks]
+      type = CSVDiff
+      input = kks_sbm.i
+      cli_args = 'Outputs/file_base=kks_sbm'
+      csvdiff = kks_sbm.csv
+      rel_err = 1e-9
+      override_columns = 'total_psi_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      prereq = 'kks_sbm/petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the PETSc multigrid solver on 4 ranks.'
+    []
+  []
+
+  [kks_sbm_iterations]
+    design = 'ImplicitFDSolver.md CoefficientTimeDerivativeOperator.md'
+    requirement = 'The system shall precondition the implicit finite-difference solves of the Kim-Kim-Suzuki model with smoothed boundary walls and inactive cells with multigrid, converging every linear solve within 15 iterations.'
+    # PCMG takes 12-13 iterations per solve here, as without inactive cells. A coarse coefficient
+    # halo misplaced by one cell takes 17-19, and inactive identity rows scaled by the largest
+    # diagonal took about 100: a linear solve beyond 15 iterations fails the run. Serial only: on
+    # 4 ranks the same solves take 14-16.
+    [petsc]
+      type = RunApp
+      input = kks_sbm.i
+      cli_args = 'TensorSolver/l_max_its=15 Outputs/csv=false'
+      max_parallel = 1
+      compute_devices = 'cpu'
+    []
+  []
+
+  [coefficient_time_derivative]
+    design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
+    requirement = 'The system shall integrate implicit finite-difference time steps of a u_t with a cell-centred coefficient a, backward Euler on the first step and variable-step BDF2 after it,'
+    # a = 1 is bdf2_mode.i (the gold of its exact mode recurrence). coefficient_dt.py: scipy
+    # sparse direct solves of the same steps with a = 1 + 0.5 sin(2 pi x) sin(2 pi y); the solves
+    # match it to 1.4e-8 relative at l_tol = 1e-8, and the integral of a u stays at 0.125.
+    [unit_coefficient]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=PETSC Postprocessors/inactive='min_u mass mass_a' "
+                 "Outputs/file_base=bdf2_mode_3pt"
+      csvdiff = bdf2_mode_3pt.csv
+      rel_err = 1e-6
+      prereq = 'bdf2/mode_petsc'
+      compute_devices = 'cpu'
+      detail = 'reproducing the time derivative without a coefficient for a = 1,'
+    []
+    [varying_petsc]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=PETSC a_expression='1+0.5*sin(2*pi*x)*sin(2*pi*y)' "
+                 "Outputs/file_base=coefficient_dt_varying"
+      csvdiff = coefficient_dt_varying.csv
+      rel_err = 1e-6
+      compute_devices = 'cpu'
+      detail = 'matching a sparse direct reference for a spatially varying a with the PETSc multigrid solver,'
+    []
+    [varying_petsc_4_ranks]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=PETSC a_expression='1+0.5*sin(2*pi*x)*sin(2*pi*y)' "
+                 "Outputs/file_base=coefficient_dt_varying"
+      csvdiff = coefficient_dt_varying.csv
+      rel_err = 1e-6
+      prereq = 'coefficient_time_derivative/varying_petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the same on 4 ranks,'
+    []
+    [varying_torch]
+      type = CSVDiff
+      input = coefficient_dt.i
+      cli_args = "TensorSolver/linear_solver=TORCH_PCG a_expression='1+0.5*sin(2*pi*x)*sin(2*pi*y)' "
+                 "Outputs/file_base=coefficient_dt_varying"
+      csvdiff = coefficient_dt_varying.csv
+      rel_err = 1e-6
+      prereq = 'coefficient_time_derivative/varying_petsc_4_ranks'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'and the same with the torch solver.'
+    []
+  []
+
+  [inactive_cells]
+    design = 'ImplicitFDSolver.md CoefficientTimeDerivativeOperator.md'
+    requirement = 'The system shall hold the cells with a zero diagonal and a zero right-hand side at their value of the start of the step in an implicit finite-difference solve, and solve the other cells as without them,'
+    # sbm_inactive.py: scipy sparse direct solves of the same smoothed boundary BDF2 steps on the
+    # active cells alone. The solves match it to 3e-9 relative (PETSc on 4 ranks, l_tol = 1e-8)
+    # and 2e-12 (torch PCG); held_change is exactly 0.
+    [petsc]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      compute_devices = 'cpu'
+      detail = 'with the PETSc multigrid solver,'
+    []
+    [petsc_4_ranks]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=PETSC Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/petsc'
+      min_parallel = 4
+      max_parallel = 4
+      compute_devices = 'cpu'
+      detail = 'the same on 4 ranks,'
+    []
+    [torch]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/petsc_4_ranks'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'with the torch solver,'
+    []
+    [torch_3_ranks]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/torch'
+      min_parallel = 3
+      max_parallel = 3
+      compute_devices = 'cpu'
+      detail = 'the same on 3 ranks, and'
+    []
+    [nonlinear]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG TensorSolver/nonlinear_solve=true TensorSolver/nonlinear_solver=TORCH Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      rel_err = 1e-7
+      prereq = 'inactive_cells/torch_3_ranks'
+      compute_devices = 'cpu'
+      detail = 'in the nonlinear iteration (the torch defect correction), and'
+    []
+    [torch_single]
+      type = CSVDiff
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Domain/floating_precision=SINGLE TensorSolver/l_tol=1e-5 Outputs/file_base=sbm_inactive'
+      csvdiff = sbm_inactive.csv
+      # single precision: the solve agrees with the double-precision gold to 7e-7 relative (CPU, MPS),
+      # and the held cells are exact
+      rel_err = 1e-5
+      prereq = 'inactive_cells/nonlinear'
+      compute_devices = 'cpu cuda mps'
+      min_slots = 2 # memory heavy
+      detail = 'in single precision with the torch solver.'
+    []
+  []
+
+  [sbm_slab]
+    design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
+    requirement = 'The system shall solve the smoothed boundary diffusion equation with implicit finite differences, with zero flux at diffuse walls, converging to the sharp-interface solution as the wall width decreases,'
+    # sbm_slab.i: against the sharp Neumann slab solution the error falls at order ~2 in the wall
+    # width (0.08 to 0.005, see the input); the gold is the l = 0.02 run, error = 2.49e-5. The
+    # torch solve agrees with it to 1e-6 relative in error (a difference of two O(1) values,
+    # at l_tol = 1e-12).
+    [petsc]
+      type = CSVDiff
+      input = sbm_slab.i
+      cli_args = 'Outputs/file_base=sbm_slab'
+      csvdiff = sbm_slab.csv
+      rel_err = 1e-5
+      compute_devices = 'cpu'
+      detail = 'with the PETSc multigrid solver, and'
+    []
+    [torch]
+      type = CSVDiff
+      input = sbm_slab.i
+      cli_args = 'TensorSolver/linear_solver=TORCH_PCG Outputs/file_base=sbm_slab'
+      csvdiff = sbm_slab.csv
+      rel_err = 1e-5
+      prereq = 'sbm_slab/petsc'
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'with the torch solver.'
+    []
+  []
+
+  [inactive_cells_errors]
+    design = 'ImplicitFDSolver.md'
+    requirement = 'The system shall report an error in the implicit solve when a cell with a zero diagonal'
+    [nonzero_rhs]
+      type = RunException
+      input = sbm_inactive.i
+      cli_args = "source_expression='if(abs(x-0.5)>0.4,1,0)'"
+      expect_err = 'has a zero diagonal in some cells where the right-hand side is nonzero'
+      detail = 'has a nonzero right-hand side, or'
+    []
+    [steady]
+      type = RunException
+      input = sbm_inactive.i
+      cli_args = 'TensorSolver/operators=divgrad TensorSolver/root_compute=divgrad'
+      expect_err = 'has inactive cells \(a zero diagonal\) and no time derivative'
+      detail = 'is in a steady problem.'
+    []
+  []
+
+  [coefficient_time_derivative_errors]
+    design = 'CoefficientTimeDerivativeOperator.md'
+    requirement = 'The system shall report an error when the coefficient of a time derivative'
+    [negative_coefficient]
+      type = RunException
+      input = coefficient_dt.i
+      cli_args = "a_expression='sin(2*pi*x)'"
+      expect_err = "The coefficient 'a' of CoefficientTimeDerivativeOperator 'dudt' is negative in "
+                   "some cells; it must be nonnegative."
+      detail = 'is negative somewhere, or'
+    []
+    [changed_within_step]
+      type = RunException
+      input = coefficient_dt.i
+      # a recomputed from the iterate u in the nonlinear iteration differs from its value at the
+      # start of the step
+      cli_args = "TensorComputes/Solve/a_update/type=ParsedCompute "
+                 "TensorComputes/Solve/a_update/buffer=a TensorComputes/Solve/a_update/expression='1 "
+                 "+ 0.5*u*u' TensorComputes/Solve/a_update/inputs=u "
+                 "TensorSolver/root_compute=a_update TensorSolver/nonlinear_solve=true "
+                 "Outputs/csv=false"
+      expect_err = "The coefficient 'a' of CoefficientTimeDerivativeOperator 'dudt' changed within a "
+                   "time step, which is not supported."
+      detail = 'changes within a time step.'
     []
   []
 []

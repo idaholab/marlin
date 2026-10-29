@@ -9,7 +9,6 @@
 #pragma once
 
 #include "TensorOperatorBase.h"
-#include "LinearFDOperator.h" // for the shared FDStencilEntry type
 
 /**
  * Base class for boundary conditions on a real-space TensorBuffer field at a
@@ -17,12 +16,6 @@
  * boundary condition is not run by the ordinary compute list -- it is looked
  * up by TensorProblem::exchangeGhostLayers() for the specific (variable, face)
  * it acts on and invoked on demand to fill ghost cells.
- *
- * Not a LinearFDOperator: LinearFDOperator::stencilAt() returns only the
- * interior stencil terms (no RHS component), which doesn't fit a boundary
- * condition's contribution -- substituting a ghost-value formula into the
- * interior stencil produces both modified stencil entries AND a constant RHS
- * term. stencilContribution() below returns both.
  */
 class TensorBoundaryCondition : public TensorOperatorBase
 {
@@ -70,15 +63,12 @@ public:
                               int64_t owned_extent,
                               Real dx) const = 0;
 
-  /**
-   * Return this BC's contribution to the implicit (matrix-row / RHS) system
-   * for the boundary-adjacent interior point, as a one-sided finite
-   * difference stencil (same FDStencilEntry shape LinearFDOperator uses)
-   * plus a constant RHS contribution. Not yet used by a solver; the unit
-   * test checks that it implies the same ghost value as fillGhostCells.
-   */
-  virtual std::pair<std::vector<FDStencilEntry>, Real>
-  stencilContribution(unsigned int ghost_layers, Real dx) const = 0;
+  /// update data the ghost fill reads on the face (e.g. exchange a buffer's halo); called on
+  /// every rank before the variable's ghost exchange
+  virtual void prepareFaceData() {}
+
+  /// error at setup if fillGhostCells() cannot fill ghost_layers layers at the spacing dx
+  virtual void checkGhostLayers(unsigned int /*ghost_layers*/, Real /*dx*/) const {}
 
   /// Boundary conditions are not driven by the normal compute list.
   virtual void computeBuffer() override {}
