@@ -1,0 +1,16 @@
+[Tests]
+  issues = '#160'
+  [penalty_rigid_wall]
+    type = CSVDiff
+    input = penalty_rigid_wall.i
+    csvdiff = penalty_rigid_wall_out.csv
+    abs_zero = 1e-10
+    requirement = 'The system shall apply a one-sided node-wise rigid-wall penalty force such that an elastic block dropped onto the wall bounces back with its incoming speed.'
+    compute_devices = 'cpu'
+    capabilities = 'method=opt'
+    max_parallel = 1
+    max_threads = 1
+    recover = false
+    restep = false
+  []
+[]
