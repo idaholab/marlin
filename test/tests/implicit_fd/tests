@@ -1944,6 +1944,20 @@
     []
   []
 
+  [kks_sbm_iterations]
+    design = 'ImplicitFDSolver.md CoefficientTimeDerivativeOperator.md'
+    requirement = 'The system shall precondition the implicit finite-difference solves of the Kim-Kim-Suzuki model with smoothed boundary walls and inactive cells with multigrid, converging every linear solve within 15 iterations.'
+    # PCMG takes 12-13 iterations per solve here, as without inactive cells. A coarse coefficient
+    # halo misplaced by one cell takes 17-19, and inactive identity rows scaled by the largest
+    # diagonal took about 100: a linear solve beyond 15 iterations fails the run.
+    [petsc]
+      type = RunApp
+      input = kks_sbm.i
+      cli_args = 'TensorSolver/l_max_its=15 Outputs/csv=false'
+      compute_devices = 'cpu'
+    []
+  []
+
   [coefficient_time_derivative]
     design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
     requirement = 'The system shall integrate implicit finite-difference time steps of a u_t with a cell-centred coefficient a, backward Euler on the first step and variable-step BDF2 after it,'
