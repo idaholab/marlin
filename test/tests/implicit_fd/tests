@@ -2146,7 +2146,21 @@
       cli_args = "a_expression='sin(2*pi*x)'"
       expect_err = "The coefficient 'a' of CoefficientTimeDerivativeOperator 'dudt' is negative in "
                    "some cells; it must be nonnegative."
-      detail = 'is negative somewhere.'
+      detail = 'is negative somewhere, or'
+    []
+    [changed_within_step]
+      type = RunException
+      input = coefficient_dt.i
+      # a recomputed from the iterate u in the nonlinear iteration differs from its value at the
+      # start of the step
+      cli_args = "TensorComputes/Solve/a_update/type=ParsedCompute "
+                 "TensorComputes/Solve/a_update/buffer=a TensorComputes/Solve/a_update/expression='1 "
+                 "+ 0.5*u*u' TensorComputes/Solve/a_update/inputs=u "
+                 "TensorSolver/root_compute=a_update TensorSolver/nonlinear_solve=true "
+                 "Outputs/csv=false"
+      expect_err = "The coefficient 'a' of CoefficientTimeDerivativeOperator 'dudt' changed within a "
+                   "time step, which is not supported."
+      detail = 'changes within a time step.'
     []
   []
 []
