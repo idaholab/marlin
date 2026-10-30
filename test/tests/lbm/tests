@@ -19,7 +19,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 355 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [isotropic_mrt]
     type = CSVDiff
@@ -30,7 +30,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 360 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [flow_around_obstacle]
     type = CSVDiff
@@ -41,7 +41,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 395 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [phase-field]
     type = CSVDiff
@@ -139,6 +139,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 1
+    min_slots = 2 # 403 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [vertical_density_bcs]
     type = CSVDiff
@@ -193,7 +194,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 351 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [mixed_bcs_d3q19_reverse]
     type = CSVDiff
@@ -204,7 +205,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 355 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [mixed_bcs_d3q27]
     type = CSVDiff
@@ -215,7 +216,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 354 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [mixed_bcs_d3q27_reverse]
     type = CSVDiff
@@ -226,7 +227,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 356 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [smagorinsky_mrt]
     type = CSVDiff
@@ -237,7 +238,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 362 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [smagorinsky_mrt_jit]
     type = CSVDiff
@@ -249,7 +250,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 390 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [nee_2d_channel]
     type = CSVDiff
@@ -414,7 +415,7 @@
     compute_devices = 'cpu cuda mps xpu'
     min_parallel = 1
     max_parallel = 4
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 412 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [abort_on_nan]
     type = RunApp
@@ -422,7 +423,7 @@
     cli_args = 'TensorComputes/Solve/collision/tau0=0.1 Executioner/dtmin=1 Executioner/error_on_dtmin=false'
     expect_out = 'Aborting at Lattice Boltzmann Substep \d, Residual -?nan'
     compute_devices = 'cpu cuda mps xpu'
-    min_slots = 2 # memory heavy
+    min_slots = 3 # 353 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
 
     requirement = 'The system shall abort transient simulation when lattice Boltzmann solve diverges.'
     issues = '#149'

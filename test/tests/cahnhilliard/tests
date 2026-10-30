@@ -9,6 +9,7 @@
     design = 'TensorProblem.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 443 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [map_to_aux_3d]
     type = Exodiff
@@ -20,6 +21,7 @@
     design = 'TensorProblem.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 439 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [project_tensor]
     type = Exodiff
@@ -31,6 +33,7 @@
     design = 'ProjectTensorAux.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 433 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [xdmf_output_xml]
     type = XMLDiff
@@ -42,6 +45,7 @@
     design = 'XDMFTensorOutput.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 436 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [xdmf_output_hdf5]
     type = HDF5Diff
@@ -54,6 +58,7 @@
     design = 'XDMFTensorOutput.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 431 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
   [xdmf_output_hdf5_parallel]
     type = HDF5Diff
@@ -94,7 +99,6 @@
     min_parallel = 2
   []
 
-
   [xdmf_output_hdf5_threading_error]
     type = RunException
     input = cahnhilliard.i
@@ -107,7 +111,7 @@
     # this should have a corresponding capability check '!hdf5_thread_safe'
     compute_devices = 'cpu'
     max_parallel = 1
- []
+  []
 
   # Explicit solve tests
   [explicit_euler_exodiff]
@@ -119,6 +123,7 @@
     design = 'ForwardEulerSolver.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 417 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [explicit_smoothed]
@@ -132,6 +137,7 @@
       design = 'DeAliasingTensor.md'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 471 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [hou-li]
       type = Exodiff
@@ -142,7 +148,8 @@
       requirement = 'The system shall be able to solve spinodal decomposition using the Cahn-Hilliard equation explicitly with Hou-Li de-aliasing.'
       design = 'DeAliasingTensor.md'
       compute_devices = 'cpu cuda mps xpu'
-     max_parallel = 1
+      max_parallel = 1
+      min_slots = 2 # 469 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
   []
 []

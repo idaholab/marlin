@@ -10,6 +10,7 @@
     design = 'XDMFTensorOutput.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 338 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [gradient_vector]
@@ -22,5 +23,6 @@
     design = 'GradientVector.md XDMFTensorOutput.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 335 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 []

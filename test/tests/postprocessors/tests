@@ -9,6 +9,7 @@
     design = 'TensorExtremeValuePostprocessor.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 363 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [average]
@@ -21,6 +22,7 @@
     design = 'TensorAveragePostprocessor.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 349 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [integral]
@@ -33,6 +35,7 @@
     design = 'TensorIntegralPostprocessor.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 318 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [reciprocal_integral]
@@ -45,6 +48,7 @@
     design = 'ReciprocalIntegral.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 338 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [interface_velocity]
@@ -56,6 +60,7 @@
     design = 'TensorInterfaceVelocityPostprocessor.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 415 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [count]
@@ -68,5 +73,6 @@
     design = 'ComputeGroupExecutionCount.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 333 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 []

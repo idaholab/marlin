@@ -9,6 +9,7 @@
       csvdiff = laplacian_out.csv
       compute_devices = 'cpu cuda mps xpu'
       detail = 'using a 3x3 stencil.'
+      min_slots = 2 # 408 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [2d_5x5]
       type = CSVDiff
@@ -17,12 +18,14 @@
       cli_args = 'TensorComputes/Solve/lap_compute/stencil_width=5 Outputs/file_base=laplacian_5pt_out'
       compute_devices = 'cpu cuda mps xpu'
       detail = 'using a 5x5 stencil.'
+      min_slots = 2 # 405 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [3d_3x3]
       type = CSVDiff
       input = laplacian3d.i
       csvdiff = laplacian3d_out.csv
       compute_devices = 'cpu cuda mps xpu'
+      min_slots = 2 # memory heavy
       detail = 'using a 3x3x3 stencil.'
     []
     [3d_5x5]
@@ -32,6 +35,7 @@
       cli_args = 'TensorComputes/Solve/lap_compute/stencil_width=5 Outputs/file_base=laplacian3d_5pt_out'
       compute_devices = 'cpu cuda mps xpu'
       detail = 'using a 3x3x3 stencil.'
+      min_slots = 2 # 338 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
   []
 
@@ -58,6 +62,7 @@
       input = dirichlet_laplacian_check.i
       csvdiff = dirichlet_laplacian_check_out.csv
       compute_devices = 'cpu cuda mps xpu'
+      min_slots = 2 # memory heavy
       detail = 'and reproduce the discrete Laplacian expected from an initial condition that is consistent with the boundary values up to a small required perturbation.'
     []
     [relaxation]
@@ -66,6 +71,7 @@
       csvdiff = dirichlet_linear_out.csv
       compute_devices = 'cpu cuda mps xpu'
       detail = 'and relax an initial condition that does not satisfy the boundary values toward the exact linear steady-state profile they imply.'
+      min_slots = 2 # 408 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [2d_corners]
       type = CSVDiff
@@ -73,6 +79,7 @@
       csvdiff = dirichlet_2d_corners_out.csv
       compute_devices = 'cpu cuda mps xpu'
       detail = 'on a domain that is non-periodic on both axes, exercising the ghost-fill at all four domain corners.'
+      min_slots = 2 # 405 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
   []
 
@@ -132,6 +139,7 @@
       csvdiff = neumann_conservation_out.csv
       compute_devices = 'cpu cuda mps xpu'
       detail = 'and conserve the total integral of a field under zero-flux boundary conditions on all non-periodic faces, from a non-uniform initial condition.'
+      min_slots = 2 # 408 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [conservation_5pt]
       type = CSVDiff
@@ -141,6 +149,7 @@
       cli_args = 'TensorComputes/Solve/dt/stencil_width=5 TensorSolver/substeps=2000 Outputs/file_base=neumann_conservation_5pt_out'
       compute_devices = 'cpu cuda mps xpu'
       detail = 'and conserve it with the 5-point Laplacian, which reads two ghost layers.'
+      min_slots = 2 # 409 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [linear]
       type = CSVDiff
@@ -259,6 +268,7 @@
       csvdiff = diffusion_change_out.csv
       compute_devices = 'cpu cuda xpu'
       detail = 'in double precision,'
+      min_slots = 2 # 538 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [double_2_ranks]
       type = CSVDiff

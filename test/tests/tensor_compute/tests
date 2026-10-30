@@ -11,6 +11,7 @@
       detail = 'in one dimension with an even number of grid cells'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 373 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [odd_1d]
       type = CSVDiff
@@ -38,6 +39,7 @@
       detail = 'in two dimensions with an odd number of grid cells'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 319 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [even_3d]
       type = CSVDiff
@@ -47,6 +49,7 @@
       detail = 'in three dimensions with an even number of grid cells'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 348 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [odd_3d]
       type = CSVDiff
@@ -56,6 +59,7 @@
       detail = 'in three dimensions with an odd number of grid cells'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 330 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
 
     [constants]
@@ -109,6 +113,7 @@
     design = SmoothRectangleCompute.md
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # memory heavy
   []
 
   [phase_field_crystal]

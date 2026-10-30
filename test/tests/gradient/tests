@@ -6,6 +6,7 @@
     requirement = 'The system shall be able to compute the gradient of a tensor field along a given axis'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 352 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 
   [gradient_cpu_slab]
@@ -36,5 +37,6 @@
     requirement = 'The system shall be able to compute the square of the gradient of a tensor field'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 389 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 []

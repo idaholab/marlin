@@ -8,5 +8,6 @@
     design = 'ParsedCompute.md MarlinExpressionParser.md'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
+    min_slots = 2 # 333 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
 []

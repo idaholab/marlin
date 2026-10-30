@@ -11,6 +11,7 @@
       requirement = 'of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 458 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_2]
       type = CSVDiff
@@ -20,6 +21,7 @@
       requirement = 'of second order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 446 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_3]
       type = CSVDiff
@@ -29,6 +31,7 @@
       requirement = 'of third order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 447 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_4]
       # higher order integrators have smaller stability regions, hence the increased number of substeps
@@ -39,6 +42,7 @@
       requirement = 'of fourth order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 442 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
   []
   [adams_bashforth_moulton_diagonal]
@@ -51,6 +55,7 @@
       requirement = 'with one corrector step of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 447 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [corrector_steps_2_order_1]
       type = CSVDiff
@@ -60,6 +65,7 @@
       requirement = 'with two corrector steps of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 445 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [corrector_steps_2_order_2]
       type = CSVDiff
@@ -85,6 +91,7 @@
       requirement = 'of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 442 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_2]
       type = CSVDiff
@@ -94,6 +101,7 @@
       requirement = 'of second order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 445 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_3]
       type = CSVDiff
@@ -103,6 +111,7 @@
       requirement = 'of third order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 443 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_4]
       # higher order integrators have smaller stability regions, hence the increased number of substeps
@@ -113,6 +122,7 @@
       requirement = 'of fourth order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 444 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
   []
   [adams_bashforth_moulton_coupled]
@@ -125,6 +135,7 @@
       requirement = 'with one corrector step of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 446 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [corrector_steps_2_order_1]
       type = CSVDiff
@@ -133,7 +144,8 @@
       cli_args = 'ss=10 cs=2 order=1'
       requirement = 'with two corrector steps of first order'
       compute_devices = 'cpu cuda mps xpu'
-    max_parallel = 1
+      max_parallel = 1
+      min_slots = 2 # 442 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [corrector_steps_2_order_2]
       type = CSVDiff
@@ -143,6 +155,7 @@
       requirement = 'with two corrector steps of second order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 442 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
   []
 
@@ -158,6 +171,7 @@
       requirement = 'of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 406 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_2]
       type = CSVDiff
@@ -167,6 +181,7 @@
       requirement = 'of second order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 402 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [order_3]
       type = CSVDiff
@@ -187,6 +202,7 @@
       requirement = 'of fourth order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 403 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
   []
   [adams_bashforth_moulton_nl_coupled]
@@ -199,6 +215,7 @@
       requirement = 'with one corrector step of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 406 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [corrector_steps_2_order_1]
       type = CSVDiff
@@ -208,6 +225,7 @@
       requirement = 'with two corrector steps of first order'
       compute_devices = 'cpu cuda mps xpu'
       max_parallel = 1
+      min_slots = 2 # 405 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
     []
     [corrector_steps_2_order_2]
       type = CSVDiff
