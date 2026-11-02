@@ -67,17 +67,26 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
   const at::Device device = MooseTensor::floatTensorOptions().device();
   const at::ScalarType dtype = MooseTensor::floatTensorOptions().dtype().toScalarType();
 
-  std::vector<std::string> devices = {device.str()};
-  std::vector<std::size_t> batch_sizes = {0};
-  const auto mpi_comm = comm().get();
+  // RAII guard so the global default dtype is restored even if model loading
+  // throws.
+  struct DefaultDtypeGuard
+  {
+    caffe2::TypeMeta saved;
+    DefaultDtypeGuard(at::ScalarType d) : saved(at::get_default_dtype())
+    {
+      at::set_default_dtype(c10::scalarTypeToTypeMeta(d));
+    }
+    ~DefaultDtypeGuard() { at::set_default_dtype(saved); }
+    DefaultDtypeGuard(const DefaultDtypeGuard &) = delete;
+    DefaultDtypeGuard & operator=(const DefaultDtypeGuard &) = delete;
+  } dtype_guard(dtype);
 
-  // Force NEML2's default dtype to match Marlin's floating precision while the
-  // model is being constructed (mirrors MOOSE's ScopedDefaultDtype).
-  const auto saved_dtype = at::get_default_dtype();
-  at::set_default_dtype(c10::scalarTypeToTypeMeta(dtype));
-  _model = makeNEML2ModelHandle(
-      true, std::string(fname), model_name, devices, batch_sizes, &mpi_comm, {});
-  at::set_default_dtype(saved_dtype);
+  _model = std::make_unique<neml2::eager::Model>(
+      std::filesystem::path(std::string(fname)), model_name, device, std::vector<std::string>{});
+
+  // The eager loader does not convert parameter storage, so do it here.
+  for (const auto & [name, param] : _model->named_parameters())
+    _model->set_parameter(name, param.to(device, dtype));
 
   for (const auto & [marlin_input_name, neml2_input_name] :
        getParam<TensorInputBufferName, std::string>("marlin_inputs", "neml2_inputs"))
@@ -107,15 +116,15 @@ NEML2TensorCompute::computeBuffer()
 #ifdef NEML2_ENABLED
   std::map<std::string, at::Tensor> in;
   for (const auto & [tensor_ptr, label] : _input_mapping)
-    in[label] = tensor_ptr->to(_model->device(), MooseTensor::floatTensorOptions().dtype());
+    in[label] = tensor_ptr->to(_model->device(), _model->dtype());
 
-  auto out = _model->value(in);
+  auto out = _model->forward(in);
 
   for (const auto & [label, tensor_ptr] : _output_mapping)
   {
     if (out.find(label) == out.end())
       mooseError("NEML2 model did not produce output '", label, "'.");
-    *tensor_ptr = out.at(label);
+    *tensor_ptr = out.at(label).to(tensor_ptr->device(), tensor_ptr->dtype().toScalarType());
   }
 #endif
 }
