@@ -11,4 +11,30 @@
     max_parallel = 1
     min_slots = 2 # 362 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
+  [scalar_single]
+    type = CSVDiff
+    input = scalar.i
+    cli_args = 'Domain/floating_precision=SINGLE'
+    csvdiff = scalar_out.csv
+    prereq = scalar
+    issues = '#35'
+    design = NEML2TensorCompute.md
+    capabilities = neml2
+    requirement = 'The system shall evaluate NEML2 models with single precision tensor buffers.'
+    compute_devices = 'mps'
+    max_parallel = 1
+    min_slots = 2
+  []
+  [symmetric]
+    type = CSVDiff
+    input = symmetric.i
+    csvdiff = symmetric_out.csv
+    issues = '#35'
+    design = NEML2TensorCompute.md
+    capabilities = neml2
+    requirement = 'The system shall write NEML2 outputs to explicitly declared symmetric tensor buffers.'
+    compute_devices = 'cpu cuda mps xpu'
+    max_parallel = 1
+    min_slots = 2
+  []
 []

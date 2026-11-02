@@ -12,10 +12,7 @@
 #include "NEML2Utils.h"
 
 #ifdef NEML2_ENABLED
-#include "neml2/neml2.h"
-#include "neml2/tensors/Scalar.h"
-#include "neml2/tensors/Vec.h"
-#include "neml2/tensors/R2.h"
+#include "neml2/csrc/aoti/Exception.h"
 #endif
 
 registerMooseObject("MarlinApp", NEML2TensorCompute);
@@ -52,20 +49,30 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
   : TensorOperatorBase(params)
 #ifdef NEML2_ENABLED
     ,
-    _model(
-        [this]()
-        {
-          const auto fname = getParam<DataFileName>("neml2_input_file");
-          const auto cli_args = getParam<std::vector<std::string>>("cli_args");
-          const auto model_name = getParam<std::string>("neml2_model");
-          auto factory = neml2::load_input(std::string(fname), neml2::utils::join(cli_args, " "));
-          return NEML2Utils::getModel(*factory, model_name);
-        }())
+    _model(nullptr)
 #endif
 {
   NEML2Utils::assertNEML2Enabled();
 
 #ifdef NEML2_ENABLED
+  const auto fname = getParam<DataFileName>("neml2_input_file");
+  const auto model_name = getParam<std::string>("neml2_model");
+
+  const auto cli_args = getParam<std::vector<std::string>>("cli_args");
+  if (!cli_args.empty())
+    mooseError("The 'cli_args' parameter is not supported with the NEML2 v3 API.");
+
+  // Use the same device and floating-point precision as the rest of Marlin's
+  // tensor buffers so that the NEML2 model, its inputs, and its outputs agree.
+  const at::Device device = MooseTensor::floatTensorOptions().device();
+  const at::ScalarType dtype = MooseTensor::floatTensorOptions().dtype().toScalarType();
+
+  _model = std::make_unique<neml2::eager::Model>(std::filesystem::path(std::string(fname)),
+                                                 model_name,
+                                                 device,
+                                                 std::vector<std::string>{},
+                                                 dtype);
+
   for (const auto & [marlin_input_name, neml2_input_name] :
        getParam<TensorInputBufferName, std::string>("marlin_inputs", "neml2_inputs"))
   {
@@ -85,33 +92,24 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
 void
 NEML2TensorCompute::init()
 {
-#ifdef NEML2_ENABLED
-  neml2::diagnose(*_model);
-#endif
+  // NEML2 v3 validates the model at construction time.
 }
 
 void
 NEML2TensorCompute::computeBuffer()
 {
 #ifdef NEML2_ENABLED
-  neml2::ValueMap in;
+  std::map<std::string, at::Tensor> in;
   for (const auto & [tensor_ptr, label] : _input_mapping)
-  {
-    // convert tensors on the fly at runtime
-    auto sizes = tensor_ptr->sizes();
-    if (sizes.size() == _dim)
-      in[label] = neml2::Scalar(*tensor_ptr, _domain.getShape(), 0);
-    else if (sizes.size() == _dim + 1)
-      in[label] = neml2::Vec(*tensor_ptr, _domain.getShape(), 0);
-    else if (sizes.size() == _dim + 3)
-      in[label] = neml2::R2(*tensor_ptr, _domain.getShape(), 0);
-    else
-      mooseError("Unsupported tensor dimension");
-  }
+    in[label] = tensor_ptr->to(_model->device(), _model->dtype());
 
-  auto out = _model->value(in);
+  auto out = _model->forward(in);
 
   for (const auto & [label, tensor_ptr] : _output_mapping)
-    *tensor_ptr = out.at(label);
+  {
+    if (out.find(label) == out.end())
+      mooseError("NEML2 model did not produce output '", label, "'.");
+    *tensor_ptr = out.at(label).to(MooseTensor::floatTensorOptions());
+  }
 #endif
 }
