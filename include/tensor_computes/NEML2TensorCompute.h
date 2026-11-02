@@ -11,7 +11,8 @@
 #include "TensorOperatorBase.h"
 
 #ifdef NEML2_ENABLED
-#include "NEML2ModelHandle.h"
+#include "neml2/csrc/eager/Model.h"
+#include "neml2/csrc/eager/load_model.h"
 #endif
 
 /**
@@ -32,7 +33,7 @@ public:
 
 protected:
 #ifdef NEML2_ENABLED
-  std::unique_ptr<NEML2ModelHandle> _model;
+  std::unique_ptr<neml2::eager::Model> _model;
 
   std::vector<std::pair<const torch::Tensor *, std::string>> _input_mapping;
   std::vector<std::pair<std::string, torch::Tensor *>> _output_mapping;
