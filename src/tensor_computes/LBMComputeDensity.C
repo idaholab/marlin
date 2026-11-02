@@ -32,5 +32,5 @@ LBMComputeDensity::computeBuffer()
   const int Q = _f.size(-1);
   _u.view({N}).copy_(_f.view({N, Q}).sum(-1));
   _u_owned = ownedView(_u);
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }

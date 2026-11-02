@@ -43,6 +43,17 @@
     max_parallel = 4
     min_slots = 3 # 395 MB per slot observed during https://civet.inl.gov/job/4323122/ during step Test cuda. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
+  [two_fluid_solid_values]
+    type = CSVDiff
+    input = two_fluid.i
+    csvdiff = two_fluid.csv
+    requirement = 'The system shall be able to confine several fluids sharing one binary media to their own regions by resetting buffers at multiple binary media values.'
+    design = 'LatticeBoltzmannProblem.md'
+    compute_devices = 'cpu cuda mps xpu'
+    min_parallel = 1
+    max_parallel = 4
+    min_slots = 2 # very memory heavy, double the previous test (obstacle)
+  []
   [phase-field]
     type = CSVDiff
     input = phase.i

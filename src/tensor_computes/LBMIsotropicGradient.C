@@ -204,5 +204,5 @@ LBMIsotropicGradient::computeBuffer()
     _u_owned.index_put_({Slice(), Slice(), Slice(), (int64_t)d}, component);
   }
   _u_owned.div_(_lb_problem._cs2);
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }

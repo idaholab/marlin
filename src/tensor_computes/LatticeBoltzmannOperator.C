@@ -14,6 +14,12 @@ InputParameters
 LatticeBoltzmannOperator::validParams()
 {
   InputParameters params = TensorOperator::validParams();
+  params.addParam<std::vector<int>>(
+      "solid_values",
+      {0},
+      "Binary media values where the output buffer is reset to zero. Use this to confine a "
+      "fluid to its own region when several fluids share one binary media, e.g. '0 2' for "
+      "the fluid that lives where binary_media == 1.");
   params.addClassDescription("LatticeBoltzmannOperator object.");
   return params;
 }
@@ -28,8 +34,11 @@ LatticeBoltzmannOperator::LatticeBoltzmannOperator(const InputParameters & param
     _w(_stencil._weights.clone().reshape({1, 1, 1, _stencil._q})),
     _shape(_lb_problem.getExtendedShape()),
     _shape_q(_lb_problem.getExtendedShapeQ()),
-    _radius(_lb_problem.getGhostRadius())
+    _radius(_lb_problem.getGhostRadius()),
+    _solid_values(getParam<std::vector<int>>("solid_values"))
 {
+  if (std::find(_solid_values.begin(), _solid_values.end(), 0) == _solid_values.end())
+    paramError("solid_values", "Must contain 0, the value of solid cells.");
   std::vector<torch::Tensor> e_vec;
   e_vec.push_back(_stencil._ex);
   if (_dim > 1)
