@@ -95,6 +95,7 @@
       abs_zero = 1e-9
       compute_devices = 'cpu cuda xpu'
       detail = 'in double precision, and'
+      min_slots = 2
     []
     [mps]
       type = CSVDiff

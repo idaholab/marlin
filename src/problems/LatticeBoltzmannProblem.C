@@ -229,7 +229,9 @@ LatticeBoltzmannProblem::addStencil(const std::string & stencil_name,
 }
 
 void
-LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t, const Real & value)
+LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t,
+                                          const int & solid_node,
+                                          const Real & value)
 {
   const auto tensor_shape = t.sizes();
   if (_is_binary_media)
@@ -237,14 +239,31 @@ LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t, const Real & value)
     if (t.dim() == _binary_media_owned.dim())
     {
       // 3D
-      const auto solid_mask = (_binary_media_owned == value);
+      const auto solid_mask = (_binary_media_owned == solid_node);
       t.masked_fill_(solid_mask, value);
     }
     else
     {
       // 2D and 1D
-      const auto solid_mask = (_binary_media_owned == value).unsqueeze(-1).expand(tensor_shape);
+      const auto solid_mask =
+          (_binary_media_owned == solid_node).unsqueeze(-1).expand(tensor_shape);
       t.masked_fill_(solid_mask, value);
     }
   }
+}
+
+void
+LatticeBoltzmannProblem::maskedFillSolids(torch::Tensor & t,
+                                          const std::vector<int> & solid_nodes,
+                                          const std::vector<Real> & values)
+{
+  if (!_is_binary_media)
+    return;
+
+  if (!values.empty() && values.size() != solid_nodes.size())
+    mooseError("maskedFillSolids: 'values' must be empty or the same size as 'solid_nodes'.");
+
+  // fill with the matching value, or zero when no values are given
+  for (const auto i : index_range(solid_nodes))
+    maskedFillSolids(t, solid_nodes[i], values.empty() ? 0.0 : values[i]);
 }
