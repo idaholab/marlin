@@ -12,7 +12,6 @@
 
 #ifdef NEML2_ENABLED
 #include "neml2/csrc/eager/Model.h"
-#include "neml2/csrc/eager/load_model.h"
 #endif
 
 /**

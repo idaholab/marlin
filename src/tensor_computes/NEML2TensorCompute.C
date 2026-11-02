@@ -67,26 +67,11 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
   const at::Device device = MooseTensor::floatTensorOptions().device();
   const at::ScalarType dtype = MooseTensor::floatTensorOptions().dtype().toScalarType();
 
-  // RAII guard so the global default dtype is restored even if model loading
-  // throws.
-  struct DefaultDtypeGuard
-  {
-    caffe2::TypeMeta saved;
-    DefaultDtypeGuard(at::ScalarType d) : saved(at::get_default_dtype())
-    {
-      at::set_default_dtype(c10::scalarTypeToTypeMeta(d));
-    }
-    ~DefaultDtypeGuard() { at::set_default_dtype(saved); }
-    DefaultDtypeGuard(const DefaultDtypeGuard &) = delete;
-    DefaultDtypeGuard & operator=(const DefaultDtypeGuard &) = delete;
-  } dtype_guard(dtype);
-
-  _model = std::make_unique<neml2::eager::Model>(
-      std::filesystem::path(std::string(fname)), model_name, device, std::vector<std::string>{});
-
-  // The eager loader does not convert parameter storage, so do it here.
-  for (const auto & [name, param] : _model->named_parameters())
-    _model->set_parameter(name, param.to(device, dtype));
+  _model = std::make_unique<neml2::eager::Model>(std::filesystem::path(std::string(fname)),
+                                                 model_name,
+                                                 device,
+                                                 std::vector<std::string>{},
+                                                 dtype);
 
   for (const auto & [marlin_input_name, neml2_input_name] :
        getParam<TensorInputBufferName, std::string>("marlin_inputs", "neml2_inputs"))
@@ -124,7 +109,7 @@ NEML2TensorCompute::computeBuffer()
   {
     if (out.find(label) == out.end())
       mooseError("NEML2 model did not produce output '", label, "'.");
-    *tensor_ptr = out.at(label).to(tensor_ptr->device(), tensor_ptr->dtype().toScalarType());
+    *tensor_ptr = out.at(label).to(MooseTensor::floatTensorOptions());
   }
 #endif
 }
