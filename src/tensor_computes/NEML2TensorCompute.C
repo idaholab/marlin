@@ -58,12 +58,26 @@ NEML2TensorCompute::NEML2TensorCompute(const InputParameters & params)
   const auto fname = getParam<DataFileName>("neml2_input_file");
   const auto model_name = getParam<std::string>("neml2_model");
 
-  std::vector<std::string> devices = {at::Device(getMooseApp().getLibtorchDevice()).str()};
+  const auto cli_args = getParam<std::vector<std::string>>("cli_args");
+  if (!cli_args.empty())
+    mooseError("The 'cli_args' parameter is not supported with the NEML2 v3 API.");
+
+  // Use the same device and floating-point precision as the rest of Marlin's
+  // tensor buffers so that the NEML2 model, its inputs, and its outputs agree.
+  const at::Device device = MooseTensor::floatTensorOptions().device();
+  const at::ScalarType dtype = MooseTensor::floatTensorOptions().dtype().toScalarType();
+
+  std::vector<std::string> devices = {device.str()};
   std::vector<std::size_t> batch_sizes = {0};
   const auto mpi_comm = comm().get();
 
+  // Force NEML2's default dtype to match Marlin's floating precision while the
+  // model is being constructed (mirrors MOOSE's ScopedDefaultDtype).
+  const auto saved_dtype = at::get_default_dtype();
+  at::set_default_dtype(c10::scalarTypeToTypeMeta(dtype));
   _model = makeNEML2ModelHandle(
       true, std::string(fname), model_name, devices, batch_sizes, &mpi_comm, {});
+  at::set_default_dtype(saved_dtype);
 
   for (const auto & [marlin_input_name, neml2_input_name] :
        getParam<TensorInputBufferName, std::string>("marlin_inputs", "neml2_inputs"))
@@ -93,7 +107,7 @@ NEML2TensorCompute::computeBuffer()
 #ifdef NEML2_ENABLED
   std::map<std::string, at::Tensor> in;
   for (const auto & [tensor_ptr, label] : _input_mapping)
-    in[label] = *tensor_ptr;
+    in[label] = tensor_ptr->to(_model->device(), MooseTensor::floatTensorOptions().dtype());
 
   auto out = _model->value(in);
 
