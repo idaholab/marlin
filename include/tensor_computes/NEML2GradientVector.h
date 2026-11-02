@@ -10,13 +10,7 @@
 
 #include "FFTGradientBase.h"
 
-#ifdef NEML2_ENABLED
-#include "neml2/tensors/Scalar.h"
-#include "neml2/tensors/Vec.h"
-using NEML2GradientVectorType = neml2::Vec;
-#else
 using NEML2GradientVectorType = torch::Tensor;
-#endif
 
 /**
  * Gradient of a tensor field returned as a NEML2 vector.

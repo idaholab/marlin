@@ -11,10 +11,12 @@
 #include "TensorBuffer.h"
 
 /**
- * Tensor wrapper arbitrary tensor value dimensions
+ * Tensor wrapper for NEML2-coupled tensor buffers.
+ *
+ * NEML2 v3 exchanges plain torch tensors, so this buffer stores a torch::Tensor
+ * just like the other Marlin tensor buffers.
  */
-template <typename T>
-class NEML2TensorBuffer : public TensorBuffer<T>
+class NEML2TensorBuffer : public TensorBuffer<torch::Tensor>
 {
 public:
   static InputParameters validParams();
@@ -23,26 +25,7 @@ public:
 
   virtual void init() override;
   virtual void makeCPUCopy() override;
-
-  using TensorBuffer<T>::_u;
-  using TensorBuffer<T>::_u_cpu;
-  using TensorBuffer<T>::_cpu_copy_requested;
 };
 
-#ifdef NEML2_ENABLED
-#include "neml2/tensors/Vec.h"
-#include "neml2/tensors/SR2.h"
-
-using VectorTensor = NEML2TensorBuffer<neml2::Vec>;
-registerTensorType(VectorTensor, neml2::Vec);
-
-using SR2Tensor = NEML2TensorBuffer<neml2::SR2>;
-registerTensorType(SR2Tensor, neml2::SR2);
-
-#else
-
-// placeholder class
-using VectorTensor = NEML2TensorBuffer<torch::Tensor>;
-using SR2Tensor = NEML2TensorBuffer<torch::Tensor>;
-
-#endif
+using VectorTensor = NEML2TensorBuffer;
+using SR2Tensor = NEML2TensorBuffer;
