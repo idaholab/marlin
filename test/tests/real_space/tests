@@ -94,6 +94,7 @@
       # the Laplacian is zero up to round-off of u / dx^2 (u <= 2, 1/dx^2 = 400)
       abs_zero = 1e-9
       compute_devices = 'cpu cuda xpu'
+      min_slots = 2 # memory heavy
       detail = 'in double precision, and'
     []
     [mps]
@@ -309,6 +310,7 @@
       cli_args = 'Outputs/file_base=divgrad_harmonic'
       rel_err = 1e-10
       compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
       detail = 'match an independent evaluation with the harmonic face mean,'
     []
     [arithmetic]
@@ -318,6 +320,7 @@
       cli_args = 'face_mean=arithmetic Outputs/file_base=divgrad_arithmetic'
       rel_err = 1e-10
       compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
       detail = 'with the arithmetic face mean, and shall'
     []
     [harmonic_sign]
