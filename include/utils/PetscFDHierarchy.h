@@ -124,6 +124,12 @@ void assembleStencilOperator(DM da,
                              Mat B);
 
 /**
+ * Add an identity row, times the smallest nonzero diagonal entry, to every row of the assembled
+ * B whose diagonal is zero (an inactive cell, whose row is zero).
+ */
+void addIdentityOnZeroRows(Mat B);
+
+/**
  * An AIJ matrix on the DMDA da (of the DM's matrix type) preallocated for exactly the
  * columns of the stencil, which assembleStencilOperator then fills. Any stencil with
  * the same offsets can be assembled into it.
@@ -143,6 +149,39 @@ Real jacobiSpectrumBound(DM da,
                          const std::vector<FDStencilEntry> & stencil,
                          const FaceGhosts & faces,
                          const std::vector<Real> & h);
+
+/**
+ * The diagonal of the operator assembleStencilOperator builds, on a block of size cells
+ * starting at global cell begin (Marlin axis order, dim axes; options for the tensor). An
+ * entry reaches its own row when its offset is zero, wraps onto it on a periodic axis, or
+ * folds onto it: on a non-periodic axis, offset -(2i + 1) from cell i is ghost layer i of
+ * the lower face, mirrored onto cell i (likewise at the upper face). Box stencils fold on
+ * several axes at once, so corner rows get the product of the faces' factors.
+ */
+torch::Tensor foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
+                             unsigned int dim,
+                             const std::array<int64_t, 3> & n,
+                             const std::array<bool, 3> & periodic,
+                             const FaceGhosts & faces,
+                             const std::vector<Real> & h,
+                             const std::array<int64_t, 3> & begin,
+                             const std::array<int64_t, 3> & size,
+                             const torch::TensorOptions & options);
+
+/**
+ * The mean of fine_values over the 2^dim fine cells of each coarse cell, into coarse_values
+ * (on coarse, from DMCoarsen of fine): the transpose of the DMDA's piecewise-constant (Q0)
+ * interpolation, divided by 2^dim.
+ */
+void restrictCellMean(DM coarse, DM fine, Vec fine_values, Vec coarse_values);
+
+/**
+ * The owned block of the global vector v on da with one halo layer, as a host float64
+ * tensor in Marlin axis order: the halo holds the neighbouring ranks' cells and the periodic
+ * images, and outside a domain face the nearest owned cell (as for face data). The halo
+ * corners are not set.
+ */
+torch::Tensor ownedWithHalo(DM da, Vec v);
 
 /**
  * Cell-centred multilinear interpolation from the coarse to the fine DMDA (each

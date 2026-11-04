@@ -18,12 +18,16 @@
  * per spatial dimension) and the coefficient it multiplies. Coefficients
  * already include any 1/dx^2-style grid-spacing scaling and operator
  * prefactor, matching exactly what the operator's matrix-free action
- * applies.
+ * applies. A variable-coefficient operator also gives a per-cell field, which
+ * multiplies the coefficient in each row (the row's cell, not the column's).
  */
 struct FDStencilEntry
 {
   std::vector<int> offset;
   Real coefficient;
+  /// per-cell factor on this rank's owned block of the grid the stencil is for (Marlin
+  /// axis order); undefined for a constant coefficient
+  torch::Tensor field;
 };
 
 /**
@@ -51,6 +55,18 @@ public:
    */
   virtual std::vector<FDStencilEntry> stencilAt(const std::vector<Real> & grid_spacing) const = 0;
 
+  /**
+   * The stencil's offsets. Unlike stencilAt() they are available before the buffers are
+   * allocated (a variable coefficient is read from a buffer), e.g. in a solver's constructor.
+   */
+  virtual std::vector<std::vector<int>> stencilOffsets() const
+  {
+    std::vector<std::vector<int>> offsets;
+    for (const auto & entry : stencilAt())
+      offsets.push_back(entry.offset);
+    return offsets;
+  }
+
   /// Definiteness of the operator's action A (as written, before any sign change)
   enum class Definiteness
   {
@@ -65,6 +81,24 @@ public:
 
   /// Name of the buffer the operator acts on
   virtual const std::string & inputBufferName() const = 0;
+
+  /**
+   * The cell-centred coefficient field of a variable-coefficient operator on this rank's owned
+   * block, which an implicit solver restricts to its coarse levels as the mean over the
+   * children. Undefined (the default) for an operator whose stencil does not depend on a field.
+   */
+  virtual torch::Tensor ownedCoefficient() const { return {}; }
+
+  /**
+   * The stencil on a grid with the given spacing from the coefficient on that grid's owned block
+   * with one halo layer (Marlin axis order), for an operator with an ownedCoefficient().
+   */
+  virtual std::vector<FDStencilEntry>
+  stencilFromCoefficient(const torch::Tensor & /*coefficient*/,
+                         const std::vector<Real> & grid_spacing) const
+  {
+    return stencilAt(grid_spacing);
+  }
 
   /**
    * Contribution r of this operator to the right-hand side of the implicit

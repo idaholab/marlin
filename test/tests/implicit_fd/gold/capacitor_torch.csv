@@ -1,0 +1,3 @@
+time,charge_dielectric,charge_dielectric_error,charge_exact,charge_left,charge_left_error,charge_right,charge_right_error,phi_error
+0,0,0,0,0,0,0,0,0
+1,3.4385195389515e-07,8.4376949871512e-15,3.4385195389515e-07,3.4385195389515e-07,6.883382752676e-15,3.4385195389514e-07,5.9952043329758e-15,9.2370555648813e-15

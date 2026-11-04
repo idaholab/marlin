@@ -94,6 +94,7 @@
       # the Laplacian is zero up to round-off of u / dx^2 (u <= 2, 1/dx^2 = 400)
       abs_zero = 1e-9
       compute_devices = 'cpu cuda xpu'
+      min_slots = 2 # memory heavy
       detail = 'in double precision, and'
     []
     [mps]
@@ -298,6 +299,49 @@
     []
   []
 
+  [divgrad]
+    design = FiniteDifferenceDivGrad.md
+    requirement = 'The system shall compute div(D grad u) in real space for a cell-centred coefficient D, with Dirichlet and Neumann faces and the boundary cell D on a domain face, and'
+    # the harmonic and arithmetic golds agree with a NumPy evaluation to 11 digits
+    [harmonic]
+      type = CSVDiff
+      input = divgrad.i
+      csvdiff = divgrad_harmonic.csv
+      cli_args = 'Outputs/file_base=divgrad_harmonic'
+      rel_err = 1e-10
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'match an independent evaluation with the harmonic face mean,'
+    []
+    [arithmetic]
+      type = CSVDiff
+      input = divgrad.i
+      csvdiff = divgrad_arithmetic.csv
+      cli_args = 'face_mean=arithmetic Outputs/file_base=divgrad_arithmetic'
+      rel_err = 1e-10
+      compute_devices = 'cpu cuda'
+      min_slots = 2 # memory heavy
+      detail = 'with the arithmetic face mean, and shall'
+    []
+    [harmonic_sign]
+      type = RunException
+      input = divgrad.i
+      cli_args = "TensorComputes/Initialize/D/expression='x - 0.5 + 0.2*cos(3*y)'"
+      expect_err = 'has D_i D_j <= 0 on a face, where the harmonic mean is undefined'
+      detail = 'reject a coefficient with D_i D_j <= 0 on a face with the harmonic mean, and'
+    []
+    [arithmetic_negative]
+      type = CSVDiff
+      input = divgrad.i
+      cli_args = "face_mean=arithmetic TensorComputes/Initialize/D/expression='x - 0.5 + "
+                 "0.2*cos(3*y)' Outputs/file_base=divgrad_arithmetic_negative"
+      csvdiff = divgrad_arithmetic_negative.csv
+      rel_err = 1e-10
+      compute_devices = 'cpu'
+      detail = 'accept a coefficient of either sign with the arithmetic mean in explicit use.'
+    []
+  []
+
   [deep_ghost_layers]
     issues = '#191'
     design = 'syntax/TensorComputes/BCs/index.md'
@@ -367,5 +411,16 @@
       compute_devices = 'cpu'
       detail = 'is read with more ghost layers than this rank owns cells along a periodic axis.'
     []
+  []
+
+  [biharmonic_faces]
+    type = CSVDiff
+    input = biharmonic_faces.i
+    csvdiff = biharmonic_faces_out.csv
+    rel_err = 1e-8
+    # the difference is 0 exactly
+    abs_zero = 1e-9
+    design = 'FiniteDifferenceBiharmonic.md'
+    requirement = 'The system shall apply the 3-point biharmonic explicitly with Dirichlet faces whose data vary along the faces, imposing u = g and Laplacian(u) = 0 there, in the Solve and in the Postprocess computes alike.'
   []
 []
