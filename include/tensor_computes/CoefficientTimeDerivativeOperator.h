@@ -25,6 +25,7 @@ public:
 
   virtual void computeBuffer() override;
 
+  using TimeDerivativeOperator::stencilAt;
   virtual std::vector<FDStencilEntry>
   stencilAt(const std::vector<Real> & grid_spacing) const override;
   virtual std::vector<std::vector<int>> stencilOffsets() const override;
