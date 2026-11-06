@@ -56,13 +56,13 @@ Error of F against the reference, with the solve dt at that time (100^2):
 
 | run                              | t = 5           | t = 50          |
 | -------------------------------- | ---------------:| ---------------:|
-| lagged, solve dt up to 0.5 (b)   | +0.039 (0.023)  | +0.078 (0.25)   |
-| lagged, solve dt up to 0.1 (b)   | +0.039 (0.023)  | +0.046 (0.1)    |
+| lagged, solve dt up to 0.5 (c)   | +0.039 (0.023)  | +0.078 (0.25)   |
+| lagged, solve dt up to 0.1 (c)   | +0.039 (0.023)  | +0.046 (0.1)    |
 | nonlinear, dtmax 0.02            | -0.020 (0.02)   | -0.002 (0.02)   |
 | nonlinear, dtmax 0.05            | -0.060 (0.05)   | -0.005 (0.05)   |
 | nonlinear, dtmax 0.1             | -0.123 (0.1)    | -0.009 (0.1)    |
 | nonlinear, no cap                | -0.179 (0.15)   | -0.013 (0.15)   |
-| nonlinear, solve dt up to 0.5 (a)| -0.009 (0.023)  | +0.002 (0.25)   |
+| nonlinear, solve dt up to 0.5 (b)| -0.009 (0.023)  | +0.002 (0.25)   |
 
 At the same solve dt the nonlinear error is several times smaller: at t = 5, -0.009 against
 +0.039 at dt = 0.023, and at t = 50, +0.002 against +0.078 at 0.25. The errors are first order
@@ -71,12 +71,12 @@ still at the same steps (its step grows from 1e-4), so they agree there. The cap
 demonstration setting: its steps are about twice the lagged input's at t = 5 and a fifth of
 them at t = 50.
 
-(a) `6a_implicit_fd.i` with `TensorSolver/nonlinear_solve=true` and the same Anderson options, on
+(b) `6a_implicit_fd.i` with `TensorSolver/nonlinear_solve=true` and the same Anderson options, on
 the lagged input's former step schedule (IterationAdaptiveDT, 20 solves per step). It reaches t = 400
 (F = 103.77) with up to 24 iterations per step. The plain Picard iteration (without Anderson)
 fails there near t = 41, where the solve dt passes about 0.19.
 
-(b) On the lagged input's former step schedule (20 equal solves per step, the step growing by 1.1
+(c) On the lagged input's former step schedule (20 equal solves per step, the step growing by 1.1
 per step), the schedule of the comparison in the paragraph above.
 
 `plot_comparison.py <run_dir>` draws `free_energy_6a.png` (the curves above) and `cost_6a.png`

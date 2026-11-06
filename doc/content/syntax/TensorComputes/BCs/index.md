@@ -29,7 +29,8 @@ presets) is a constant, or varies along the face, given by at most one of
   to the face holds $c$. The compute that writes it must evaluate $c$ at the face
   position, not at the cell centres. Its values are those the compute last wrote: for
   [ImplicitFDSolver.md], whose explicit computes run at the start of the time step, they lag
-  the new time by one time step. A buffer that no compute or initial condition writes is
+  the new time by one time step, unless its `nonlinear_solve` is on: its explicit computes then
+  run at every iterate and at the new time, and the values are those at the iterate. A buffer that no compute or initial condition writes is
   an error. The compute runs before any compute that reads the variable with ghost cells.
 
 A stencil reaching $L$ cells across the face (e.g. two for the 5-point Laplacian) needs $L$ ghost
