@@ -300,6 +300,7 @@
   []
 
   [divgrad]
+    issues = '#184'
     design = FiniteDifferenceDivGrad.md
     requirement = 'The system shall compute div(D grad u) in real space for a cell-centred coefficient D, with Dirichlet and Neumann faces and the boundary cell D on a domain face, and'
     # the harmonic and arithmetic golds agree with a NumPy evaluation to 11 digits
@@ -415,6 +416,7 @@
 
   [biharmonic_faces]
     type = CSVDiff
+    issues = '#184'
     input = biharmonic_faces.i
     csvdiff = biharmonic_faces_out.csv
     rel_err = 1e-8
