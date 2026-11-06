@@ -65,6 +65,34 @@ private:
   TensorProblem & _problem;
 };
 
+/// advances a time by an offset for its lifetime, so that every exit, an exception included,
+/// restores it
+class TimeShiftGuard
+{
+public:
+  TimeShiftGuard(Real & time, Real offset) : _time(time), _offset(offset) { _time += _offset; }
+  ~TimeShiftGuard() { _time -= _offset; }
+  TimeShiftGuard(const TimeShiftGuard &) = delete;
+  TimeShiftGuard & operator=(const TimeShiftGuard &) = delete;
+
+private:
+  Real & _time;
+  const Real _offset;
+};
+
+/// a vector size as a PetscInt, which is 32 bits unless PETSc is built with 64-bit indices
+PetscInt
+petscSize(int64_t size)
+{
+  if (size > int64_t(std::numeric_limits<PetscInt>::max()))
+    mooseError("The PETSc vectors need ",
+               size,
+               " entries, more than the largest PetscInt, ",
+               std::numeric_limits<PetscInt>::max(),
+               ". Use a PETSc built with --with-64-bit-indices.");
+  return PetscInt(size);
+}
+
 /// a PETSc option of the nonlinear solve (prefix nonlinear_) rather than of the field solves
 bool
 isNonlinearOption(const std::string & name)
@@ -876,8 +904,8 @@ ImplicitFDSolver::setupPetsc(Field & field)
 #endif
 
   // fine level: the operators' own kernels behind a shell
-  const PetscInt local = field._u_base.ownedView().numel();
-  const PetscInt global = _domain.getNumberOfCells();
+  const PetscInt local = petscSize(field._u_base.ownedView().numel());
+  const PetscInt global = petscSize(_domain.getNumberOfCells());
   PetscCallAbort(comm, MatCreateShell(comm, local, local, global, global, &ps, &ps.fine));
   PetscCallAbort(comm, MatShellSetOperation(ps.fine, MATOP_MULT, (void (*)(void))shellMult));
   PetscCallAbort(comm,
@@ -1291,8 +1319,9 @@ ImplicitFDSolver::nonlinearSubstep()
   // the explicit computes run at the time level of the unknown, so the converged step is
   // backward Euler A U = u^n/dt + f(U, t + dt) (D15); the boundary functions stay at t + dt
   // through the shifted time, and the buffer-valued boundary data follow every iterate (D16)
-  _sub_time += _sub_dt;
-  _tensor_problem.beginFixedBoundaryData(0.0);
+  // both are released on every exit, an exception (e.g. from failSubstep) included
+  const TimeShiftGuard shifted_time(_sub_time, _sub_dt);
+  const FixedBoundaryDataGuard fixed_boundary_data(_tensor_problem, 0.0);
 
   // a singular field's solution is the zero-mean one, as in the lagged scheme; the corrections
   // have zero mean, so the initial iterate is projected
@@ -1306,18 +1335,8 @@ ImplicitFDSolver::nonlinearSubstep()
   }
 
   _linear_iterations = 0;
-  SolveResult result;
-  try
-  {
-    result = _nonlinear_solver == NonlinearSolver::PETSC ? solveNonlinearPetsc(U)
-                                                         : solveNonlinearTorch(U);
-  }
-  catch (...)
-  {
-    _tensor_problem.endFixedBoundaryData();
-    _sub_time -= _sub_dt;
-    throw;
-  }
+  const auto result =
+      _nonlinear_solver == NonlinearSolver::PETSC ? solveNonlinearPetsc(U) : solveNonlinearTorch(U);
   // the time stepper's signal is the number of nonlinear iterations (D14)
   _iterations = result.iterations;
   _console << "Nonlinear solve: " << result.iterations << " iterations, " << _linear_iterations
@@ -1328,9 +1347,6 @@ ImplicitFDSolver::nonlinearSubstep()
   else
     // the fields, the explicit terms and the operator output buffers at the converged U
     nonlinearRhs(U);
-
-  _tensor_problem.endFixedBoundaryData();
-  _sub_time -= _sub_dt;
 }
 
 std::vector<torch::Tensor>
@@ -1526,14 +1542,15 @@ ImplicitFDSolver::setupNonlinearPetsc()
   const auto comm = _domain.getMPIComm();
 
   // a coupled vector holds the owned cells of every field, in field order
-  PetscInt local = 0;
+  int64_t local_size = 0;
   _coupled_offsets.clear();
   for (const auto & field : _fields)
   {
-    _coupled_offsets.push_back(local);
-    local += field._u_base.ownedView().numel();
+    _coupled_offsets.push_back(petscSize(local_size));
+    local_size += field._u_base.ownedView().numel();
   }
-  const PetscInt global = PetscInt(_fields.size()) * _domain.getNumberOfCells();
+  const PetscInt local = petscSize(local_size);
+  const PetscInt global = petscSize(int64_t(_fields.size()) * _domain.getNumberOfCells());
 
   // the coupled vectors on the torch device where PETSc can hold them (CUDA with a CUDA PETSc),
   // on the host otherwise, where every iterate passes through a copy
