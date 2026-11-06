@@ -92,6 +92,10 @@ struct Hierarchy
   std::vector<DM> dms;
   /// interpolations[l] maps level l + 1 (coarser) to level l
   std::vector<Mat> interpolations;
+  /// the DMDAs' piecewise-constant (Q0) interpolations from level l + 1 to level l, whose
+  /// transpose sums the children; created on the first restrictCellMean of each level (null
+  /// until then: PETSc's Q0 interpolation does not exist for every hierarchy)
+  std::vector<Mat> q0_interpolations;
 };
 
 /**
@@ -163,11 +167,11 @@ torch::Tensor foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
                              const torch::TensorOptions & options);
 
 /**
- * The mean of fine_values over the 2^dim fine cells of each coarse cell, into coarse_values
- * (on coarse, from DMCoarsen of fine): the transpose of the DMDA's piecewise-constant (Q0)
+ * The mean of fine_values (on hierarchy level k - 1) over the 2^dim fine cells of each cell of
+ * level k, into coarse_values: the transpose of the DMDA's piecewise-constant (Q0)
  * interpolation, divided by 2^dim.
  */
-void restrictCellMean(DM coarse, DM fine, Vec fine_values, Vec coarse_values);
+void restrictCellMean(Hierarchy & hierarchy, std::size_t k, Vec fine_values, Vec coarse_values);
 
 /**
  * The owned block of the global vector v on da with one halo layer, as a host float64

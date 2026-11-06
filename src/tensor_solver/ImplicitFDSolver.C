@@ -567,13 +567,47 @@ ImplicitFDSolver::fieldRhs(Field & field)
   return b;
 }
 
+namespace
+{
+/// the stencil entries of all operators at the given spacing (empty: the domain's)
+std::vector<FDStencilEntry>
+fieldStencil(const std::vector<const LinearFDOperator *> & fd_operators,
+             const std::vector<Real> & grid_spacing = {})
+{
+  std::vector<FDStencilEntry> stencil;
+  for (const auto * fd_op : fd_operators)
+  {
+    const auto entries = grid_spacing.empty() ? fd_op->stencilAt() : fd_op->stencilAt(grid_spacing);
+    stencil.insert(stencil.end(), entries.begin(), entries.end());
+  }
+  return stencil;
+}
+
+/// the homogeneous ghost relations of a field's boundary faces
+PetscFD::FaceGhosts
+faceGhosts(const std::vector<const TensorRobinBC *> & face_bcs)
+{
+  PetscFD::FaceGhosts faces;
+  for (const auto face : index_range(face_bcs))
+    if (face_bcs[face])
+      faces.ab[face] = {face_bcs[face]->a(), face_bcs[face]->b()};
+  return faces;
+}
+}
+
 ImplicitFDSolver::SolveResult
 ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x)
 {
+  // the operators' stencil for this solve (for a FiniteDifferenceDivGrad, building it exchanges
+  // the coefficient's halo), and the Jacobi diagonal of the torch solve and the eigenvalue
+  field._stencil = fieldStencil(field._fd_operators);
+  const bool torch_pcg = _linear_solver != LinearSolver::PETSC;
+  const auto diag = torch_pcg || !field._singular ? jacobiDiagonal(field) : torch::Tensor();
+
   // with A 1 = lambda 1 (A symmetric), the sum of the equations fixes the mean of the exact
   // solution, mean(x) = mean(b) / lambda: the Krylov error in the constant mode is set to zero
   // after the solve (e.g. mass of a conserved field on periodic or Neumann faces)
-  const Real lambda = field._singular ? 0.0 : constantEigenvalue(field);
+  const Real lambda = field._singular ? 0.0 : constantEigenvalue(field, diag);
   const Real b_mean = lambda > 0.0 ? _domain.allreduceSum(b.sum()).cpu().item<double>() /
                                          static_cast<Real>(_domain.getNumberOfCells())
                                    : 0.0;
@@ -586,7 +620,7 @@ ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x
   else if (_linear_solver == LinearSolver::PETSC)
     result = solvePetsc(field, b, x);
   else
-    result = solveTorchPCG(field, b, b_norm, x);
+    result = solveTorchPCG(field, b, b_norm, diag, x);
   if (!result.failure.empty())
     return result;
 
@@ -654,34 +688,6 @@ ImplicitFDSolver::applyLinearOperator(Field & field, const torch::Tensor & x)
   return applyOperator(field, x);
 }
 
-namespace
-{
-/// the stencil entries of all operators at the given spacing (empty: the domain's)
-std::vector<FDStencilEntry>
-fieldStencil(const std::vector<const LinearFDOperator *> & fd_operators,
-             const std::vector<Real> & grid_spacing = {})
-{
-  std::vector<FDStencilEntry> stencil;
-  for (const auto * fd_op : fd_operators)
-  {
-    const auto entries = grid_spacing.empty() ? fd_op->stencilAt() : fd_op->stencilAt(grid_spacing);
-    stencil.insert(stencil.end(), entries.begin(), entries.end());
-  }
-  return stencil;
-}
-
-/// the homogeneous ghost relations of a field's boundary faces
-PetscFD::FaceGhosts
-faceGhosts(const std::vector<const TensorRobinBC *> & face_bcs)
-{
-  PetscFD::FaceGhosts faces;
-  for (const auto face : index_range(face_bcs))
-    if (face_bcs[face])
-      faces.ab[face] = {face_bcs[face]->a(), face_bcs[face]->b()};
-  return faces;
-}
-}
-
 void
 ImplicitFDSolver::checkPositiveDiagonal(const Field & field, const torch::Tensor & diag) const
 {
@@ -696,7 +702,7 @@ ImplicitFDSolver::checkPositiveDiagonal(const Field & field, const torch::Tensor
 }
 
 Real
-ImplicitFDSolver::constantEigenvalue(Field & field)
+ImplicitFDSolver::constantEigenvalue(Field & field, const torch::Tensor & diag)
 {
   // a Dirichlet or Robin face (a != 0) gives the constants a profile next to the face
   for (const auto * face_bc : field._face_bcs)
@@ -706,7 +712,6 @@ ImplicitFDSolver::constantEigenvalue(Field & field)
   // A 1 is exact up to the cancellation of the stencil weights, of the size of the diagonal
   const auto ones = torch::ones_like(field._u_base.ownedView(), torch::MemoryFormat::Contiguous);
   const auto y = applyLinearOperator(field, ones);
-  const auto diag = jacobiDiagonal(field);
   const auto n_cells = static_cast<Real>(_domain.getNumberOfCells());
   const Real lambda = _domain.allreduceSum(y.sum()).cpu().item<double>() / n_cells;
   const Real deviation = std::sqrt(
@@ -731,7 +736,7 @@ ImplicitFDSolver::jacobiDiagonal(const Field & field) const
   std::vector<Real> h(_dim);
   for (const auto d : make_range(_dim))
     h[d] = dx(d);
-  return PetscFD::foldedDiagonal(fieldStencil(field._fd_operators),
+  return PetscFD::foldedDiagonal(field._stencil,
                                  _dim,
                                  _domain.getGridSize(),
                                  _domain.getPeriodicDirections(),
@@ -746,10 +751,10 @@ ImplicitFDSolver::SolveResult
 ImplicitFDSolver::solveTorchPCG(Field & field,
                                 const torch::Tensor & b,
                                 Real b_norm,
+                                const torch::Tensor & diag,
                                 torch::Tensor & x)
 {
   // Jacobi preconditioner
-  const auto diag = jacobiDiagonal(field);
   checkPositiveDiagonal(field, diag);
   const auto inv_diag = diag.reciprocal();
   const auto A = [&](const torch::Tensor & v) { return applyLinearOperator(field, v); };
@@ -1033,7 +1038,7 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
 {
   auto & ps = *field._petsc;
   const auto comm = ps.comm;
-  const auto stencil = fieldStencil(field._fd_operators);
+  const auto & stencil = field._stencil;
   // a per-cell field compares on the owned cells only, so every rank must reassemble when any
   // rank's stencil changed (the assembly is collective)
   int same = sameStencil(stencil, ps.assembled_stencil);
@@ -1074,7 +1079,7 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
       for (const auto k : make_range(std::size_t(1), levels))
       {
         PetscCallAbort(comm, DMCreateGlobalVector(ps.hierarchy->dms[k], &D[k]));
-        PetscFD::restrictCellMean(ps.hierarchy->dms[k], ps.hierarchy->dms[k - 1], D[k - 1], D[k]);
+        PetscFD::restrictCellMean(*ps.hierarchy, k, D[k - 1], D[k]);
       }
     }
 
@@ -1084,18 +1089,23 @@ ImplicitFDSolver::assembleCoarseLevels(Field & field)
     std::vector<Real> spacing(_dim);
     for (const auto d : make_range(_dim))
       spacing[d] = grid_spacing(d) * Real(1 << k);
+    // the fine level's stencil is the field's (stencilAt() is stencilAt at the fine spacing),
+    // so it is not rebuilt (for a FiniteDifferenceDivGrad: no second halo exchange)
     std::vector<FDStencilEntry> level_stencil;
-    for (const auto i : index_range(field._fd_operators))
-    {
-      const auto * fd_op = field._fd_operators[i];
-      // the coarse D with one halo layer: D_0 outside a domain face, as on the fine level
-      const auto entries =
-          k > 0 && !coefficients[i].empty()
-              ? dynamic_cast<const FiniteDifferenceDivGrad *>(fd_op)->stencilFromCoefficient(
-                    PetscFD::ownedWithHalo(ps.hierarchy->dms[k], coefficients[i][k]), spacing)
-              : fd_op->stencilAt(spacing);
-      level_stencil.insert(level_stencil.end(), entries.begin(), entries.end());
-    }
+    if (k == 0)
+      level_stencil = stencil;
+    else
+      for (const auto i : index_range(field._fd_operators))
+      {
+        const auto * fd_op = field._fd_operators[i];
+        // the coarse D with one halo layer: D_0 outside a domain face, as on the fine level
+        const auto entries =
+            !coefficients[i].empty()
+                ? dynamic_cast<const FiniteDifferenceDivGrad *>(fd_op)->stencilFromCoefficient(
+                      PetscFD::ownedWithHalo(ps.hierarchy->dms[k], coefficients[i][k]), spacing)
+                : fd_op->stencilAt(spacing);
+        level_stencil.insert(level_stencil.end(), entries.begin(), entries.end());
+      }
 
     if (k > 0)
     {

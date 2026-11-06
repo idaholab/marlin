@@ -361,6 +361,9 @@ Hierarchy::~Hierarchy()
 {
   for (auto & P : interpolations)
     PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&P));
+  for (auto & P : q0_interpolations)
+    if (P)
+      PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&P));
   for (auto & da : dms)
     PetscCallAbort(PETSC_COMM_WORLD, DMDestroy(&da));
 }
@@ -520,6 +523,8 @@ jacobiSpectrumBound(DM da,
   const auto rows = has_field ? ownedRows(info)
                               : representativeRows(info, periodicAxes(da), stencilWidth(stencil));
   Real bound = 0.0;
+  // one buffer for every row (a fine level with a per-cell field visits every owned row)
+  std::vector<std::pair<std::array<PetscInt, 3>, Real>> row_values;
   forEachFoldedRow(da,
                    stencil,
                    1.0,
@@ -531,18 +536,29 @@ jacobiSpectrumBound(DM da,
                        const std::vector<PetscScalar> & values)
                    {
                      // the matrix entries: values folded onto the same column are added, as in
-                     // assembleStencilOperator; periodic columns are not wrapped here, so
-                     // offsets that wrap onto one column are counted separately (still an
-                     // upper bound)
-                     std::map<std::array<PetscInt, 3>, Real> row_values;
+                     // assembleStencilOperator; periodic columns are not wrapped here, so offsets
+                     // that wrap onto one column are counted separately (still an upper bound). The
+                     // stable sort adds the values of a column in the order they come.
+                     row_values.clear();
                      for (const auto q : index_range(cols))
-                       row_values[{{cols[q].i, cols[q].j, cols[q].k}}] += values[q];
+                       row_values.push_back({{{cols[q].i, cols[q].j, cols[q].k}}, values[q]});
+                     std::stable_sort(row_values.begin(),
+                                      row_values.end(),
+                                      [](const auto & a, const auto & b)
+                                      { return a.first < b.first; });
+                     const std::array<PetscInt, 3> diagonal{{row.i, row.j, row.k}};
                      Real centre = 0.0, off_diagonal = 0.0;
-                     for (const auto & [col, value] : row_values)
-                       if (col == std::array<PetscInt, 3>{{row.i, row.j, row.k}})
+                     for (std::size_t q = 0; q < row_values.size();)
+                     {
+                       const auto & col = row_values[q].first;
+                       Real value = 0.0;
+                       for (; q < row_values.size() && row_values[q].first == col; ++q)
+                         value += row_values[q].second;
+                       if (col == diagonal)
                          centre += value;
                        else
                          off_diagonal += std::abs(value);
+                     }
                      bound = std::max(bound, 1.0 + off_diagonal / centre);
                    });
   MPI_Allreduce(MPI_IN_PLACE, &bound, 1, MPI_DOUBLE, MPI_MAX, PetscObjectComm((PetscObject)da));
@@ -644,16 +660,19 @@ createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil)
 }
 
 void
-restrictCellMean(DM coarse, DM fine, Vec fine_values, Vec coarse_values)
+restrictCellMean(Hierarchy & hierarchy, std::size_t k, Vec fine_values, Vec coarse_values)
 {
+  const DM fine = hierarchy.dms[k - 1];
   const MPI_Comm comm = PetscObjectComm((PetscObject)fine);
-  // the hierarchy's DMDAs interpolate with DMDA_Q0 (buildHierarchy): each fine cell takes
-  // its coarse parent's value, so the transpose sums the children
-  Mat injection;
-  PetscCallAbort(comm, DMCreateInterpolation(coarse, fine, &injection, nullptr));
-  PetscCallAbort(comm, MatMultTranspose(injection, fine_values, coarse_values));
+  // the hierarchy's DMDAs interpolate with DMDA_Q0 (buildHierarchy): each fine cell takes its
+  // coarse parent's value, so the transpose sums the children. The matrix depends on the
+  // DMDA pair only and is kept for the next call.
+  hierarchy.q0_interpolations.resize(hierarchy.dms.size() - 1, nullptr);
+  Mat & q0 = hierarchy.q0_interpolations[k - 1];
+  if (!q0)
+    PetscCallAbort(comm, DMCreateInterpolation(hierarchy.dms[k], fine, &q0, nullptr));
+  PetscCallAbort(comm, MatMultTranspose(q0, fine_values, coarse_values));
   PetscCallAbort(comm, VecScale(coarse_values, 1.0 / Real(PetscInt(1) << getInfo(fine).dim)));
-  PetscCallAbort(comm, MatDestroy(&injection));
 }
 
 torch::Tensor

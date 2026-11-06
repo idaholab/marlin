@@ -849,7 +849,7 @@ TEST(PetscFDHierarchyTest, DivGradCoarseLevelIsRediscretisation)
           for (const auto l : make_range(1u, k + 1))
           {
             PetscCallAbort(PETSC_COMM_WORLD, DMCreateGlobalVector(hier.dms[l], &D[l]));
-            PetscFD::restrictCellMean(hier.dms[l], hier.dms[l - 1], D[l - 1], D[l]);
+            PetscFD::restrictCellMean(hier, l, D[l - 1], D[l]);
           }
           const auto stencil = FiniteDifferenceDivGrad::buildStencil(
               PetscFD::ownedWithHalo(hier.dms[k], D[k]), spacing, -1.0, harmonic);
