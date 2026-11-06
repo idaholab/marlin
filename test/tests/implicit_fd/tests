@@ -257,6 +257,48 @@
     []
   []
 
+  [bdf2_order]
+    requirement = 'The system shall integrate implicit finite-difference time steps with variable-step BDF2 to second order in time against the exact decay of a periodic Fourier mode, on steps alternating between H and 2H, with'
+    # bdf2_order.i: error / H^2 at t = 0.12 is 51.1 (H = 0.01) and 40.9 (H = 0.005), an error ratio
+    # of 5.0; the Terminator fails a run above 60, which backward Euler (169, 310) and BDF2 with
+    # the step ratio transposed (121, 279) exceed at both H
+    [H]
+      type = CSVDiff
+      input = bdf2_order.i
+      csvdiff = bdf2_order_H.csv
+      cli_args = 'Outputs/file_base=bdf2_order_H'
+      compute_devices = 'cpu'
+      detail = 'the step H = 0.01,'
+    []
+    [H_half]
+      type = CSVDiff
+      input = bdf2_order.i
+      csvdiff = bdf2_order_H_half.csv
+      cli_args = "H=0.005 Executioner/TimeStepper/time_sequence='0.005 0.015 0.02 0.03 0.035 0.045 "
+                 "0.05 0.06 0.065 0.075 0.08 0.09 0.095 0.105 0.11 0.12' "
+                 "Outputs/file_base=bdf2_order_H_half"
+      compute_devices = 'cpu'
+      detail = 'the step H = 0.005, and'
+    []
+    [backward_euler_fails]
+      type = RunException
+      input = bdf2_order.i
+      cli_args = 'TensorComputes/Solve/dudt/order=1'
+      expect_err = 'The BDF2 error at t_end exceeds 60 H\^2'
+      compute_devices = 'cpu'
+      detail = 'a first-order scheme rejected by the error bound.'
+    []
+  []
+
+  [bdf2_order_range]
+    requirement = 'The system shall report an error for a time derivative order other than 1 or 2'
+    type = RunException
+    input = bdf2_mode.i
+    cli_args = 'TensorComputes/Solve/dudt/order=3'
+    expect_err = "Range check failed for parameter TensorComputes/Solve/dudt/order"
+    compute_devices = 'cpu'
+  []
+
   [biharmonic]
     requirement = 'The system shall integrate a periodic Fourier mode of u_t = -M kappa Laplacian(Laplacian(u)) with implicit backward Euler finite differences, reproducing the exact discrete amplification factor in every step,'
     [3pt_torch]
@@ -1538,6 +1580,26 @@
       compute_devices = 'cpu'
       detail = 'the PETSc nonlinear Picard iteration on 3 ranks,'
     []
+    [petsc_with_torch_solves]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/nonlinear_solver=PETSC'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/petsc_3_ranks'
+      compute_devices = 'cpu'
+      detail = 'the PETSc nonlinear Picard iteration chosen explicitly over the torch field solves,'
+    []
+    [torch_with_petsc_solves]
+      type = CSVDiff
+      input = coupled_backward_euler.i
+      cli_args = 'TensorSolver/linear_solver=PETSC TensorSolver/nonlinear_solver=TORCH'
+      csvdiff = coupled_backward_euler_out.csv
+      abs_zero = 1e-12
+      prereq = 'nonlinear_coupled/petsc_with_torch_solves'
+      compute_devices = 'cpu'
+      detail = 'the plain torch Picard iteration over the PETSc multigrid field solves,'
+    []
     [torch_mps]
       type = CSVDiff
       input = coupled_backward_euler.i
@@ -1812,7 +1874,26 @@
                  "TensorSolver/petsc_options_value='anderson'"
       expect_err = 'configures the nonlinear solve, which is used only with nonlinear_solve = true.'
       compute_devices = 'cpu'
-      detail = 'with a nonlinear solver option but no nonlinear iteration, and'
+      detail = 'with a nonlinear solver option but no nonlinear iteration,'
+    []
+    [nonlinear_solver_param]
+      type = RunException
+      input = steady_transient.i
+      cli_args = 'TensorSolver/nonlinear_solver=PETSC'
+      expect_err = 'TensorSolver/nonlinear_solver: This parameter is used only with nonlinear_solve = true.'
+      compute_devices = 'cpu'
+      detail = 'with a nonlinear solver choice but no nonlinear iteration,'
+    []
+    [snes_option_with_torch_iteration]
+      type = RunException
+      input = coupled_backward_euler.i
+      cli_args = "TensorSolver/linear_solver=PETSC TensorSolver/nonlinear_solver=TORCH "
+                 "TensorSolver/petsc_options_iname='-snes_type' "
+                 "TensorSolver/petsc_options_value='anderson'"
+      expect_err = "The option '-snes_type' configures PETSc's nonlinear solve, which is not used "
+                   "with nonlinear_solver = TORCH."
+      compute_devices = 'cpu'
+      detail = 'with a PETSc nonlinear solver option for the torch nonlinear iteration, and'
     []
     [field_name]
       type = RunException

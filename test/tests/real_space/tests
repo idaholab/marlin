@@ -414,6 +414,17 @@
     []
   []
 
+  [divgrad_real_space_only]
+    type = RunException
+    input = divgrad.i
+    cli_args = 'Domain/parallel_mode=NONE'
+    expect_err = 'FiniteDifferenceDivGrad requires parallel_mode = REAL_SPACE.'
+    issues = '#184'
+    design = FiniteDifferenceDivGrad.md
+    requirement = 'The system shall report an error for a variable-coefficient divergence operator outside the real-space parallel mode'
+    compute_devices = 'cpu'
+  []
+
   [biharmonic_faces]
     type = CSVDiff
     issues = '#184'
