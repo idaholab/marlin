@@ -14,12 +14,17 @@ import numpy as np
 
 L = 100.0
 
+if len(sys.argv) != 2:
+    sys.exit(__doc__)
 base = sys.argv[1]
 
 # free energy; the row at t = 0 is that of the initial guess of phi (phi is solved from the first
 # step on), so it is not the benchmark's initial energy and is left out
-data = np.genfromtxt(base + ".csv", delimiter=",", names=True)
+# atleast_1d: a CSV with a single data row reads as a 0-d array
+data = np.atleast_1d(np.genfromtxt(base + ".csv", delimiter=",", names=True))
 data = data[data["time"] > 0]
+if data.size == 0:
+    sys.exit(f"{base}.csv has no output after t = 0.")
 np.savetxt(
     base + "_free_energy.csv",
     np.column_stack([data["time"], data["free_energy"]]),
@@ -29,7 +34,11 @@ np.savetxt(
 )
 
 with h5py.File(base + ".h5", "r") as f:
-    last = max(int(name.split(".")[1]) for name in f if name.startswith("c."))
+    # the XDMF output names the datasets <buffer>.<output index>
+    steps = [int(name.split(".")[1]) for name in f if name.startswith("c.")]
+    if not steps or not any(name.startswith("phi.") for name in f):
+        sys.exit(f"{base}.h5 has no datasets named c.<n> and phi.<n>: {list(f)}")
+    last = max(steps)
     c = np.array(f[f"c.{last}"])
     phi = np.array(f[f"phi.{last}"])
 
@@ -39,12 +48,16 @@ centres = (np.arange(n) + 0.5) * h
 
 # axis order of the stored arrays: phi = sin(y / 7) on the plate x = L, so the x axis is the one
 # along which the last layer matches it
-x_axis = (
-    0
-    if np.abs(phi[-1, :] - np.sin(centres / 7)).max()
-    < np.abs(phi[:, -1] - np.sin(centres / 7)).max()
-    else 1
-)
+mismatch = [
+    np.abs(phi[-1, :] - np.sin(centres / 7)).max(),
+    np.abs(phi[:, -1] - np.sin(centres / 7)).max(),
+]
+x_axis = 0 if mismatch[0] < mismatch[1] else 1
+# the outermost cell is half a cell from the plate, so its mismatch is small, the other's O(1)
+if mismatch[x_axis] > 0.5 * mismatch[1 - x_axis]:
+    sys.exit(
+        f"Cannot tell the x axis from the plate condition (mismatches {mismatch})."
+    )
 if x_axis == 1:
     c, phi = c.T, phi.T
 
