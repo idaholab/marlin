@@ -599,10 +599,15 @@ ImplicitFDSolver::SolveResult
 ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x)
 {
   // the operators' stencil for this solve (for a FiniteDifferenceDivGrad, building it exchanges
-  // the coefficient's halo), and the Jacobi diagonal of the torch solve and the eigenvalue
+  // the coefficient's halo), and the Jacobi diagonal, built only if the torch solve or the
+  // eigenvalue reads it (a Dirichlet or Robin face, a != 0, gives no constant eigenvector)
   field._stencil = fieldStencil(field._fd_operators);
   const bool torch_pcg = _linear_solver != LinearSolver::PETSC;
-  const auto diag = torch_pcg || !field._singular ? jacobiDiagonal(field) : torch::Tensor();
+  const bool constant_mode =
+      !field._singular && std::none_of(field._face_bcs.begin(),
+                                       field._face_bcs.end(),
+                                       [](const auto * bc) { return bc && bc->a() != 0.0; });
+  const auto diag = torch_pcg || constant_mode ? jacobiDiagonal(field) : torch::Tensor();
 
   // with A 1 = lambda 1 (A symmetric), the sum of the equations fixes the mean of the exact
   // solution, mean(x) = mean(b) / lambda: the Krylov error in the constant mode is set to zero
@@ -881,7 +886,8 @@ ImplicitFDSolver::setupPetsc(Field & field)
   ps.comm = PetscFD::dmdaComm(partition);
   const auto comm = ps.comm;
 
-  const auto stencil = fieldStencil(field._fd_operators);
+  // the stencil of this solve (solveField), so the first solve builds it only once
+  const auto & stencil = field._stencil;
   const auto width = PetscFD::stencilWidth(stencil);
   const auto levels = PetscFD::countLevels(partition, width);
   ps.hierarchy = std::make_unique<PetscFD::Hierarchy>();

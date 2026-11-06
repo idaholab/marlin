@@ -116,9 +116,7 @@ def read_curve(path, columns):
     delimiter = "," if "," in header else None
     data = np.genfromtxt(path, delimiter=delimiter, names=True)
     t, f = data[columns[0]], data[columns[1]]
-    keep = (
-        t > 0
-    )  # t = 0 is the initial state (CORAL reports 0 there); the time axis is logarithmic
+    keep = t > 0  # t = 0 is the initial state (CORAL reports 0 there); the time axis is logarithmic
     return t[keep], f[keep]
 
 
@@ -127,9 +125,7 @@ data_dir = os.path.join(run_dir, "pfhub_data")
 os.makedirs(data_dir, exist_ok=True)
 for ref in PFHUB:
     # several uploads share a file name, so name each copy after its submission
-    ref["path"] = os.path.join(
-        data_dir, ref["name"].split(",")[0].split(" ")[0] + ".csv"
-    )
+    ref["path"] = os.path.join(data_dir, ref["name"].split(",")[0].split(" ")[0] + ".csv")
     if not os.path.exists(ref["path"]):
         # download to a temporary name, so that a failed download leaves no partial file behind
         partial = ref["path"] + ".part"
@@ -138,9 +134,7 @@ for ref in PFHUB:
         except OSError as error:
             if os.path.exists(partial):
                 os.remove(partial)
-            sys.exit(
-                f"Downloading the {ref['name']} submission from {ref['url']} failed: {error}"
-            )
+            sys.exit(f"Downloading the {ref['name']} submission from {ref['url']} failed: {error}")
         os.replace(partial, ref["path"])
 
 plt.rcParams.update(
@@ -185,9 +179,7 @@ ax.set_xlim(1e-2, 2e2)
 ax.set_ylim(1, 3e3)
 ax.set_xlabel("wall time / simulated time (s per unit time)")
 ax.set_ylabel("memory (MB)")
-ax.set_title(
-    "PFHub 6a: cost as reported (hardware from 2017 to 2022, ours 2026)", fontsize=10
-)
+ax.set_title("PFHub 6a: cost as reported (hardware from 2017 to 2022, ours 2026)", fontsize=10)
 fig.savefig("cost_6a.png", dpi=150)
 
 # Figure 2: free energy against time
@@ -205,9 +197,7 @@ for ax in (ax1, ax2):
             label=ref["name"],
         )
     for run, ls in zip(OURS, OURS_STYLES):
-        t, f = read_curve(
-            os.path.join(run_dir, run["file_base"] + ".csv"), ("time", "free_energy")
-        )
+        t, f = read_curve(os.path.join(run_dir, run["file_base"] + ".csv"), ("time", "free_energy"))
         ax.plot(t, f, color="k", lw=1.8, ls=ls, label=run["name"])
 ax1.set_xscale("log")
 ax1.set_xlim(1e-2, 400)
