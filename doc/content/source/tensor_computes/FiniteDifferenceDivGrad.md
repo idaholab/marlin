@@ -37,6 +37,13 @@ split. In an implicit solve ([ImplicitFDSolver.md]) the operator must be
 semidefinite: $D < 0$ is an error, and so is $D = 0$ with the harmonic mean. Both
 are checked at every assembly.
 
+With the arithmetic mean, a face between two cells with $D = 0$ is shut. Without a time
+derivative (a steady field), cells whose faces are all shut make the operator singular,
+which is checked (a zero diagonal). A group of cells cut off from the rest by shut faces
+is not checked: each such group adds its own constant to the nullspace, so the solution
+there is not determined (e.g. $D = 1, 0, 0, 1$ in four cells). Such islands are not
+supported in a steady solve; with a time derivative the operator stays definite.
+
 ### Domain faces
 
 The ghost values of $u$ come from the boundary conditions of $u$

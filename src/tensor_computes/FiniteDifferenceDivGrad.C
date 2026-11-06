@@ -225,6 +225,7 @@ LinearFDOperator::Definiteness
 FiniteDifferenceDivGrad::definiteness() const
 {
   // with D >= 0 (checked by stencilAt) div(D grad u) is symmetric negative semidefinite on a
-  // periodic grid, the constants in its nullspace
+  // periodic grid, the constants in its nullspace (larger with the arithmetic mean when shut
+  // faces cut off a group of cells: not supported in a steady solve, see the documentation)
   return _factor < 0.0 ? Definiteness::POSITIVE_SEMIDEFINITE : Definiteness::OTHER;
 }
