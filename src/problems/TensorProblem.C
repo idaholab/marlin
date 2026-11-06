@@ -235,12 +235,18 @@ TensorProblem::executeTensorInitialConditions()
 void
 TensorProblem::executeTensorOutputs(const ExecFlagType & exec_flag)
 {
-  // the state at FINAL is that of the last step, already postprocessed and mapped
-  if (exec_flag == EXEC_FINAL &&
-      std::none_of(_outputs.begin(),
-                   _outputs.end(),
-                   [](const auto & output) { return output->shouldRun(EXEC_FINAL); }))
+  // the state at FINAL is that of the last step, already postprocessed, copied to the CPU and
+  // mapped by its TIMESTEP_END: only start the outputs that skipped that step
+  if (exec_flag == EXEC_FINAL)
+  {
+    for (auto & output : _outputs)
+      if (output->shouldRun(EXEC_FINAL))
+      {
+        output->waitForCompletion();
+        output->startOutput();
+      }
     return;
+  }
 
   // run postprocessing before output
   for (auto & pp : _pps)
