@@ -6,9 +6,9 @@
 #
 # Pseudo-1D (ny = 1, Y periodic), D = 1. The domain extends 10 diffusion lengths at the
 # comparison time t = 1, so the far Dirichlet u = 0 does not measurably affect the solution.
-# Backward Euler with substeps of dt / substeps: the error is first order in the substep.
+# Backward Euler with dt = 1 / steps: the error is first order in dt.
 
-substeps = 100
+steps = 100
 
 [Domain]
   dim = 2
@@ -86,7 +86,6 @@ substeps = 100
   buffer = u
   operators = 'dudt lap'
   root_compute = dudt
-  substeps = ${substeps}
   l_tol = 1e-10
 []
 
@@ -104,10 +103,12 @@ substeps = 100
 
 [Executioner]
   type = Transient
-  dt = 1
-  num_steps = 1
+  dt = '${fparse 1 / steps}'
+  num_steps = ${steps}
 []
 
 [Outputs]
   csv = true
+  # the initial state and the comparison time t = 1
+  time_step_interval = ${steps}
 []

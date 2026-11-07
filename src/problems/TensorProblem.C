@@ -20,6 +20,7 @@
 
 #include "MarlinUtils.h"
 #include "DependencyResolverInterface.h"
+#include <algorithm>
 #include <memory>
 
 registerMooseObject("MarlinApp", TensorProblem);
@@ -206,6 +207,9 @@ TensorProblem::execute(const ExecFlagType & exec_type)
     // run outputs
     executeTensorOutputs(EXEC_TIMESTEP_END);
 
+  if (exec_type == EXEC_FINAL)
+    executeTensorOutputs(EXEC_FINAL);
+
   FEProblem::execute(exec_type);
 }
 
@@ -231,6 +235,19 @@ TensorProblem::executeTensorInitialConditions()
 void
 TensorProblem::executeTensorOutputs(const ExecFlagType & exec_flag)
 {
+  // the state at FINAL is that of the last step, already postprocessed, copied to the CPU and
+  // mapped by its TIMESTEP_END: only start the outputs that skipped that step
+  if (exec_flag == EXEC_FINAL)
+  {
+    for (auto & output : _outputs)
+      if (output->shouldRun(EXEC_FINAL))
+      {
+        output->waitForCompletion();
+        output->startOutput();
+      }
+    return;
+  }
+
   // run postprocessing before output
   for (auto & pp : _pps)
     runComputeWithGhosts(*pp);

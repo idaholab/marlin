@@ -37,6 +37,9 @@ public:
   buildStencil(unsigned int dim, bool wide, const std::vector<Real> & grid_spacing, Real factor);
 
 protected:
+  /// set _w_reflection and _two_stage from the boundary conditions of the input buffer
+  void setFaceReflections();
+
   /// stencil radius of the underlying Laplacian
   const unsigned int _laplacian_radius;
   /// input buffer name
@@ -47,4 +50,10 @@ protected:
   const Real _factor;
   /// convolution kernel of the stencil
   torch::Tensor _kernel;
+  /// per face, the sign of the reflection that sets the ghosts of w = Laplacian(u) on this rank's
+  /// domain faces: -1 for a Dirichlet face (Laplacian(u) = 0), +1 for a Neumann face
+  /// (dLaplacian(u)/dn = 0), 0 for none (periodic, a neighbouring rank, or another condition)
+  std::vector<int> _w_reflection;
+  /// apply the Laplacian twice with the w ghosts above (3-point stencil with such faces only)
+  bool _two_stage;
 };

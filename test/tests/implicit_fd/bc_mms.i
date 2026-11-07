@@ -144,7 +144,7 @@ rb = 1
       flux_function = top_flux
     []
     # the top flux from a buffer instead (active = 'left right bottom top_buffer'); a buffer
-    # value is the one its compute wrote at the start of the substep, at t
+    # value is the one its compute wrote at the start of the time step, at t
     [top_buffer]
       type = TensorNeumannBC
       variable = u

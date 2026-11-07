@@ -195,6 +195,11 @@ public:
   void beginFixedBoundaryData(Real time_offset);
   void endFixedBoundaryData();
 
+  /// while set, boundary conditions fill their ghost cells with zero face data (the homogeneous
+  /// ghost relation), so an operator applied to x gives its linear part A x directly
+  void setHomogeneousBoundaryData(bool homogeneous) { _homogeneous_boundary_data = homogeneous; }
+  bool homogeneousBoundaryData() const { return _homogeneous_boundary_data; }
+
 protected:
   void updateDOFMap();
   void updateLocalTensorShape();
@@ -252,6 +257,8 @@ protected:
   Real _boundary_time_offset = 0.0;
   /// see beginFixedBoundaryData()
   bool _boundary_data_fixed = false;
+  /// see setHomogeneousBoundaryData()
+  bool _homogeneous_boundary_data = false;
 
   /// simulation time for the currently running output thread
   Real _output_time;
