@@ -47,6 +47,40 @@
     max_parallel = 1
     min_slots = 2 # 436 MB per slot observed during https://civet.inl.gov/job/4323123/ during step Test cuda debug. Usage is over or within 100 MB of the total memory limit based on a 400 MB per slot limit.
   []
+  [xdmf_output_interval]
+    type = XMLDiff
+    input = cahnhilliard.i
+    # 10 steps every 4: steps 0, 4, 8 and, from FINAL, the last step 10
+    cli_args = 'TensorOutputs/active="xdmf" TensorOutputs/xdmf/time_step_interval=4 TensorOutputs/xdmf/execute_on="INITIAL TIMESTEP_END FINAL" Outputs/file_base=xdmf_interval'
+    xmldiff = xdmf_interval.xmf
+    issues = '#184'
+    requirement = 'The system shall output a tensor in XDMF format every given number of time steps and at the final time'
+    design = 'XDMFTensorOutput.md'
+    compute_devices = 'cpu'
+    max_parallel = 1
+  []
+  [xdmf_output_interval_final]
+    type = XMLDiff
+    input = cahnhilliard.i
+    # 10 steps every 5: steps 0, 5 and 10; FINAL does not write step 10 a second time
+    cli_args = 'TensorOutputs/active="xdmf" TensorOutputs/xdmf/time_step_interval=5 TensorOutputs/xdmf/execute_on="INITIAL TIMESTEP_END FINAL" Outputs/file_base=xdmf_interval_final'
+    xmldiff = xdmf_interval_final.xmf
+    issues = '#184'
+    requirement = 'The system shall output a tensor in XDMF format at the final time only once when the final time step is also an output step'
+    design = 'XDMFTensorOutput.md'
+    compute_devices = 'cpu'
+    max_parallel = 1
+  []
+  [time_step_interval_range]
+    type = RunException
+    input = cahnhilliard.i
+    cli_args = 'TensorOutputs/active="xdmf" TensorOutputs/xdmf/time_step_interval=0'
+    expect_err = 'Range check failed for parameter TensorOutputs/xdmf/time_step_interval'
+    issues = '#184'
+    requirement = 'The system shall report an error for a tensor output interval of zero time steps'
+    design = 'XDMFTensorOutput.md'
+    compute_devices = 'cpu'
+  []
   [xdmf_output_hdf5]
     type = HDF5Diff
     input = cahnhilliard.i

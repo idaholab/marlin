@@ -13,6 +13,8 @@
 #include "TensorProblem.h"
 #include "DomainAction.h"
 
+#include <limits>
+
 InputParameters
 TensorOutput::validParams()
 {
@@ -32,8 +34,15 @@ TensorOutput::validParams()
   ExecFlagEnum exec_enum;
   exec_enum.addAvailableFlags(EXEC_INITIAL);
   exec_enum.addAvailableFlags(EXEC_TIMESTEP_END);
+  exec_enum.addAvailableFlags(EXEC_FINAL);
   exec_enum = {EXEC_INITIAL, EXEC_TIMESTEP_END};
   params.addParam<ExecFlagEnum>("execute_on", exec_enum, exec_enum.getDocString());
+  params.addRangeCheckedParam<unsigned int>(
+      "time_step_interval",
+      1,
+      "time_step_interval > 0",
+      "The interval (number of time steps) at which TIMESTEP_END output occurs. Add FINAL to "
+      "execute_on to also output the last time step.");
 
   params.addClassDescription("TensorOutput object.");
   return params;
@@ -50,7 +59,9 @@ TensorOutput::TensorOutput(const InputParameters & parameters)
     _time(_tensor_problem.outputTime()),
     _file_base(isParamValid("file_base") ? getParam<std::string>("file_base")
                                          : _app.getOutputFileBase(true)),
-    _execute_on(getParam<ExecFlagEnum>("execute_on"))
+    _execute_on(getParam<ExecFlagEnum>("execute_on")),
+    _time_step_interval(getParam<unsigned int>("time_step_interval")),
+    _last_output_time(std::numeric_limits<Real>::lowest())
 {
   for (const auto & name : getParam<std::vector<TensorInputBufferName>>("buffer"))
     _out_buffers[name] = &_tensor_problem.getBufferBase(name).getRawCPUTensor();
@@ -59,12 +70,21 @@ TensorOutput::TensorOutput(const InputParameters & parameters)
 bool
 TensorOutput::shouldRun(const ExecFlagType & execute_flag) const
 {
-  return _execute_on.isValueSet(execute_flag);
+  if (!_execute_on.isValueSet(execute_flag))
+    return false;
+  // as in MOOSE's Output: every time_step_interval-th step, and FINAL only if the last time
+  // was not output already (the step counter has moved on at FINAL, the time has not)
+  if (execute_flag == EXEC_TIMESTEP_END)
+    return _tensor_problem.timeStep() % _time_step_interval == 0;
+  if (execute_flag == EXEC_FINAL)
+    return _tensor_problem.time() != _last_output_time;
+  return true;
 }
 
 void
 TensorOutput::startOutput()
 {
+  _last_output_time = _time;
   // allow derived classes to snapshot lightweight metadata before async output
   prepareForOutput();
   if (_output_thread.joinable())
