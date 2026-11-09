@@ -50,7 +50,12 @@ public:
   const std::vector<int64_t> & getExtendedShapeQ() { return _shape_extended_to_q; }
 
   /// sets tensor to a value (normally zeros) at solid nodes
-  void maskedFillSolids(torch::Tensor & t, const Real & value);
+  void maskedFillSolids(torch::Tensor & t, const int & solid_node = 0, const Real & value = 0);
+
+  /// sets tensor to values[i] wherever binary media == solid_nodes[i] (zeros if values is empty)
+  void maskedFillSolids(torch::Tensor & t,
+                        const std::vector<int> & solid_nodes,
+                        const std::vector<Real> & values = {});
 
 protected:
   void computeLBMResidual();

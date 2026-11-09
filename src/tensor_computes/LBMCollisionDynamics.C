@@ -234,7 +234,7 @@ LBMCollisionDynamicsTempl<0>::BGKDynamics()
   }
 
   _u_owned = ownedView(_u);
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }
 
 template <>
@@ -264,7 +264,7 @@ LBMCollisionDynamicsTempl<1>::MRTDynamics()
   }
 
   _u_owned = ownedView(_u);
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }
 
 template <>
@@ -282,7 +282,7 @@ LBMCollisionDynamicsTempl<2>::SmagorinskyDynamics()
   u_owned.addcdiv_(fneq_owned, tau_owned, /*value=*/-1.0);
 
   _u_owned = u_owned;
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }
 
 template <>
@@ -311,7 +311,7 @@ LBMCollisionDynamicsTempl<3>::SmagorinskyMRTDynamics()
   _u.view({N, Q}).sub_(correction);
 
   _u_owned = ownedView(_u);
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }
 
 template <int coll_dyn>
