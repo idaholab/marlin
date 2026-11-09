@@ -102,5 +102,5 @@ LBMAllenCahnSource::computeBuffer()
   u_flat.add_(source_flat, /*alpha=*/1.0 - 1.0 / (2.0 * _tau));
 
   _u_owned = ownedView(_u);
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }

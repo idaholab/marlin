@@ -67,5 +67,5 @@ LBMPressureCorrectedEquilibrium::computeBuffer()
   u_flat.select(/*dim=*/1, /*index=*/0).sub_(p_scaled.squeeze(-1));
 
   _u_owned = ownedView(_u);
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }

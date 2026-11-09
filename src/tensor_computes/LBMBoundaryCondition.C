@@ -64,6 +64,30 @@ LBMBoundaryCondition::maskBoundary()
   auto zeros_mask = (_binary_mesh == 0).to(MooseTensor::floatTensorOptions());
   zeros_mask = zeros_mask.unsqueeze(0).unsqueeze(0);
 
+  // In serial there are no ghost layers, so wrap the mask around periodic directions. Zero
+  // padding would miss solids that neighbor a fluid cell only across a periodic face, leaving
+  // those cells without bounce-back while streaming (torch::roll) still wraps around.
+  if (p == 1)
+  {
+    const auto & periodic = _domain.getPeriodicDirections();
+    // z_lo, z_hi, y_lo, y_hi, x_lo, x_hi
+    std::vector<int64_t> pad(6, 0);
+    for (const auto d : make_range(_domain.getDim()))
+      if (periodic[d])
+        pad[4 - 2 * d] = pad[5 - 2 * d] = 1;
+    zeros_mask = torch::nn::functional::pad(
+        zeros_mask, torch::nn::functional::PadFuncOptions(pad).mode(torch::kCircular));
+    for (const auto d : make_range(_domain.getDim()))
+      if (!periodic[d])
+      {
+        std::vector<int64_t> zpad(6, 0);
+        zpad[4 - 2 * d] = zpad[5 - 2 * d] = 1;
+        zeros_mask =
+            torch::nn::functional::pad(zeros_mask, torch::nn::functional::PadFuncOptions(zpad));
+      }
+    p = 0;
+  }
+
   torch::Tensor has_zero_neighbor;
   if (_domain.getDim() == 2)
     has_zero_neighbor = torch::max_pool3d(zeros_mask, {3, 3, 1}, {1, 1, 1}, {p, p, 0});

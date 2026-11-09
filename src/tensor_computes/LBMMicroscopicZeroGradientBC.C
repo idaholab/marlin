@@ -73,5 +73,5 @@ void
 LBMMicroscopicZeroGradientBC::computeBuffer()
 {
   LBMBoundaryCondition::computeBuffer();
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }
