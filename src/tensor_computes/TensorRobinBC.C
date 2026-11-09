@@ -169,6 +169,8 @@ TensorRobinBC::prepareFaceData()
 torch::Tensor
 TensorRobinBC::faceValue() const
 {
+  if (_tensor_problem.homogeneousBoundaryData())
+    return torch::zeros_like(_c_scalar);
   if (_c_buffer)
   {
     // the first owned layer next to the face, over the whole padded extent of the other axes

@@ -175,6 +175,9 @@ LatticeBoltzmannProblem::execute(const ExecFlagType & exec_type)
   if (exec_type == EXEC_TIMESTEP_END)
     executeTensorOutputs(EXEC_TIMESTEP_END);
 
+  if (exec_type == EXEC_FINAL)
+    executeTensorOutputs(EXEC_FINAL);
+
   // mapBuffersToAux();
   FEProblem::execute(exec_type);
 }

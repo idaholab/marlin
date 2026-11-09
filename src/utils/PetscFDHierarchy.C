@@ -8,6 +8,7 @@
 #include "PetscFDHierarchy.h"
 #include "DomainAction.h"
 #include "RobinGhost.h"
+#include "MooseError.h"
 
 #include "libmesh/int_range.h"
 
@@ -115,19 +116,54 @@ foldIndex(PetscInt & c,
   return faces.factor(2 * marlin_axis + upper, layer, h[marlin_axis]);
 }
 
-/// the stencil merged by offset, in DMDA axis order
+/// an entry's offset in DMDA axis order
+std::array<PetscInt, 3>
+dmdaOffset(const FDStencilEntry & entry, unsigned int dim)
+{
+  std::array<PetscInt, 3> offset{{0, 0, 0}};
+  for (const auto a : make_range(dim))
+    offset[a] = entry.offset[marlinAxis(dim, a)];
+  return offset;
+}
+
+/// the constant-coefficient entries merged by offset, in DMDA axis order
 std::map<std::array<PetscInt, 3>, PetscScalar>
 mergedStencil(const std::vector<FDStencilEntry> & stencil, unsigned int dim, PetscReal scale)
 {
   std::map<std::array<PetscInt, 3>, PetscScalar> merged;
   for (const auto & entry : stencil)
-  {
-    std::array<PetscInt, 3> offset{{0, 0, 0}};
-    for (const auto a : make_range(dim))
-      offset[a] = entry.offset[marlinAxis(dim, a)];
-    merged[offset] += scale * entry.coefficient;
-  }
+    if (!entry.field.defined())
+      merged[dmdaOffset(entry, dim)] += scale * entry.coefficient;
   return merged;
+}
+
+/// an entry with a per-cell field, which is read on the host per row
+struct FieldEntry
+{
+  std::array<PetscInt, 3> offset;
+  PetscScalar value;
+  torch::Tensor field;
+};
+
+/// the entries with a per-cell field (scaled), each field checked against the owned block
+std::vector<FieldEntry>
+fieldEntries(const std::vector<FDStencilEntry> & stencil, const DMDAInfo & info, PetscReal scale)
+{
+  const auto dim = unsigned(info.dim);
+  PetscInt cells = 1;
+  for (const auto a : make_range(dim))
+    cells *= info.size[a];
+  std::vector<FieldEntry> entries;
+  for (const auto & entry : stencil)
+    if (entry.field.defined())
+    {
+      if (entry.field.numel() != cells)
+        mooseError("A stencil field has ", entry.field.numel(), " cells, the owned block ", cells);
+      entries.push_back({dmdaOffset(entry, dim),
+                         scale * entry.coefficient,
+                         entry.field.to(torch::kCPU, torch::kFloat64).contiguous()});
+    }
+  return entries;
 }
 
 /// row indices per DMDA axis
@@ -187,6 +223,7 @@ forEachFoldedRow(DM da,
   const auto dim = unsigned(info.dim);
   const auto periodic = periodicAxes(da);
   const auto merged = mergedStencil(stencil, dim, scale);
+  const auto field_entries = fieldEntries(stencil, info, scale);
 
   std::vector<MatStencil> cols;
   std::vector<PetscScalar> values;
@@ -198,7 +235,7 @@ forEachFoldedRow(DM da,
         row.i = i, row.j = j, row.k = k;
         cols.clear();
         values.clear();
-        for (const auto & [offset, value] : merged)
+        const auto add = [&](const std::array<PetscInt, 3> & offset, PetscScalar value)
         {
           std::array<PetscInt, 3> c{{i + offset[0], j + offset[1], k + offset[2]}};
           Real factor = 1.0;
@@ -208,6 +245,16 @@ forEachFoldedRow(DM da,
           col.i = c[0], col.j = c[1], col.k = c[2];
           cols.push_back(col);
           values.push_back(factor * value);
+        };
+        for (const auto & [offset, value] : merged)
+          add(offset, value);
+        for (const auto & entry : field_entries)
+        {
+          // the row's place in the owned block, DMDA x fastest
+          const auto cell =
+              ((k - info.start[2]) * info.size[1] + (j - info.start[1])) * info.size[0] +
+              (i - info.start[0]);
+          add(entry.offset, entry.value * entry.field.data_ptr<double>()[cell]);
         }
         row_fn(row, cols, values);
       }
@@ -314,6 +361,9 @@ Hierarchy::~Hierarchy()
 {
   for (auto & P : interpolations)
     PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&P));
+  for (auto & P : q0_interpolations)
+    if (P)
+      PetscCallAbort(PETSC_COMM_WORLD, MatDestroy(&P));
   for (auto & da : dms)
     PetscCallAbort(PETSC_COMM_WORLD, DMDestroy(&da));
 }
@@ -465,10 +515,16 @@ jacobiSpectrumBound(DM da,
                     const FaceGhosts & faces,
                     const std::vector<Real> & h)
 {
-  // every owned row is a copy of a representative one, so the maximum over those is the
-  // maximum over all owned rows
-  const auto rows = representativeRows(getInfo(da), periodicAxes(da), stencilWidth(stencil));
+  // without per-cell fields every owned row is a copy of a representative one, so the maximum
+  // over those is the maximum over all owned rows; a per-cell field makes the rows differ
+  const bool has_field = std::any_of(
+      stencil.begin(), stencil.end(), [](const auto & entry) { return entry.field.defined(); });
+  const auto info = getInfo(da);
+  const auto rows = has_field ? ownedRows(info)
+                              : representativeRows(info, periodicAxes(da), stencilWidth(stencil));
   Real bound = 0.0;
+  // one buffer for every row (a fine level with a per-cell field visits every owned row)
+  std::vector<std::pair<std::array<PetscInt, 3>, Real>> row_values;
   forEachFoldedRow(da,
                    stencil,
                    1.0,
@@ -480,22 +536,79 @@ jacobiSpectrumBound(DM da,
                        const std::vector<PetscScalar> & values)
                    {
                      // the matrix entries: values folded onto the same column are added, as in
-                     // assembleStencilOperator; periodic columns are not wrapped here, so
-                     // offsets that wrap onto one column are counted separately (still an
-                     // upper bound)
-                     std::map<std::array<PetscInt, 3>, Real> row_values;
+                     // assembleStencilOperator; periodic columns are not wrapped here, so offsets
+                     // that wrap onto one column are counted separately (still an upper bound). The
+                     // stable sort adds the values of a column in the order they come.
+                     row_values.clear();
                      for (const auto q : index_range(cols))
-                       row_values[{{cols[q].i, cols[q].j, cols[q].k}}] += values[q];
+                       row_values.push_back({{{cols[q].i, cols[q].j, cols[q].k}}, values[q]});
+                     std::stable_sort(row_values.begin(),
+                                      row_values.end(),
+                                      [](const auto & a, const auto & b)
+                                      { return a.first < b.first; });
+                     const std::array<PetscInt, 3> diagonal{{row.i, row.j, row.k}};
                      Real centre = 0.0, off_diagonal = 0.0;
-                     for (const auto & [col, value] : row_values)
-                       if (col == std::array<PetscInt, 3>{{row.i, row.j, row.k}})
+                     for (std::size_t q = 0; q < row_values.size();)
+                     {
+                       const auto & col = row_values[q].first;
+                       Real value = 0.0;
+                       for (; q < row_values.size() && row_values[q].first == col; ++q)
+                         value += row_values[q].second;
+                       if (col == diagonal)
                          centre += value;
                        else
                          off_diagonal += std::abs(value);
+                     }
                      bound = std::max(bound, 1.0 + off_diagonal / centre);
                    });
   MPI_Allreduce(MPI_IN_PLACE, &bound, 1, MPI_DOUBLE, MPI_MAX, PetscObjectComm((PetscObject)da));
   return bound;
+}
+
+torch::Tensor
+foldedDiagonal(const std::vector<FDStencilEntry> & stencil,
+               unsigned int dim,
+               const std::array<int64_t, 3> & n,
+               const std::array<bool, 3> & periodic,
+               const FaceGhosts & faces,
+               const std::vector<Real> & h,
+               const std::array<int64_t, 3> & begin,
+               const std::array<int64_t, 3> & size,
+               const torch::TensorOptions & options)
+{
+  std::vector<int64_t> shape(size.begin(), size.begin() + dim);
+  auto diag = torch::zeros(shape, options);
+  for (const auto & entry : stencil)
+  {
+    // the entry's weight on the diagonal is a product over axes of its weight along each
+    auto weight = entry.field.defined() ? entry.coefficient * entry.field.reshape(shape).to(options)
+                                        : torch::full(shape, entry.coefficient, options);
+    for (const auto d : make_range(dim))
+    {
+      const auto o = int64_t(entry.offset[d]);
+      std::vector<Real> along(size[d], 0.0);
+      for (const auto q : make_range(size[d]))
+      {
+        const auto i = begin[d] + q;
+        const auto c = i + o;
+        if (periodic[d])
+          along[q] = o % n[d] == 0 ? 1.0 : 0.0;
+        else if (o == 0)
+          along[q] = 1.0;
+        else if (c < 0 && -c - 1 == i)
+          along[q] = faces.factor(2 * d, unsigned(i), h[d]);
+        else if (c >= n[d] && n[d] - 1 - (c - n[d]) == i)
+          along[q] = faces.factor(2 * d + 1, unsigned(c - n[d]), h[d]);
+      }
+      std::vector<int64_t> axis_shape(dim, 1);
+      axis_shape[d] = size[d];
+      weight = weight * torch::tensor(along, torch::TensorOptions().dtype(torch::kFloat64))
+                            .reshape(axis_shape)
+                            .to(options);
+    }
+    diag += weight;
+  }
+  return diag;
 }
 
 Mat
@@ -530,17 +643,76 @@ createStencilMatrix(DM da, const std::vector<FDStencilEntry> & stencil)
       DMDAGetGhostCorners(da, &starts[0], &starts[1], &starts[2], &dims[0], &dims[1], &dims[2]));
   PetscCallAbort(comm, MatSetStencil(preallocator, info.dim, dims.data(), starts.data(), 1));
   // the folded columns are the same for any ghost factors (unit factors here, so no
-  // entry cancels)
+  // entry cancels) and any per-cell fields (dropped, they need not be on this level)
   FaceGhosts unit_faces;
   for (auto & ab : unit_faces.ab)
     ab = {0.0, 1.0};
+  auto columns = stencil;
+  for (auto & entry : columns)
+    entry.field = torch::Tensor();
   assembleStencilOperator(
-      da, stencil, 1.0, unit_faces, std::vector<Real>(info.dim, 1.0), preallocator);
+      da, columns, 1.0, unit_faces, std::vector<Real>(info.dim, 1.0), preallocator);
 
   // preallocate exactly those columns and insert zeros there; any other column is an error
   PetscCallAbort(comm, MatPreallocatorPreallocate(preallocator, PETSC_TRUE, B));
   PetscCallAbort(comm, MatDestroy(&preallocator));
   return B;
+}
+
+void
+restrictCellMean(Hierarchy & hierarchy, std::size_t k, Vec fine_values, Vec coarse_values)
+{
+  const DM fine = hierarchy.dms[k - 1];
+  const MPI_Comm comm = PetscObjectComm((PetscObject)fine);
+  // the hierarchy's DMDAs interpolate with DMDA_Q0 (buildHierarchy): each fine cell takes its
+  // coarse parent's value, so the transpose sums the children. The matrix depends on the
+  // DMDA pair only and is kept for the next call.
+  hierarchy.q0_interpolations.resize(hierarchy.dms.size() - 1, nullptr);
+  Mat & q0 = hierarchy.q0_interpolations[k - 1];
+  if (!q0)
+    PetscCallAbort(comm, DMCreateInterpolation(hierarchy.dms[k], fine, &q0, nullptr));
+  PetscCallAbort(comm, MatMultTranspose(q0, fine_values, coarse_values));
+  PetscCallAbort(comm, VecScale(coarse_values, 1.0 / Real(PetscInt(1) << getInfo(fine).dim)));
+}
+
+torch::Tensor
+ownedWithHalo(DM da, Vec v)
+{
+  const MPI_Comm comm = PetscObjectComm((PetscObject)da);
+  const auto info = getInfo(da);
+  const auto dim = unsigned(info.dim);
+  std::array<PetscInt, 3> gs, gm;
+  PetscCallAbort(comm, DMDAGetGhostCorners(da, &gs[0], &gs[1], &gs[2], &gm[0], &gm[1], &gm[2]));
+
+  Vec local;
+  PetscCallAbort(comm, DMGetLocalVector(da, &local));
+  PetscCallAbort(comm, VecSet(local, 0.0));
+  PetscCallAbort(comm, DMGlobalToLocal(da, v, INSERT_VALUES, local));
+  // the local vector numbers x fastest, so in Marlin axis order it is row-major
+  std::vector<int64_t> shape(dim);
+  for (const auto m : make_range(dim))
+    shape[m] = gm[marlinAxis(dim, m)];
+  const PetscScalar * a;
+  PetscCallAbort(comm, VecGetArrayRead(local, &a));
+  auto t = torch::from_blob(
+               const_cast<PetscScalar *>(a), shape, torch::TensorOptions().dtype(torch::kFloat64))
+               .clone();
+  PetscCallAbort(comm, VecRestoreArrayRead(local, &a));
+  PetscCallAbort(comm, DMRestoreLocalVector(da, &local));
+
+  for (const auto m : make_range(dim))
+  {
+    const auto ax = marlinAxis(dim, m);
+    // without a ghost cell on a side (a domain face) the nearest owned cell is repeated
+    const bool lower = gs[ax] < info.start[ax];
+    const bool upper = gs[ax] + gm[ax] > info.start[ax] + info.size[ax];
+    t = t.narrow(m, info.start[ax] - gs[ax] - (lower ? 1 : 0), info.size[ax] + lower + upper);
+    if (!lower)
+      t = torch::cat({t.narrow(m, 0, 1), t}, m);
+    if (!upper)
+      t = torch::cat({t, t.narrow(m, t.size(m) - 1, 1)}, m);
+  }
+  return t.contiguous();
 }
 
 Mat
