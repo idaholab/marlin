@@ -247,13 +247,28 @@
       type = CSVDiff
       input = cutback.i
       # dt doubles from 0.002 until the third step fails the linear solve and is retried at 0.004;
-      # the gold is a run on the accepted times from the start (TimeSequenceStepper, no failure),
+      # the gold is the run on the accepted times from the start (bdf2/cutback_reference),
       # which the retried run reproduces to all printed digits
       cli_args = 'TensorComputes/Solve/dudt/order=2 Executioner/num_steps=4 Executioner/TimeStepper/dt=0.002 Executioner/TimeStepper/min_iterations=1000 Executioner/TimeStepper/growth_factor=2 Outputs/file_base=cutback_bdf2'
       csvdiff = cutback_bdf2.csv
       expect_out = 'Solve failed, cutting timestep'
       compute_devices = 'cpu'
-      detail = 'keeping the step history of a retried step.'
+      detail = 'keeping the step history of a retried step, the same as'
+    []
+    [cutback_reference]
+      type = CSVDiff
+      input = cutback.i
+      # the accepted times of bdf2/cutback from the start, with no failed step; the
+      # TensorSolveIterationAdaptiveDT parameters of the input are unused by this stepper
+      cli_args = "TensorComputes/Solve/dudt/order=2 TensorSolver/l_max_its=1000 "
+                 "Executioner/num_steps=4 Executioner/TimeStepper/type=TimeSequenceStepper "
+                 "Executioner/TimeStepper/time_sequence='0.002 0.006 0.01 0.014' "
+                 "Outputs/file_base=cutback_bdf2"
+      allow_unused = true
+      csvdiff = cutback_bdf2.csv
+      prereq = 'bdf2/cutback'
+      compute_devices = 'cpu'
+      detail = 'a run on the accepted times with no failed step.'
     []
   []
 
@@ -1826,12 +1841,22 @@
       type = CSVDiff
       input = cutback.i
       # the retried step starts again from u^n: the gold is the run at dt = 0.002 from the start
-      # (TensorSolver/l_max_its=1000 Executioner/TimeStepper/dt=0.002), which the retry
-      # reproduces to all printed digits; from the failed iterate max_u is 1.7e-14
+      # (retry_reference), which the retry reproduces to all printed digits; from the failed
+      # iterate max_u is 1.7e-14
       cli_args = 'TensorSolver/nonlinear_solve=true Outputs/file_base=cutback_nonlinear'
       csvdiff = cutback_nonlinear.csv
       compute_devices = 'cpu'
-      detail = 'the retried step starting again from the solution at the start of the step.'
+      detail = 'the retried step starting again from the solution at the start of the step, the same as'
+    []
+    [retry_reference]
+      type = CSVDiff
+      input = cutback.i
+      # dt = 0.002 from the start, so no step fails
+      cli_args = 'TensorSolver/nonlinear_solve=true TensorSolver/l_max_its=1000 Executioner/TimeStepper/dt=0.002 Outputs/file_base=cutback_nonlinear'
+      csvdiff = cutback_nonlinear.csv
+      prereq = 'nonlinear_failure/retry_from_old_solution'
+      compute_devices = 'cpu'
+      detail = 'a run at the cut time step from the start.'
     []
   []
 
@@ -1924,7 +1949,7 @@
   []
 
   [kks_no_flux]
-    requirement = 'The system shall step the Kim-Kim-Suzuki model with zero-flux faces fully implicitly, conserving the total concentration to round-off and decreasing the free energy, and match the mirrored initial condition on the doubled periodic domain (the gold: its integrals halved), with'
+    requirement = 'The system shall step the Kim-Kim-Suzuki model with zero-flux faces fully implicitly, conserving the total concentration to round-off and decreasing the free energy, and match the mirrored initial condition on the doubled periodic domain, whose integrals are twice those of the strip, with'
     # the strip and the mirrored periodic run agree to 5e-14 relative; the dt and dx studies
     # converge at first and second order, and their limit is within 3e-5 of the spectral AB3
     # solver on the doubled periodic domain without the mask (doc/roadmap, PR7). No MPS test: in
@@ -1970,7 +1995,25 @@
       min_parallel = 4
       max_parallel = 4
       compute_devices = 'cpu'
-      detail = 'the PETSc multigrid solver on 4 ranks.'
+      detail = 'the PETSc multigrid solver on 4 ranks, and'
+    []
+    [doubled_periodic]
+      type = CSVDiff
+      input = kks_no_flux.i
+      # the doubled periodic domain -20 < x < 60 with the initial condition mirrored about
+      # x = 20 (x -> min(x, 40 - x)) and no faces; its integrals are twice the strip's gold
+      # kks_no_flux.csv to 2.2e-14 relative
+      cli_args = "nx=80 Domain/xmax=60 Domain/periodic_directions='X Y' TensorComputes/BCs/active='' "
+                 "eta_IC='0.5*(1-tanh(2*(sqrt(min(x,40-x)^2+y^2)-${r})/${l}))' "
+                 "Outputs/file_base=kks_no_flux_doubled"
+      csvdiff = kks_no_flux_doubled.csv
+      rel_err = 1e-9
+      prereq = 'kks_no_flux/petsc_4_ranks'
+      override_columns = 'total_c_change'
+      override_rel_err = '1e-9'
+      override_abs_zero = '1e-10'
+      compute_devices = 'cpu'
+      detail = 'the mirrored initial condition on the doubled periodic domain.'
     []
   []
 []
