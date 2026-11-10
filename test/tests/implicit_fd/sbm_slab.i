@@ -13,9 +13,10 @@
 #   error   3.7e-4   1.05e-4  2.5e-5   6.1e-6   1.8e-6
 # (orders 1.8, 2.1, 2.0, 1.8; the last approaches the time error).
 # error_scaled is error / l^2 at t_end: 0.066, 0.062, 0.061 at l = 0.04, 0.02, 0.01. The
-# Terminator stops the run with an error above 0.1, which an error of first order in l that
-# met the bound at l = 0.04 would exceed at l = 0.02 (0.13); without psi in the time
-# derivative error_scaled is 123 and 282.
+# Terminator stops the run with an error above 0.1 l^2, at the two widths the tests run
+# (0.04, 0.02). A first-order error with this scheme's size at l = 0.04 (0.066) would reach
+# 0.13 at l = 0.02 and fail; a smaller first-order error would pass, so the CSVDiff golds pin
+# the values. Without psi in the time derivative error_scaled is 123 and 282.
 
 D = 1
 l = 0.02
