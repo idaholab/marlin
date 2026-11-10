@@ -7,6 +7,12 @@
   device_names = cpu
 []
 
+[TensorBuffers]
+  [grad_c]
+    type = PlainTensorBuffer
+  []
+[]
+
 [TensorComputes]
   [Initialize]
     [c]
@@ -15,10 +21,19 @@
       extra_symbols = true
       expression = 'sin(x*8*pi)+cos(y*4*pi)+sin(z*2*pi)'
     []
-    [grad_c]
+    [gradient]
       type = NEML2GradientVector
-      buffer = grad_c
+      buffer = gradient
       input = c
+    []
+    [grad_c]
+      type = NEML2TensorCompute
+      neml2_input_file = ../neml2/neml2_input.i
+      neml2_model = copy_vector
+      marlin_inputs = gradient
+      neml2_inputs = input
+      neml2_outputs = output
+      marlin_outputs = grad_c
     []
   []
 []

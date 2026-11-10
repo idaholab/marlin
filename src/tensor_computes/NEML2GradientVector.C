@@ -37,11 +37,11 @@ NEML2GradientVector::computeBuffer()
 {
 #ifdef NEML2_ENABLED
   const auto reciprocal_input = reciprocalInput();
-  auto grad_x = neml2::Scalar(computeGradientComponent(reciprocal_input, 0), _dim);
+  auto grad_x = computeGradientComponent(reciprocal_input, 0);
   auto grad_y =
-      neml2::Scalar(_dim > 1 ? computeGradientComponent(reciprocal_input, 1) : _zero, _dim);
+      (_dim > 1) ? computeGradientComponent(reciprocal_input, 1) : torch::zeros_like(grad_x);
   auto grad_z =
-      neml2::Scalar(_dim > 2 ? computeGradientComponent(reciprocal_input, 2) : _zero, _dim);
-  _u = neml2::Vec::fill(grad_x, grad_y, grad_z);
+      (_dim > 2) ? computeGradientComponent(reciprocal_input, 2) : torch::zeros_like(grad_x);
+  _u = torch::stack({grad_x, grad_y, grad_z}, -1).contiguous();
 #endif
 }
