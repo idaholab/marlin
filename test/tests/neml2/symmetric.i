@@ -12,7 +12,7 @@
 
 [TensorBuffers]
   [symmetric]
-    type = SR2Tensor
+    type = PlainTensorBuffer
   []
 []
 

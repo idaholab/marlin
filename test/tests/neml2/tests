@@ -32,7 +32,22 @@
     issues = '#35'
     design = NEML2TensorCompute.md
     capabilities = neml2
-    requirement = 'The system shall write NEML2 outputs to explicitly declared symmetric tensor buffers.'
+    requirement = 'The system shall write NEML2 symmetric tensor outputs to explicitly declared tensor buffers.'
+    compute_devices = 'cpu cuda mps xpu'
+    max_parallel = 1
+    min_slots = 2
+  []
+  [deprecated_buffer_type]
+    type = RunApp
+    input = symmetric.i
+    cli_args = 'TensorBuffers/symmetric/type=SR2Tensor Outputs/csv=false'
+    expect_out = 'Replace SR2Tensor with PlainTensorBuffer'
+    no_error_deprecated = true
+    prereq = symmetric
+    issues = '#35'
+    design = PlainTensorBuffer.md
+    capabilities = neml2
+    requirement = 'The system shall accept the deprecated SR2Tensor buffer type as an alias of PlainTensorBuffer.'
     compute_devices = 'cpu cuda mps xpu'
     max_parallel = 1
     min_slots = 2

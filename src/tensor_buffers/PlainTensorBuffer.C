@@ -12,6 +12,10 @@
 #include "DomainAction.h"
 
 registerMooseObject("MarlinApp", PlainTensorBuffer);
+// Former NEML2 v2 typed buffers. NEML2 v3 exchanges plain torch tensors. The date is when the
+// old names stop being accepted.
+registerMooseObjectRenamed("MarlinApp", VectorTensor, "06/01/2027 00:00", PlainTensorBuffer);
+registerMooseObjectRenamed("MarlinApp", SR2Tensor, "06/01/2027 00:00", PlainTensorBuffer);
 
 InputParameters
 PlainTensorBuffer::validParams()

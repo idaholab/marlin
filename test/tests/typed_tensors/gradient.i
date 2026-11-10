@@ -9,7 +9,7 @@
 
 [TensorBuffers]
   [grad_c]
-    type = VectorTensor
+    type = PlainTensorBuffer
   []
 []
 

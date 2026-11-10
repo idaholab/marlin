@@ -17,7 +17,6 @@
 
 // list tensor buffer includes here
 #include "PlainTensorBuffer.h"
-#include "NEML2TensorBuffer.h"
 
 #include "AuxiliarySystem.h"
 #include "libmesh/petsc_vector.h"
