@@ -316,5 +316,5 @@ LBMFixedFirstOrderBC::computeBuffer()
     _f_owned = _f_owned.narrow(d, _radius, _shape[d]);
 
   LBMBoundaryCondition::computeBuffer();
-  _lb_problem.maskedFillSolids(_u_owned, 0);
+  _lb_problem.maskedFillSolids(_u_owned, _solid_values);
 }
