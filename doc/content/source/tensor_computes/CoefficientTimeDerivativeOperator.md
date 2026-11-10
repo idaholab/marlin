@@ -20,6 +20,15 @@ derivative of a time-dependent $a$, the term $u \, \partial a / \partial t$ of
 $\partial (a u) / \partial t$, is not included. A negative $a$ is an error. In the multigrid
 preconditioner of the PETSc solver a coarse cell's $a$ is the mean over its children.
 
+The solver treats a field with this operator as definite, which holds where $a > 0$. Where
+$a = 0$ the time derivative adds nothing, and the cells there are held by the other operators
+alone. A cell that is decoupled from all others (a zero diagonal, e.g. $a = 0$ and $D = 0$ on
+all its faces in the smoothed boundary method) is inactive and keeps its value (see
+[ImplicitFDSolver.md]). A connected region with $a = 0$ whose cells are coupled to each
+other but not to cells with $a > 0$, for example $a = 0$ with $D > 0$ inside and $D = 0$ on
+its boundary faces, adds a constant to the nullspace on that region. That case is not
+checked and not supported.
+
 ## Example Input File Syntax
 
 !listing test/tests/implicit_fd/coefficient_dt.i block=TensorComputes/Solve
