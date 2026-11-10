@@ -38,8 +38,10 @@ NEML2GradientVector::computeBuffer()
 #ifdef NEML2_ENABLED
   const auto reciprocal_input = reciprocalInput();
   auto grad_x = computeGradientComponent(reciprocal_input, 0);
-  auto grad_y = (_dim > 1) ? computeGradientComponent(reciprocal_input, 1) : torch::zeros_like(grad_x);
-  auto grad_z = (_dim > 2) ? computeGradientComponent(reciprocal_input, 2) : torch::zeros_like(grad_x);
+  auto grad_y =
+      (_dim > 1) ? computeGradientComponent(reciprocal_input, 1) : torch::zeros_like(grad_x);
+  auto grad_z =
+      (_dim > 2) ? computeGradientComponent(reciprocal_input, 2) : torch::zeros_like(grad_x);
   _u = torch::stack({grad_x, grad_y, grad_z}, -1).contiguous();
 #endif
 }
