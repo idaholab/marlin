@@ -12,6 +12,10 @@
 #   l       0.08     0.04     0.02     0.01     0.005
 #   error   3.7e-4   1.05e-4  2.5e-5   6.1e-6   1.8e-6
 # (orders 1.8, 2.1, 2.0, 1.8; the last approaches the time error).
+# error_scaled is error / l^2 at t_end: 0.066, 0.062, 0.061 at l = 0.04, 0.02, 0.01. The
+# Terminator stops the run with an error above 0.1, which an error of first order in l that
+# met the bound at l = 0.04 would exceed at l = 0.02 (0.13); without psi in the time
+# derivative error_scaled is 123 and 282.
 
 D = 1
 l = 0.02
@@ -141,6 +145,24 @@ dt = 1e-4
   [mass_psi]
     type = TensorIntegralPostprocessor
     buffer = psi_u
+  []
+  [error_scaled]
+    type = ParsedPostprocessor
+    pp_names = error
+    # zero before t_end, where error is not scaled by the amplitude at t
+    constant_names = 'l t_end dt'
+    constant_expressions = '${l} ${t_end} ${dt}'
+    expression = 'if(t > t_end - dt / 2, error / l^2, 0)'
+    use_t = true
+  []
+[]
+
+[UserObjects]
+  [second_order]
+    type = Terminator
+    expression = 'error_scaled > 0.1'
+    error_level = ERROR
+    message = 'The smoothed boundary error at t_end exceeds 0.1 l^2: it is not second order in the wall width'
   []
 []
 

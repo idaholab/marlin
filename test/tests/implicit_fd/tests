@@ -2215,11 +2215,11 @@
 
   [sbm_slab]
     design = 'CoefficientTimeDerivativeOperator.md ImplicitFDSolver.md'
-    requirement = 'The system shall solve the smoothed boundary diffusion equation with implicit finite differences, with zero flux at diffuse walls, converging to the sharp-interface solution as the wall width decreases,'
-    # sbm_slab.i: against the sharp Neumann slab solution the error falls at order ~2 in the wall
-    # width (0.08 to 0.005, see the input); the gold is the l = 0.02 run, error = 2.49e-5. The
-    # torch solve agrees with it to 1e-6 relative in error (a difference of two O(1) values,
-    # at l_tol = 1e-12).
+    requirement = 'The system shall solve the smoothed boundary diffusion equation with implicit finite differences, with zero flux at diffuse walls, converging to the sharp-interface solution at second order in the wall width l, with an error at t_end below 0.1 l^2'
+    # sbm_slab.i: error / l^2 is 0.066, 0.062, 0.061 at l = 0.04, 0.02, 0.01, and the Terminator
+    # fails a run above 0.1, which an error of first order in l that met the bound at l = 0.04
+    # would exceed at l = 0.02 (0.13). The torch solve agrees with the PETSc gold to 1e-6
+    # relative in error (a difference of two O(1) values, at l_tol = 1e-12).
     [petsc]
       type = CSVDiff
       input = sbm_slab.i
@@ -2227,7 +2227,16 @@
       csvdiff = sbm_slab.csv
       rel_err = 1e-5
       compute_devices = 'cpu'
-      detail = 'with the PETSc multigrid solver, and'
+      detail = 'at l = 0.02 with the PETSc multigrid solver,'
+    []
+    [petsc_wide]
+      type = CSVDiff
+      input = sbm_slab.i
+      cli_args = 'l=0.04 Outputs/file_base=sbm_slab_wide'
+      csvdiff = sbm_slab_wide.csv
+      rel_err = 1e-5
+      compute_devices = 'cpu'
+      detail = 'at l = 0.04,'
     []
     [torch]
       type = CSVDiff
@@ -2238,7 +2247,17 @@
       prereq = 'sbm_slab/petsc'
       compute_devices = 'cpu cuda'
       min_slots = 2 # memory heavy
-      detail = 'with the torch solver.'
+      detail = 'at l = 0.02 with the torch solver, and'
+    []
+    [no_coefficient_fails]
+      type = RunException
+      input = sbm_slab.i
+      # without psi in the time derivative the walls are not zero-flux: error / l^2 = 123
+      cli_args = 'l=0.04 TensorComputes/Solve/dudt/type=TimeDerivativeOperator'
+      allow_unused = true
+      expect_err = 'The smoothed boundary error at t_end exceeds 0.1 l\^2'
+      compute_devices = 'cpu'
+      detail = 'a time derivative without the wall coefficient rejected by the error bound.'
     []
   []
 
