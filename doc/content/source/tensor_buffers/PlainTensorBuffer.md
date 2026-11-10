@@ -2,7 +2,12 @@
 
 !syntax description /TensorBuffers/PlainTensorBuffer
 
-A `PlainTensorBuffer` holds a plain vanilla `torch::Tensor` and is interpreted as a buffer of scalar values.
+A `PlainTensorBuffer` holds a plain vanilla `torch::Tensor`. It is initialized as a buffer of
+scalar values, but a tensor compute may assign a tensor with trailing value dimensions to it, e.g.
+the vector or symmetric rank-two tensor outputs of a NEML2 model.
+
+The former `VectorTensor` and `SR2Tensor` buffer types are deprecated aliases of
+`PlainTensorBuffer`.
 
 ## Overview
 
