@@ -97,6 +97,9 @@ protected:
     /// there are none, and the scale of the identity rows the Krylov solve gives them
     torch::Tensor _inactive;
     Real _inactive_scale = 0.0;
+    /// the Jacobi diagonal of krylovOperator for the current solve (set in solveField), read by
+    /// the torch PCG preconditioner and the PETSc fine-level diagonal
+    torch::Tensor _krylov_diagonal;
   };
 
   virtual void substep() override;
@@ -138,18 +141,15 @@ protected:
   /// the cell itself
   torch::Tensor jacobiDiagonal(const Field & field) const;
   /**
-   * Find the inactive cells of the solve of A x = b: cells with a zero folded diagonal (e.g.
-   * psi = 0 on the cell and all its faces), whose rows must be zero and whose b must be zero.
-   * The Krylov solve gives them identity rows and they keep their value of x.
+   * Find the inactive cells of the solve of A x = b: cells with a zero folded diagonal diag
+   * (e.g. psi = 0 on the cell and all its faces), whose rows must be zero and whose b must be
+   * zero. The Krylov solve gives them identity rows and they keep their value of x.
    */
-  void findInactiveCells(Field & field, const torch::Tensor & b);
+  void findInactiveCells(Field & field, const torch::Tensor & b, const torch::Tensor & diag);
 
   /// the linear operator with identity rows (times the smallest active diagonal) on inactive
   /// cells
   torch::Tensor krylovOperator(Field & field, const torch::Tensor & x);
-
-  /// the Jacobi diagonal of krylovOperator
-  torch::Tensor krylovDiagonal(const Field & field) const;
 
   /// lambda if the linear operator maps the constants to lambda > 0 times the constants (up to
   /// round-off), else 0; diag is the field's Jacobi diagonal

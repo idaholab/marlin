@@ -16,7 +16,6 @@
 #include "TensorSolveIterationAdaptiveDT.h"
 #include "TensorRobinBC.h"
 #include "FiniteDifferenceBiharmonic.h"
-#include "FiniteDifferenceDivGrad.h"
 
 #include "PetscSupport.h"
 
@@ -320,7 +319,8 @@ ImplicitFDSolver::ImplicitFDSolver(const InputParameters & parameters)
                 {},
                 {},
                 {},
-                0.0};
+                0.0,
+                {}};
 
     if (operators[i].empty())
       paramError("operators", "No operators given for field '", buffers[i], "'.");
@@ -602,14 +602,10 @@ ImplicitFDSolver::SolveResult
 ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x)
 {
   // the operators' stencil for this solve (for a FiniteDifferenceDivGrad, building it exchanges
-  // the coefficient's halo), and the Jacobi diagonal, built only if the eigenvalue reads it (a
-  // Dirichlet or Robin face, a != 0, gives no constant eigenvector)
+  // the coefficient's halo), and its Jacobi diagonal, built once and read by the eigenvalue, the
+  // inactive cells and the Krylov preconditioners
   field._stencil = fieldStencil(field._fd_operators);
-  const bool constant_mode =
-      !field._singular && std::none_of(field._face_bcs.begin(),
-                                       field._face_bcs.end(),
-                                       [](const auto * bc) { return bc && bc->a() != 0.0; });
-  const auto diag = constant_mode ? jacobiDiagonal(field) : torch::Tensor();
+  const auto diag = jacobiDiagonal(field);
 
   // with A 1 = lambda 1 (A symmetric), the sum of the equations fixes the mean of the exact
   // solution, mean(x) = mean(b) / lambda: the Krylov error in the constant mode is set to zero
@@ -621,7 +617,11 @@ ImplicitFDSolver::solveField(Field & field, torch::Tensor & b, torch::Tensor & x
 
   // the inactive cells keep the value of x they come in with (u^n, or 0 for a correction); in
   // the solve they are identity rows with x = b = 0, so their residual is zero from the start
-  findInactiveCells(field, b);
+  findInactiveCells(field, b, diag);
+  field._krylov_diagonal =
+      field._inactive.defined()
+          ? torch::where(field._inactive, torch::full_like(diag, field._inactive_scale), diag)
+          : diag;
   torch::Tensor held;
   if (field._inactive.defined())
   {
@@ -709,10 +709,11 @@ ImplicitFDSolver::applyLinearOperator(Field & field, const torch::Tensor & x)
 }
 
 void
-ImplicitFDSolver::findInactiveCells(Field & field, const torch::Tensor & b)
+ImplicitFDSolver::findInactiveCells(Field & field,
+                                    const torch::Tensor & b,
+                                    const torch::Tensor & diag)
 {
   field._inactive = torch::Tensor();
-  const auto diag = jacobiDiagonal(field);
   if (_domain.allreduceSum((diag < 0).sum()).cpu().item<int64_t>() > 0)
     mooseError("The operator of field '",
                field._name,
@@ -764,15 +765,6 @@ ImplicitFDSolver::krylovOperator(Field & field, const torch::Tensor & x)
     return y;
   // the inactive rows of A are zero
   return torch::where(field._inactive, field._inactive_scale * x, y);
-}
-
-torch::Tensor
-ImplicitFDSolver::krylovDiagonal(const Field & field) const
-{
-  const auto diag = jacobiDiagonal(field);
-  if (!field._inactive.defined())
-    return diag;
-  return torch::where(field._inactive, torch::full_like(diag, field._inactive_scale), diag);
 }
 
 Real
@@ -828,7 +820,7 @@ ImplicitFDSolver::solveTorchPCG(Field & field,
                                 torch::Tensor & x)
 {
   // Jacobi preconditioner
-  const auto inv_diag = krylovDiagonal(field).reciprocal();
+  const auto inv_diag = field._krylov_diagonal.reciprocal();
   const auto A = [&](const torch::Tensor & v) { return krylovOperator(field, v); };
   const auto M = [&inv_diag](const torch::Tensor & r) { return r * inv_diag; };
   const auto reduce_sum = [this](const torch::Tensor & t) { return _domain.allreduceSum(t); };
@@ -1381,7 +1373,7 @@ ImplicitFDSolver::shellDiagonal(Mat A, Vec d)
   PetscErrorCode ierr = PETSC_SUCCESS;
   try
   {
-    const auto diag = ps->solver->krylovDiagonal(*ps->field);
+    const auto & diag = ps->field->_krylov_diagonal;
     torch::from_blob(array, diag.sizes(), options).copy_(diag);
   }
   catch (...)
