@@ -86,6 +86,9 @@ protected:
   /// bc objects
   TensorComputeList _bcs;
 
+  /// computes run every substep: the solver's root compute if there is a solver, else all computes
+  TensorComputeList _substep_computes;
+
   /// radius of ghost layers
   unsigned int _ghost_radius = 0;
 

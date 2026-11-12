@@ -46,7 +46,8 @@ LBMBoundaryCondition::LBMBoundaryCondition(const InputParameters & parameters)
 
   // for binary media: only wall/regional boundaries need their own (marked) copy of the media,
   // and only until their boundary entries are indexed on the first step
-  if (_lb_problem.isBinaryMedia() && (_boundary == Boundary::wall || _boundary == Boundary::regional))
+  if (_lb_problem.isBinaryMedia() &&
+      (_boundary == Boundary::wall || _boundary == Boundary::regional))
   {
     const torch::Tensor & binary_mesh = _lb_problem.getBinaryMedia();
     _binary_mesh = binary_mesh.clone();

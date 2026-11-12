@@ -16,7 +16,7 @@ toHost(const torch::Tensor & t)
 {
   if (!t.defined())
     return {};
-  
+
   const auto c = t.to(torch::kCPU).to(c10::CppTypeToScalarType<T>::value).contiguous();
   const auto * data = c.template data_ptr<T>();
   return std::vector<T>(data, data + c.numel());

@@ -98,7 +98,8 @@ LBMNeumannBC::boundaryEquilibrium(const torch::Tensor & velocity, const torch::T
 torch::Tensor
 LBMNeumannBC::faceEquilibrium(int64_t dim, int64_t index)
 {
-  return boundaryEquilibrium(ownedView(_velocity).select(dim, index), ownedView(_rho).select(dim, index));
+  return boundaryEquilibrium(ownedView(_velocity).select(dim, index),
+                             ownedView(_rho).select(dim, index));
 }
 
 torch::Tensor
@@ -203,8 +204,8 @@ LBMNeumannBC::wallBoundary()
   }
 
   _u_owned.index_put_(_boundary_index,
-                      nodeEquilibrium(_boundary_index) +
-                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
+                      nodeEquilibrium(_boundary_index) + _f_old_owned.index(_boundary_index) -
+                          _feq_owned.index(_boundary_index));
 }
 
 void
@@ -219,8 +220,8 @@ LBMNeumannBC::regionalBoundary()
   }
 
   _u_owned.index_put_(_boundary_index,
-                      nodeEquilibrium(_boundary_index) +
-                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
+                      nodeEquilibrium(_boundary_index) + _f_old_owned.index(_boundary_index) -
+                          _feq_owned.index(_boundary_index));
 }
 
 void

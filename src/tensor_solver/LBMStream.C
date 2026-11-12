@@ -18,7 +18,9 @@ namespace
 {
 /// write torch::roll(src, shift, {0, 1, 2}) into dst block by block, without temporaries
 void
-periodicShiftInto(torch::Tensor dst, const torch::Tensor & src, const std::array<int64_t, 3> & shift)
+periodicShiftInto(torch::Tensor dst,
+                  const torch::Tensor & src,
+                  const std::array<int64_t, 3> & shift)
 {
   // per dimension: (dst start, src start, length) of the one or two periodic segments
   std::array<std::vector<std::array<int64_t, 3>>, 3> segments;

@@ -58,9 +58,9 @@ LBMCollisionDynamicsTempl<coll_dyn>::LBMCollisionDynamicsTempl(const InputParame
 
   // plain BGK (no projection, constant tau) is a single lerp and needs no fneq buffer
   if (!(coll_dyn == 0 && !_projection && !_is_dynamic_relaxation))
-    _fneq =
-      torch::zeros({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q},
-                   MooseTensor::floatTensorOptions());
+    _fneq = torch::zeros(
+        {_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q},
+        MooseTensor::floatTensorOptions());
 
   const int64_t N = _shape_with_ghost[0] * _shape_with_ghost[1] * _shape_with_ghost[2];
 
@@ -194,8 +194,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeLocalRelaxationMatrix()
   {
     _local_relaxation_matrix = _stencil._S.diagonal().unsqueeze(0).expand({N, Q}).contiguous();
     for (int64_t sh_id = 0; sh_id < _stencil._id_kinematic_visc.size(0); sh_id++)
-      _kinematic_visc_ids.push_back(
-          _stencil._id_kinematic_visc[sh_id].template item<int64_t>());
+      _kinematic_visc_ids.push_back(_stencil._id_kinematic_visc[sh_id].template item<int64_t>());
   }
 
   auto inv_tau_flat = torch::reciprocal(_local_relaxation_parameter.view({N}));

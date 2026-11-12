@@ -172,8 +172,8 @@ LBMDirichletBC::wallBoundary()
 
   // Computed in a single vectorized pass
   _u_owned.index_put_(_boundary_index,
-                      nodeEquilibrium(_boundary_index) +
-                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
+                      nodeEquilibrium(_boundary_index) + _f_old_owned.index(_boundary_index) -
+                          _feq_owned.index(_boundary_index));
 }
 
 void
@@ -188,8 +188,8 @@ LBMDirichletBC::regionalBoundary()
   }
 
   _u_owned.index_put_(_boundary_index,
-                      nodeEquilibrium(_boundary_index) +
-                          _f_old_owned.index(_boundary_index) - _feq_owned.index(_boundary_index));
+                      nodeEquilibrium(_boundary_index) + _f_old_owned.index(_boundary_index) -
+                          _feq_owned.index(_boundary_index));
 }
 
 void
