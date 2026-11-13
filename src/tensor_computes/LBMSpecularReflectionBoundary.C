@@ -244,6 +244,8 @@ LBMSpecularReflectionBoundary::wallBoundary()
   {
     buildSpecularIndices();
     _indices_built = true;
+    // the media copy is not needed once the boundary entries are indexed
+    _binary_mesh = torch::Tensor();
 
     if (_boundary_entries.size(0) == 0)
       mooseError(
@@ -277,8 +279,10 @@ LBMSpecularReflectionBoundary::wallBoundary()
   _u.index_put_({ix, iy, iz, ic_opp}, r_entries * f_incoming);
 
   // Specular reflection part: f[x, y, z, sr_dir] += (1 - r) * f_incoming
-  _u.index_put_({ix, iy, iz, _specular_directions},
-                _u.index({ix, iy, iz, _specular_directions}) + (1.0 - r_entries) * f_incoming);
+  // accumulate: entries sharing a (node, direction) all contribute (a gather + put would drop
+  // all but one of them)
+  _u.index_put_(
+      {ix, iy, iz, _specular_directions}, (1.0 - r_entries) * f_incoming, /*accumulate=*/true);
 }
 
 void

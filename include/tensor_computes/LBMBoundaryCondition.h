@@ -71,5 +71,10 @@ protected:
   uint8_t _boundary_rank = 0;
 
   torch::Tensor _binary_mesh;
-  torch::Tensor _boundary_mask;
+
+  /// index columns (x, y, z[, q]) of the wall/regional boundary entries, built on the first step
+  std::vector<torch::indexing::TensorIndex> _boundary_index;
+
+  /// index columns, one per dimension, of the nonzero entries of a mask
+  static std::vector<torch::indexing::TensorIndex> nonzeroIndex(const torch::Tensor & mask);
 };

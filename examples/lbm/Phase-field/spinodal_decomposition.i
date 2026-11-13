@@ -311,7 +311,7 @@ D = 4
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
   log_interval = 100
-  residual_tensor = speed
+  residual_tensor = phi
 []
 
 [Executioner]

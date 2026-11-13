@@ -46,6 +46,15 @@ LBMComputeEffectiveRelaxation::LBMComputeEffectiveRelaxation(const InputParamete
 void
 LBMComputeEffectiveRelaxation::computeBuffer()
 {
+  // the result only depends on the pore size and Knudsen number inputs (normally static), so
+  // skip recomputing while neither they nor the output have been modified or replaced
+  const auto unchanged = [](const torch::Tensor & t, const torch::Tensor & last, int64_t version)
+  { return last.defined() && t.is_same(last) && t._version() == version; };
+  if (unchanged(_local_pore_size, _last_pore_size, _last_versions[0]) &&
+      unchanged(_local_Knudsen_number, _last_knudsen, _last_versions[1]) &&
+      unchanged(_u, _last_u, _last_versions[2]))
+    return;
+
   const int64_t N = _u.numel() / _stencil._q;
   const int Q = _stencil._q;
 
@@ -77,4 +86,9 @@ LBMComputeEffectiveRelaxation::computeBuffer()
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, _solid_values);
+
+  _last_pore_size = _local_pore_size;
+  _last_knudsen = _local_Knudsen_number;
+  _last_u = _u;
+  _last_versions = {_local_pore_size._version(), _local_Knudsen_number._version(), _u._version()};
 }

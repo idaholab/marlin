@@ -97,16 +97,16 @@ LBMFixedFirstOrderBC::leftBoundaryD2Q9()
       _u_x_perturbed.dim() < f_face.dim() - 1 ? _u_x_perturbed.unsqueeze(-1) : _u_x_perturbed;
   density.div_(1.0 - u_x_safe);
 
-  int left_0 = _stencil._left[0].item<int>();
-  int opp_0 = _stencil._op[left_0].item<int>();
+  int left_0 = _stencil.host().left[0];
+  int opp_0 = _stencil.host().op[left_0];
 
   u_face.select(-1, left_0).copy_(f_face.select(-1, opp_0)).addcmul_(density, u_x_safe, 2.0 / 3.0);
 
   for (unsigned int i = 1; i < _stencil._left.size(0); i++)
   {
-    int left_i = _stencil._left[i].item<int>();
-    int opp_i = _stencil._op[left_i].item<int>();
-    double ey = _stencil._ey[left_i].item<double>();
+    int left_i = _stencil.host().left[i];
+    int opp_i = _stencil.host().op[left_i];
+    double ey = _stencil.host().ey[left_i];
 
     auto update =
         f_face.select(-1, opp_i) - 0.5 * ey * (f2 - f4) + (1.0 / 6.0) * density * u_x_safe;
@@ -132,9 +132,9 @@ LBMFixedFirstOrderBC::leftBoundary()
 
   auto density = (f_neutral + 2.0 * f_right).div_(1.0 - _value);
 
-  int left_0 = _stencil._left[0].item<int>();
-  int right_0 = _stencil._right[0].item<int>();
-  double w_left_0 = _stencil._weights[left_0].item<double>();
+  int left_0 = _stencil.host().left[0];
+  int right_0 = _stencil.host().right[0];
+  double w_left_0 = _stencil.host().weights[left_0];
 
   u_face.select(-1, left_0)
       .copy_(f_face.select(-1, right_0))
@@ -142,9 +142,9 @@ LBMFixedFirstOrderBC::leftBoundary()
 
   for (unsigned int i = 1; i < _stencil._left.size(0); i++)
   {
-    int left_i = _stencil._left[i].item<int>();
-    int right_i = _stencil._right[i].item<int>();
-    double w_left_i = _stencil._weights[left_i].item<double>();
+    int left_i = _stencil.host().left[i];
+    int right_i = _stencil.host().right[i];
+    double w_left_i = _stencil.host().weights[left_i];
 
     u_face.select(-1, left_i)
         .copy_(f_face.select(-1, right_i))
@@ -168,16 +168,16 @@ LBMFixedFirstOrderBC::rightBoundaryD2Q9()
   auto density = torch::add(f1, f5).add_(f8).mul_(2.0).add_(f0).add_(f2).add_(f4);
   density.div_(1.0 + _value);
 
-  int left_0 = _stencil._left[0].item<int>();
-  int opp_0 = _stencil._op[left_0].item<int>();
+  int left_0 = _stencil.host().left[0];
+  int opp_0 = _stencil.host().op[left_0];
 
   u_face.select(-1, opp_0).copy_(f_face.select(-1, left_0)).add_(density, -2.0 / 3.0 * _value);
 
   for (unsigned int i = 1; i < _stencil._left.size(0); i++)
   {
-    int left_i = _stencil._left[i].item<int>();
-    int opp_i = _stencil._op[left_i].item<int>();
-    double ey_opp = _stencil._ey[opp_i].item<double>();
+    int left_i = _stencil.host().left[i];
+    int opp_i = _stencil.host().op[left_i];
+    double ey_opp = _stencil.host().ey[opp_i];
 
     auto update =
         f_face.select(-1, left_i) + 0.5 * ey_opp * (f4 - f2) - (1.0 / 6.0) * density * _value;
@@ -203,9 +203,9 @@ LBMFixedFirstOrderBC::rightBoundary()
 
   auto density = (f_neutral + 2.0 * f_left).div_(1.0 + _value);
 
-  int right_0 = _stencil._right[0].item<int>();
-  int left_0 = _stencil._left[0].item<int>();
-  double w_right_0 = _stencil._weights[right_0].item<double>();
+  int right_0 = _stencil.host().right[0];
+  int left_0 = _stencil.host().left[0];
+  double w_right_0 = _stencil.host().weights[right_0];
 
   u_face.select(-1, right_0)
       .copy_(f_face.select(-1, left_0))
@@ -213,9 +213,9 @@ LBMFixedFirstOrderBC::rightBoundary()
 
   for (unsigned int i = 1; i < _stencil._right.size(0); i++)
   {
-    int right_i = _stencil._right[i].item<int>();
-    int left_i = _stencil._left[i].item<int>();
-    double w_right_i = _stencil._weights[right_i].item<double>();
+    int right_i = _stencil.host().right[i];
+    int left_i = _stencil.host().left[i];
+    double w_right_i = _stencil.host().weights[right_i];
 
     u_face.select(-1, right_i)
         .copy_(f_face.select(-1, left_i))
@@ -239,16 +239,16 @@ LBMFixedFirstOrderBC::bottomBoundaryD2Q9()
   auto density = torch::add(f4, f7).add_(f8).mul_(2.0).add_(f0).add_(f1).add_(f3);
   density.div_(1.0 - _value);
 
-  int bot_0 = _stencil._bottom[0].item<int>();
-  int opp_0 = _stencil._op[bot_0].item<int>();
+  int bot_0 = _stencil.host().bottom[0];
+  int opp_0 = _stencil.host().op[bot_0];
 
   u_face.select(-1, bot_0).copy_(f_face.select(-1, opp_0)).add_(density, 2.0 / 3.0 * _value);
 
   for (unsigned int i = 1; i < _stencil._bottom.size(0); i++)
   {
-    int bot_i = _stencil._bottom[i].item<int>();
-    int opp_i = _stencil._op[bot_i].item<int>();
-    double ex = _stencil._ex[bot_i].item<double>();
+    int bot_i = _stencil.host().bottom[i];
+    int opp_i = _stencil.host().op[bot_i];
+    double ex = _stencil.host().ex[bot_i];
 
     auto update = f_face.select(-1, opp_i) - 0.5 * ex * (f1 - f3) + (1.0 / 6.0) * density * _value;
     u_face.select(-1, bot_i).copy_(update);
@@ -281,16 +281,16 @@ LBMFixedFirstOrderBC::topBoundaryD2Q9()
   auto density = torch::add(f2, f5).add_(f6).mul_(2.0).add_(f0).add_(f1).add_(f3);
   density.div_(1.0 + _value);
 
-  int bot_0 = _stencil._bottom[0].item<int>();
-  int opp_0 = _stencil._op[bot_0].item<int>();
+  int bot_0 = _stencil.host().bottom[0];
+  int opp_0 = _stencil.host().op[bot_0];
 
   u_face.select(-1, opp_0).copy_(f_face.select(-1, bot_0)).add_(density, -2.0 / 3.0 * _value);
 
   for (unsigned int i = 1; i < _stencil._bottom.size(0); i++)
   {
-    int bot_i = _stencil._bottom[i].item<int>();
-    int opp_i = _stencil._op[bot_i].item<int>();
-    double ex_opp = _stencil._ex[opp_i].item<double>();
+    int bot_i = _stencil.host().bottom[i];
+    int opp_i = _stencil.host().op[bot_i];
+    double ex_opp = _stencil.host().ex[opp_i];
 
     auto update =
         f_face.select(-1, bot_i) + 0.5 * ex_opp * (f3 - f1) - (1.0 / 6.0) * density * _value;

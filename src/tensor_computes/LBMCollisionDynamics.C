@@ -56,10 +56,11 @@ LBMCollisionDynamicsTempl<coll_dyn>::LBMCollisionDynamicsTempl(const InputParame
   if (_dim == 3)
     _shape_with_ghost[2] += 2 * _radius;
 
-  // Always pre-allocate _fneq (used in all collision operators)
-  _fneq =
-      torch::zeros({_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q},
-                   MooseTensor::floatTensorOptions());
+  // plain BGK (no projection, constant tau) is a single lerp and needs no fneq buffer
+  if (!(coll_dyn == 0 && !_projection && !_is_dynamic_relaxation))
+    _fneq = torch::zeros(
+        {_shape_with_ghost[0], _shape_with_ghost[1], _shape_with_ghost[2], _stencil._q},
+        MooseTensor::floatTensorOptions());
 
   const int64_t N = _shape_with_ghost[0] * _shape_with_ghost[1] * _shape_with_ghost[2];
 
@@ -150,17 +151,26 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeRelaxationParameter()
   // Multiply with pre-cached outer products [N, Q] @ [Q, 27] -> [N, 27]
   auto Q_tensor_flat = torch::mm(fneq_flat, _outer_flat);
 
+  // Frobenius norm of flattened tensor (Norm over the 27 components directly)
+  auto Q_mean = torch::norm(Q_tensor_flat, /*p=*/2, /*dim=*/1);
+
   // Mean density calculation: sum(rho) is mathematically identical to sum(f),
   // so we avoid allocating a density tensor entirely!
-  auto sum_density = torch::sum(ownedView(_f)).template item<double>();
-  double num_points = static_cast<double>(N_owned);
+  if (_domain.comm().size() == 1)
+  {
+    const auto mean_density = torch::sum(ownedView(_f)) / static_cast<double>(N_owned);
+    Q_mean.div_(mean_density * _lb_problem._cs2);
+  }
+  else
+  {
+    auto sum_density = torch::sum(ownedView(_f)).template item<double>();
+    double num_points = static_cast<double>(N_owned);
 
-  _domain.comm().sum(sum_density);
-  _domain.comm().sum(num_points);
-  _mean_density = sum_density / num_points;
-
-  // Frobenius norm of flattened tensor (Norm over the 27 components directly)
-  auto Q_mean = torch::norm(Q_tensor_flat, /*p=*/2, /*dim=*/1) / (_mean_density * _lb_problem._cs2);
+    _domain.comm().sum(sum_density);
+    _domain.comm().sum(num_points);
+    _mean_density = sum_density / num_points;
+    Q_mean.div_(_mean_density * _lb_problem._cs2);
+  }
 
   auto t_sgs = sqrt(_C_s) * _delta_x / _lb_problem._cs;
   auto eta = _tau_0 / t_sgs;
@@ -179,25 +189,18 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeLocalRelaxationMatrix()
   const int64_t N = _fneq.numel() / _stencil._q;
   const int Q = _stencil._q;
 
-  // Initialize strictly in [N, Q, Q] shape
-  if (_lb_problem.getTotalSteps() == 0)
+  // The relaxation matrix is diagonal, so only its diagonal is stored per node: [N, Q]
+  if (!_local_relaxation_matrix.defined())
   {
-    _local_relaxation_matrix = torch::empty({N, Q, Q}, MooseTensor::floatTensorOptions());
-    auto stencil_S = _stencil._S.view({Q, Q}).unsqueeze(0);
-    _local_relaxation_matrix.copy_(stencil_S.expand({N, Q, Q}));
+    _local_relaxation_matrix = _stencil._S.diagonal().unsqueeze(0).expand({N, Q}).contiguous();
+    for (int64_t sh_id = 0; sh_id < _stencil._id_kinematic_visc.size(0); sh_id++)
+      _kinematic_visc_ids.push_back(_stencil._id_kinematic_visc[sh_id].template item<int64_t>());
   }
 
-  auto local_rel_flat = _local_relaxation_matrix.view({N, Q, Q});
   auto inv_tau_flat = torch::reciprocal(_local_relaxation_parameter.view({N}));
 
-  for (int64_t sh_id = 0; sh_id < _stencil._id_kinematic_visc.size(0); sh_id++)
-  {
-    int64_t idx = _stencil._id_kinematic_visc[sh_id].template item<int64_t>();
-
-    // Zero-overhead assignment replacing index_put_
-    // select(2, idx) gets [N, Q], select(1, idx) gets [N]
-    local_rel_flat.select(2, idx).select(1, idx).copy_(inv_tau_flat);
-  }
+  for (const auto idx : _kinematic_visc_ids)
+    _local_relaxation_matrix.select(1, idx).copy_(inv_tau_flat);
 }
 
 template <int coll_dyn>
@@ -216,15 +219,17 @@ template <>
 void
 LBMCollisionDynamicsTempl<0>::BGKDynamics()
 {
-  _u.copy_(_feq);
-
-  if (!_is_dynamic_relaxation)
+  // u = feq + alpha * fneq in one pass (instead of copy + add)
+  if (!_is_dynamic_relaxation && !_projection)
+    // u = feq + alpha * (f - feq): one kernel, no fneq buffer
+    torch::lerp_out(_u, _feq, _f, /*weight=*/1.0 - 1.0 / _tau_0);
+  else if (!_is_dynamic_relaxation)
   {
-    _u.add_(_fneq, /*alpha=*/1.0 - 1.0 / _tau_0);
+    torch::add_out(_u, _feq, _fneq, /*alpha=*/1.0 - 1.0 / _tau_0);
   }
   else
   {
-    _u.add_(_fneq);
+    torch::add_out(_u, _feq, _fneq);
     const int64_t N = _u.numel() / _stencil._q;
     auto tau_flat = _tau_tensor.view({N, 1});
     auto u_flat = _u.view({N, _stencil._q});
@@ -247,20 +252,28 @@ LBMCollisionDynamicsTempl<1>::MRTDynamics()
   auto fneq_flat = _fneq.view({N, Q});
   auto u_flat = _u.view({N, Q});
 
-  _u.copy_(_feq);
-  _u.add_(_fneq);
-
-  if (!_is_dynamic_relaxation)
+  // without projection feq + fneq == f
+  if (!_is_dynamic_relaxation && !_projection)
+    // u = f - fneq * MSM^T in a single gemm
+    torch::addmm_out(u_flat, _f.view({N, Q}), fneq_flat, _MSM_t, /*beta=*/1.0, /*alpha=*/-1.0);
+  else if (!_is_dynamic_relaxation)
   {
+    torch::add_out(_u, _feq, _fneq);
     u_flat.addmm_(fneq_flat, _MSM_t, /*beta=*/1.0, /*alpha=*/-1.0);
   }
   else
   {
+    // without projection feq + fneq == f
+    if (_projection)
+      torch::add_out(_u, _feq, _fneq);
+    else
+      _u.copy_(_f);
     torch::mm_out(_m_neq_flat, fneq_flat, _stencil._M.t());
     _m_neq_flat.mul_(_input_relaxation_matrix.view({N, Q}));
     // u_flat.addmm_(_m_neq_flat, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
-    auto correction = torch::mm(_m_neq_flat, _stencil._M_inv.t());
-    u_flat.sub_(correction);
+    // fneq is no longer needed, reuse it for the correction instead of allocating
+    torch::mm_out(fneq_flat, _m_neq_flat, _stencil._M_inv.t());
+    u_flat.sub_(fneq_flat);
   }
 
   _u_owned = ownedView(_u);
@@ -273,8 +286,11 @@ LBMCollisionDynamicsTempl<2>::SmagorinskyDynamics()
 {
   computeRelaxationParameter();
 
-  _u.copy_(_feq);
-  _u.add_(_fneq);
+  // without projection feq + fneq == f
+  if (_projection)
+    torch::add_out(_u, _feq, _fneq);
+  else
+    _u.copy_(_f);
 
   auto u_owned = ownedView(_u);
   auto fneq_owned = ownedView(_fneq);
@@ -299,16 +315,18 @@ LBMCollisionDynamicsTempl<3>::SmagorinskyMRTDynamics()
 
   torch::mm_out(_m_neq_flat, fneq_flat, _stencil._M.t());
 
-  auto m_neq_expanded = _m_neq_flat.view({N, Q, 1});
-  auto S_local = _local_relaxation_matrix.view({N, Q, Q});
+  // diagonal relaxation matrix: relax every moment with its own (local) rate
+  _m_neq_flat.mul_(_local_relaxation_matrix);
 
-  auto m_neq_relaxed = torch::bmm(S_local, m_neq_expanded).squeeze(-1);
-
-  _u.copy_(_feq);
-  _u.add_(_fneq);
-  // _u.view({N, Q}).addmm_(m_neq_relaxed, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
-  auto correction = torch::mm(m_neq_relaxed, _stencil._M_inv.t());
-  _u.view({N, Q}).sub_(correction);
+  // without projection feq + fneq == f
+  if (_projection)
+    torch::add_out(_u, _feq, _fneq);
+  else
+    _u.copy_(_f);
+  // _u.view({N, Q}).addmm_(_m_neq_flat, _stencil._M_inv.t(), /*beta=*/1.0, /*alpha=*/-1.0);
+  // fneq is no longer needed, reuse it for the correction instead of allocating
+  torch::mm_out(fneq_flat, _m_neq_flat, _stencil._M_inv.t());
+  _u.view({N, Q}).sub_(fneq_flat);
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, _solid_values);
@@ -320,7 +338,7 @@ LBMCollisionDynamicsTempl<coll_dyn>::computeBuffer()
 {
   if (_projection)
     HermiteRegularization();
-  else
+  else if (_fneq.defined())
     torch::sub_out(_fneq, _f, _feq);
 
   switch (coll_dyn)

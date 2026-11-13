@@ -39,4 +39,13 @@ protected:
 
   std::vector<Variable> _variables;
   const unsigned int _radius;
+
+  /// lattice shift (ex, ey, ez) of every direction, extracted from the stencil on first use
+  std::vector<std::array<int64_t, 3>> _shifts;
+
+  /// storage for the next streamed state of variable v (see _spare)
+  torch::Tensor nextBuffer(std::size_t v, const torch::Tensor & u);
+
+  /// per variable: the tensor replaced on the previous substep, reused once it is unreferenced
+  std::vector<torch::Tensor> _spare;
 };
