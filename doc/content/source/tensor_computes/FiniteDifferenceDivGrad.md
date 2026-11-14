@@ -42,7 +42,9 @@ derivative (a steady field), cells whose faces are all shut make the operator si
 which is checked (a zero diagonal). A group of cells cut off from the rest by shut faces
 is not checked: each such group adds its own constant to the nullspace, so the solution
 there is not determined (e.g. $D = 1, 0, 0, 1$ in four cells between two zero-flux faces). Such islands are not
-supported in a steady solve; with a time derivative the operator stays definite.
+supported in a steady solve. A [TimeDerivativeOperator.md] keeps the operator definite; a
+[CoefficientTimeDerivativeOperator.md] does so only where its coefficient is positive (see
+that page).
 
 ### Domain faces
 
