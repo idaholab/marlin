@@ -83,6 +83,24 @@ public:
   virtual const std::string & inputBufferName() const = 0;
 
   /**
+   * The cell-centred coefficient field of a variable-coefficient operator on this rank's owned
+   * block, which an implicit solver restricts to its coarse levels as the mean over the
+   * children. Undefined (the default) for an operator whose stencil does not depend on a field.
+   */
+  virtual torch::Tensor ownedCoefficient() const { return {}; }
+
+  /**
+   * The stencil on a grid with the given spacing from the coefficient on that grid's owned block
+   * with one halo layer (Marlin axis order), for an operator with an ownedCoefficient().
+   */
+  virtual std::vector<FDStencilEntry>
+  stencilFromCoefficient(const torch::Tensor & /*coefficient*/,
+                         const std::vector<Real> & grid_spacing) const
+  {
+    return stencilAt(grid_spacing);
+  }
+
+  /**
    * Contribution r of this operator to the right-hand side of the implicit
    * system sum_i A_i u = sum_i r_i + f, evaluated on the owned cells before the
    * solve. Undefined (the default) means no contribution.
