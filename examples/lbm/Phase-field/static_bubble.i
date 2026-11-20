@@ -318,7 +318,7 @@ D = 5
   print_debug_output = true
   scalar_constant_names = 'tau_h D sigma'
   scalar_constant_values = '${tau_h} ${D} ${sigma}'
-  residual_tensor = speed
+  residual_tensor = phi
 []
 
 [Executioner]

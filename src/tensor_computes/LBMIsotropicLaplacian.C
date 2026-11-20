@@ -66,7 +66,7 @@ LBMIsotropicLaplacian::computeBuffer()
   // Weighted sum at each point: phi(x) * sum(w_i)
   auto L2 =
       2.0 *
-      torch::sum(_scalar_field.unsqueeze(-1) * _stencil._weights.unsqueeze(0).unsqueeze(0), -1);
+      torch::sum(scalarField().unsqueeze(-1) * _stencil._weights.unsqueeze(0).unsqueeze(0), -1);
 
   _u_owned = ownedView(_u);
   auto result = L1 - ownedView(L2);

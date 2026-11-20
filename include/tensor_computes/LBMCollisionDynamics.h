@@ -44,8 +44,11 @@ protected:
   torch::Tensor _fneq;
   /// local shear stress relaxation tau_s
   torch::Tensor _local_relaxation_parameter;
-  /// local relaxation matrix [Nx, Ny, Nz, Q] (internally computed for Smagorinsky)
+  /// diagonal of the local relaxation matrix [N, Q] (internally computed for Smagorinsky-MRT)
   torch::Tensor _local_relaxation_matrix;
+
+  /// moment indices relaxed with the local (shear viscosity) rate
+  std::vector<int64_t> _kinematic_visc_ids;
   /// global relaxation matrix [Q]
   torch::Tensor _global_relaxation_matrix;
 

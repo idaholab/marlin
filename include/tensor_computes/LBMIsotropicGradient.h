@@ -23,7 +23,9 @@ public:
   virtual void computeBuffer() override;
 
 protected:
-  torch::Tensor padScalarField();
+  /// the input field, without the trailing unit dimension of 2D buffers
+  torch::Tensor scalarField() const;
+  torch::Tensor padScalarField(const torch::Tensor & field) const;
   torch::Tensor prepareInputField();
   torch::Tensor stencilConvolve3D(const torch::Tensor & field,
                                   const torch::Tensor & kernel_flat) const;
@@ -33,5 +35,8 @@ protected:
   bool _is_interior = false;
 
   torch::Tensor _kernel;
+
+  /// (ex, ey, ez) of every stencil direction in kernel order (3D only)
+  std::vector<std::array<int64_t, 3>> _offsets;
   torch::nn::functional::Conv2dFuncOptions _conv2d_options;
 };

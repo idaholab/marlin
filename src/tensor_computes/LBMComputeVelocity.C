@@ -40,27 +40,17 @@ LBMComputeVelocity::LBMComputeVelocity(const InputParameters & parameters)
     _body_force_constant_y(
         _lb_problem.getConstant<Real>(getParam<MarlinConstantName>("body_force_y"))),
     _body_force_constant_z(
-        _lb_problem.getConstant<Real>(getParam<MarlinConstantName>("body_force_z")))
+        _lb_problem.getConstant<Real>(getParam<MarlinConstantName>("body_force_z"))),
+    _enable_forces(getParam<bool>("enable_forces")),
+    _add_body_force(getParam<bool>("add_body_force"))
 {
-  if (getParam<bool>("add_body_force"))
-  {
-    std::vector<int64_t> shape = _lb_problem.getLocalTensorShape(std::vector<int64_t>());
-    if (shape.size() < 3)
-      shape.push_back(1);
-    shape.push_back(_dim);
-
-    _body_forces = torch::zeros(shape, MooseTensor::floatTensorOptions());
-
-    auto force_constants =
+  // constant body force [1, dim], broadcast over all nodes
+  if (_add_body_force)
+    _body_forces =
         torch::tensor({_body_force_constant_x, _body_force_constant_y, _body_force_constant_z},
-                      MooseTensor::floatTensorOptions());
-
-    for (int64_t d = 0; d < _dim; d++)
-    {
-      auto t_index = torch::tensor({d}, MooseTensor::intTensorOptions());
-      _body_forces.index_fill_(-1, t_index, force_constants[d]);
-    }
-  }
+                      MooseTensor::floatTensorOptions())
+            .slice(0, 0, _dim)
+            .view({1, _dim});
 }
 
 void
@@ -78,15 +68,14 @@ LBMComputeVelocity::computeBuffer()
   torch::mm_out(u_flat, f_flat, _e_mat);
   u_flat.div_(rho_flat);
 
-  if (getParam<bool>("enable_forces"))
+  if (_enable_forces)
   {
     auto forces_flat = _force_tensor.slice(-1, 0, dim).reshape({N, dim});
     u_flat.addcdiv_(forces_flat, rho_flat, /*value=*/0.5);
   }
-  if (getParam<bool>("add_body_force"))
+  if (_add_body_force)
   {
-    auto body_forces_flat = _body_forces.slice(-1, 0, dim).reshape({N, dim});
-    u_flat.addcdiv_(body_forces_flat, rho_flat, /*value=*/0.5);
+    u_flat.addcdiv_(_body_forces, rho_flat, /*value=*/0.5);
   }
 
   _u_owned = ownedView(_u);
