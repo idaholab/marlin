@@ -150,18 +150,19 @@ LBMBounceBack::wallBoundary()
 {
   if (_lb_problem.getTotalSteps() == 0)
   {
-    _boundary_mask =
-        (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1) & (_u_owned == 0);
-    _boundary_mask = _boundary_mask.to(torch::kBool);
+    _boundary_index = nonzeroIndex(
+        (ownedView(_binary_mesh).unsqueeze(-1).expand_as(_u_owned) == -1) & (_u_owned == 0));
 
-    _op_indices = _stencil._op.to(torch::kLong);
+    // every bounced-back entry is read from the opposite direction
+    _opposite_index = _boundary_index;
+    _opposite_index[3] = _stencil._op.to(torch::kLong).index_select(0, _boundary_index[3].tensor());
+
+    // the media copy is not needed once the boundary entries are indexed
+    _binary_mesh = torch::Tensor();
   }
 
-  // Gather all opposite directions simultaneously
-  auto f_bounce_back = torch::index_select(_f_old_owned, 3, _op_indices);
-
-  // Boolean masked assignment
-  _u_owned.index_put_({_boundary_mask}, f_bounce_back.index({_boundary_mask}));
+  // gather/scatter only the boundary entries
+  _u_owned.index_put_(_boundary_index, _f_old_owned.index(_opposite_index));
 }
 
 void

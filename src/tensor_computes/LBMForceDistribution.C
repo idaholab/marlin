@@ -48,58 +48,41 @@ LBMForceDistribution::LBMForceDistribution(const InputParameters & parameters)
   if (_dim == 3)
     shape_q_with_ghost[2] += 2 * _radius;
   _source_term = torch::zeros(shape_q_with_ghost, MooseTensor::floatTensorOptions());
+
+  // lattice velocity components as floating point [1, 1, 1, Q]
+  _e_q = {_ex.to(MooseTensor::floatTensorOptions()),
+          _ey.to(MooseTensor::floatTensorOptions()),
+          _ez.to(MooseTensor::floatTensorOptions())};
 }
 
 void
 LBMForceDistribution::computeSourceTerm()
 {
-  const unsigned int & dim = _domain.getDim();
+  const unsigned int dim = _domain.getDim();
+  if (dim != 2 && dim != 3)
+    mooseError("Unsupported dimension for LBMForceDistribution");
 
-  torch::Tensor Fx = _forces.select(3, 0).unsqueeze(-1);
-  torch::Tensor Fy = _forces.select(3, 1).unsqueeze(-1);
-  torch::Tensor Fz;
-
-  torch::Tensor ux = _velocity.select(3, 0).unsqueeze(-1);
-  torch::Tensor uy = _velocity.select(3, 1).unsqueeze(-1);
-  torch::Tensor uz;
-  torch::Tensor dphi_dx = _grad_phi.select(3, 0).unsqueeze(-1);
-  torch::Tensor dphi_dy = _grad_phi.select(3, 1).unsqueeze(-1);
-  torch::Tensor dphi_dz;
-
-  switch (dim)
+  // c_i . v for all Q directions, accumulated in place in the original order
+  // (e_x v_x + e_y v_y) + e_z v_z. The lattice components are -1, 0 or 1, so every product is
+  // exact and addcmul_ rounds exactly like the separate multiply + add.
+  const auto ci_dot = [&](const torch::Tensor & v)
   {
-    case 3:
-      Fz = _forces.select(3, 2).unsqueeze(-1);
-      uz = _velocity.select(3, 2).unsqueeze(-1);
-      dphi_dz = _grad_phi.select(3, 2).unsqueeze(-1);
-      break;
-    case 2:
-      Fz = torch::zeros_like(Fx);
-      uz = torch::zeros_like(ux);
-      dphi_dz = torch::zeros_like(dphi_dx);
-      break;
-    default:
-      mooseError("Unsupported dimension for LBMForceDistribution");
-  }
+    auto r = _e_q[0] * v.select(3, 0).unsqueeze(-1);
+    r.addcmul_(_e_q[1], v.select(3, 1).unsqueeze(-1));
+    if (dim == 3)
+      r.addcmul_(_e_q[2], v.select(3, 2).unsqueeze(-1));
+    return r;
+  };
+
   const Real drho = _rho_l - _rho_g;
 
-  // Vectorized: compute all Q directions at once
-  // Lattice velocities reshaped to [1,1,1,Q]
-  auto ex_q = _stencil._ex.reshape({1, 1, 1, _stencil._q});
-  auto ey_q = _stencil._ey.reshape({1, 1, 1, _stencil._q});
-  auto ez_q = _stencil._ez.reshape({1, 1, 1, _stencil._q});
+  // ci_dot_F / cs2  [Nx, Ny, Nz, Q]
+  auto source = ci_dot(_forces).div_(_lb_problem._cs2);
 
-  // ci_dot_F [Nx, Ny, Nz, Q]
-  auto ci_dot_F = (ex_q * Fx + ey_q * Fy + ez_q * Fz) / _lb_problem._cs2;
+  // tensor_term = drho / cs2 * (ci_dot_u * ci_dot_grad_phi)
+  source.add_(ci_dot(_velocity).mul_(drho / _lb_problem._cs2).mul_(ci_dot(_grad_phi)));
 
-  // ci_dot_u and ci_dot_grad_phi [Nx, Ny, Nz, Q]
-  auto ci_dot_u = ex_q * ux + ey_q * uy + ez_q * uz;
-  auto ci_dot_grad_phi = ex_q * dphi_dx + ey_q * dphi_dy + ez_q * dphi_dz;
-
-  // tensor_term = drho * (ci_dot_u * ci_dot_grad_phi) / cs2
-  auto tensor_term = (drho / _lb_problem._cs2) * ci_dot_u * ci_dot_grad_phi;
-
-  _source_term.copy_(_w * (ci_dot_F + tensor_term));
+  torch::mul_out(_source_term, _w, source);
 }
 
 void
@@ -111,9 +94,9 @@ LBMForceDistribution::computeBuffer()
     _u.add_(_source_term, 1.0 - 1.0 / (2.0 * _tau));
   else
   {
-    if (_tau_tensor.dim() < 3)
-      _tau_tensor.unsqueeze_(-1);
-    _u.add_((1.0 - 1.0 / (2.0 * _tau_tensor.unsqueeze(-1))) * _source_term);
+    // local view: do not change the shape of the shared tau buffer
+    const auto tau = _tau_tensor.dim() < 3 ? _tau_tensor.unsqueeze(-1) : _tau_tensor;
+    _u.add_((1.0 - 1.0 / (2.0 * tau.unsqueeze(-1))) * _source_term);
   }
 
   _u_owned = ownedView(_u);

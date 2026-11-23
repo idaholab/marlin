@@ -67,6 +67,11 @@ LBMStackTensors::computeBuffer()
     tensor_vector.push_back(tensor_buffer);
   }
 
-  // Stack the tensors along a new dimension
-  _u = torch::stack(tensor_vector, 3);
+  // Stack the tensors along a new dimension, into the existing buffer when the shape matches
+  auto shape = tensor_vector[0].sizes().vec();
+  shape.insert(shape.begin() + 3, static_cast<int64_t>(tensor_vector.size()));
+  if (_u.defined() && _u.sizes() == torch::IntArrayRef(shape))
+    torch::stack_out(_u, tensor_vector, 3);
+  else
+    _u = torch::stack(tensor_vector, 3);
 }

@@ -48,6 +48,6 @@ protected:
   torch::Tensor _bottom_dirs, _bottom_opp_dirs;
   torch::Tensor _front_dirs, _front_opp_dirs;
 
-  /// Pre-computed opposite direction indices for vectorized wall bounce-back
-  torch::Tensor _op_indices;
+  /// wall bounce-back source entries: _boundary_index with the direction replaced by its opposite
+  std::vector<torch::indexing::TensorIndex> _opposite_index;
 };

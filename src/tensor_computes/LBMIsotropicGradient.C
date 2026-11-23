@@ -70,6 +70,17 @@ LBMIsotropicGradient::LBMIsotropicGradient(const InputParameters & parameters)
     }
   }
 
+  // stencil offsets in kernel (reordered) order as host values, for the 3D shifted views
+  if (dim == 3)
+  {
+    const auto ex_r = torch::index_select(_stencil._ex, 0, _stencil._reorder_indices).cpu();
+    const auto ey_r = torch::index_select(_stencil._ey, 0, _stencil._reorder_indices).cpu();
+    const auto ez_r = torch::index_select(_stencil._ez, 0, _stencil._reorder_indices).cpu();
+    for (int64_t m = 0; m < ex_r.size(0); m++)
+      _offsets.push_back(
+          {ex_r[m].item<int64_t>(), ey_r[m].item<int64_t>(), ez_r[m].item<int64_t>()});
+  }
+
   // determine the position of partition
   const auto real_space_index = _domain.getRealSpaceIndex();
   const auto real_space_parts = _domain.getRealSpacePartitions();
@@ -81,16 +92,25 @@ LBMIsotropicGradient::LBMIsotropicGradient(const InputParameters & parameters)
 }
 
 torch::Tensor
-LBMIsotropicGradient::padScalarField()
+LBMIsotropicGradient::scalarField() const
 {
-  auto field = _scalar_field;
-  for (int d = field.dim() - 1; d >= 0; d--)
-  {
-    auto first_slice = field.slice(d, 0, _padding);
-    auto last_slice = field.slice(d, field.size(d) - _padding, field.size(d));
-    field = torch::cat({first_slice, field, last_slice}, d);
-  }
-  return field;
+  // 2D scalar buffers have a trailing dim of 1 that must be removed for conv2d (use a view, the
+  // input buffer is shared with other objects)
+  if (_domain.getDim() == 2 && _scalar_field.dim() > 2)
+    return _scalar_field.squeeze(-1);
+  return _scalar_field;
+}
+
+torch::Tensor
+LBMIsotropicGradient::padScalarField(const torch::Tensor & field) const
+{
+  // replicate-edge padding of every dimension in one allocation (instead of one cat per dim)
+  namespace F = torch::nn::functional;
+  std::vector<int64_t> pad(2 * field.dim(), _padding);
+  auto batched = field;
+  for (int i = 0; i < 2; i++)
+    batched = batched.unsqueeze(0);
+  return F::pad(batched, F::PadFuncOptions(pad).mode(torch::kReplicate)).squeeze(0).squeeze(0);
 }
 
 torch::Tensor
@@ -98,20 +118,18 @@ LBMIsotropicGradient::prepareInputField()
 {
   const unsigned int dim = _domain.getDim();
 
-  // 2D scalar buffers have a trailing dim of 1 that must be removed for conv2d
-  if (dim == 2 && _scalar_field.dim() > 2)
-    _scalar_field.squeeze_(-1);
+  const auto scalar_field = scalarField();
 
   // Serial: replicate-edge pad on all sides
   if (_domain.comm().size() == 1)
-    return padScalarField();
+    return padScalarField(scalar_field);
 
   // Parallel boundary partitions: replicate ghost edges
   if (!_is_interior)
   {
     const auto & idx = _domain.getRealSpaceIndex();
     const auto & parts = _domain.getRealSpacePartitions();
-    auto field = _scalar_field.clone();
+    auto field = scalar_field.clone();
 
     for (unsigned int d = 0; d < dim; d++)
     {
@@ -131,7 +149,7 @@ LBMIsotropicGradient::prepareInputField()
   }
 
   // Interior partition: ghost data already exchanged
-  return _scalar_field;
+  return scalar_field;
 }
 
 torch::Tensor
@@ -149,20 +167,16 @@ LBMIsotropicGradient::stencilConvolve3D(const torch::Tensor & field,
   const int64_t C = kernel_flat.size(1);
   const int64_t Q = kernel_flat.size(0);
 
-  auto ex_r = torch::index_select(_stencil._ex, 0, _stencil._reorder_indices);
-  auto ey_r = torch::index_select(_stencil._ey, 0, _stencil._reorder_indices);
-  auto ez_r = torch::index_select(_stencil._ez, 0, _stencil._reorder_indices);
-
   auto result = torch::zeros({C, Nx, Ny, Nz}, field.options());
+  auto product = torch::empty_like(result);
 
   for (int64_t m = 0; m < Q; m++)
   {
-    auto rolled =
-        torch::roll(field,
-                    {-ex_r[m].item<int64_t>(), -ey_r[m].item<int64_t>(), -ez_r[m].item<int64_t>()},
-                    {0, 1, 2});
-    auto interior = rolled.slice(0, p, p + Nx).slice(1, p, p + Ny).slice(2, p, p + Nz);
-    result.add_(kernel_flat.select(0, m).view({C, 1, 1, 1}) * interior.unsqueeze(0));
+    // the field is padded, so the shifted interior is just a view (no roll / copy needed)
+    const auto & [ex, ey, ez] = _offsets[m];
+    auto interior = field.narrow(0, p + ex, Nx).narrow(1, p + ey, Ny).narrow(2, p + ez, Nz);
+    torch::mul_out(product, kernel_flat.select(0, m).view({C, 1, 1, 1}), interior.unsqueeze(0));
+    result.add_(product);
   }
 
   return result;

@@ -29,7 +29,7 @@ void
 LBMComputeVelocityMagnitude::computeBuffer()
 {
   auto active_velocity = _velocity.narrow(3, 0, _domain.getDim());
-  _u.copy_(torch::norm(active_velocity, /*p=*/2, /*dim=*/3));
+  torch::norm_out(_u, active_velocity, /*p=*/2, /*dim=*/{3});
 
   _u_owned = ownedView(_u);
   _lb_problem.maskedFillSolids(_u_owned, _solid_values);

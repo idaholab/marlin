@@ -29,7 +29,12 @@ public:
   void wallBoundary() override;
   void regionalBoundary() override;
 
-  void computeBoundaryEquilibrium();
+  /// boundary equilibrium at the given nodes only: velocity [..., dim], rho [...] -> [..., Q]
+  torch::Tensor boundaryEquilibrium(const torch::Tensor & velocity, const torch::Tensor & rho);
+  /// boundary equilibrium on the face index of dimension dim
+  torch::Tensor faceEquilibrium(int64_t dim, int64_t index);
+  /// boundary equilibrium at the indexed nodes
+  torch::Tensor nodeEquilibrium(const std::vector<torch::indexing::TensorIndex> & index);
 
   void computeBuffer() override;
 
@@ -43,10 +48,8 @@ protected:
   const Real & _gradient_value;
   int _region_id = 0;
 
-  torch::Tensor _feq_boundary;
   // Cached active views for the current timestep
   torch::Tensor _feq_owned;
-  torch::Tensor _feq_boundary_owned;
   // Precomputed direction indices for vectorized boundary assignments
   torch::Tensor _left_dirs, _right_dirs;
   torch::Tensor _bottom_dirs, _top_dirs;
