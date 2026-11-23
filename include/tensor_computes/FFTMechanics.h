@@ -68,6 +68,7 @@ protected:
   const torch::Tensor * const _applied_macroscopic_strain;
 
   const bool _verbose;
+  const bool _accept_nonconverged;
 
   using TensorOperatorBase::_dim;
   using TensorOperatorBase::_domain;

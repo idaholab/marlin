@@ -31,7 +31,11 @@ protected:
   const torch::Tensor _tI4s;
   const torch::Tensor _tII;
 
+  /// deformation gradient tensor
   const torch::Tensor & _tF;
+  /// optional eigenstrain tensor
+  const torch::Tensor * _pFstar;
+
   const torch::Tensor & _tmu;
   const torch::Tensor & _tK;
   torch::Tensor & _tK4;
