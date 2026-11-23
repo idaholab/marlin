@@ -55,7 +55,7 @@ LBMPhaseFieldPressure::computeBuffer()
   auto u_dot_grad_phi = torch::sum(vel_flat * grad_phi_flat, -1);
   auto usqr = vel_flat.square().sum(-1);
 
-  auto w0 = _stencil._weights[0].item<Real>();
+  auto w0 = _stencil.host().weights[0];
 
   // assembly
   u_flat.copy_(f_nonzero_sum);
