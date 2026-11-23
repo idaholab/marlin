@@ -18,6 +18,7 @@
 #include "TensorOutput.h"
 #include "DomainAction.h"
 
+#include "HaloCommunication.h"
 #include "MarlinUtils.h"
 #include "DependencyResolverInterface.h"
 #include <algorithm>
